@@ -1,0 +1,7 @@
+psycopg2
+fastapi
+uvicorn
+opcua
+seaborn
+matplotlib
+conda install -c conda-forge scikit-fuzzy
