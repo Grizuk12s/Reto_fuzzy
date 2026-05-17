@@ -19,6 +19,29 @@ from __future__ import annotations
 # Roles canónicos de proceso evaluados por el sistema experto.
 VARIABLES_PROCESO = ["potencia", "nivel", "presion", "p80", "densidad"]
 
+# Variables derivadas que pueden aparecer en reglas sobre tendencia.
+VARIABLES_PENDIENTE = [f"pend_{var}" for var in VARIABLES_PROCESO]
+
+# Flags meta que el motor puede expandir como variables booleanas de regla.
+META_FLAGS_DISPONIBLES = ["__R15"]
+
+# Variables válidas para editores de reglas y capas UI.
+VARIABLES_REGLAS_DISPONIBLES = [*VARIABLES_PROCESO, *VARIABLES_PENDIENTE, *META_FLAGS_DISPONIBLES]
+
+# Etiquetas válidas para reglas.
+ETIQUETAS_ESTADO = ["LOW", "OK", "HIGH"]
+ETIQUETAS_ESTADO_NEGADAS = ["NO-LOW", "NO-HIGH"]
+ETIQUETAS_PENDIENTE = ["DEC", "STABLE", "INC"]
+ETIQUETAS_PENDIENTE_NEGADAS = ["NO-DEC", "NO-INC"]
+ETIQUETAS_ESPECIALES = ["CERCA_BAJO", "ON", "OFF"]
+ETIQUETAS_REGLAS_DISPONIBLES = [
+    *ETIQUETAS_ESTADO,
+    *ETIQUETAS_ESTADO_NEGADAS,
+    *ETIQUETAS_PENDIENTE,
+    *ETIQUETAS_PENDIENTE_NEGADAS,
+    *ETIQUETAS_ESPECIALES,
+]
+
 # Setpoints manipulados por las acciones del experto.
 SETPOINT_KEYS = ["sp_ton", "sp_am", "sp_ac", "sp_rpm"]
 

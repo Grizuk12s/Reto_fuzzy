@@ -23,6 +23,9 @@ import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request, Response
 
+from config import ETIQUETAS_REGLAS_DISPONIBLES, VARIABLES_REGLAS_DISPONIBLES
+from defuzzy_actions import ACCIONES_DISPONIBLES
+
 app = Flask(__name__)
 
 REGLAS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reglas.json")
@@ -50,36 +53,62 @@ def _find_regla(reglas: list[dict], regla_id: str):
     return None, None
 
 
-# ============================================================
-# Variables y etiquetas válidas (para validación y UI)
-# ============================================================
+VARIABLES_DISPONIBLES = list(VARIABLES_REGLAS_DISPONIBLES)
+ETIQUETAS_DISPONIBLES = list(ETIQUETAS_REGLAS_DISPONIBLES)
 
-VARIABLES_DISPONIBLES = [
-    "potencia", "nivel", "presion", "p80", "densidad",
-    "pend_potencia", "pend_nivel", "pend_presion", "pend_p80", "pend_densidad",
-    "__R15",
-]
+VARIABLES_VALIDAS = set(VARIABLES_DISPONIBLES)
+ETIQUETAS_VALIDAS = set(ETIQUETAS_DISPONIBLES)
+ACCIONES_VALIDAS = set(ACCIONES_DISPONIBLES)
 
-ETIQUETAS_DISPONIBLES = [
-    "LOW", "OK", "HIGH",
-    "NO-LOW", "NO-HIGH",
-    "DEC", "STABLE", "INC",
-    "NO-DEC", "NO-INC",
-    "CERCA_BAJO",
-    "ON", "OFF",
-]
 
-ACCIONES_DISPONIBLES = [
-    "DISMINUIR_TONELAJE_MUY_FUERTE", "DISMINUIR_TONELAJE_FUERTE",
-    "DISMINUIR_TONELAJE", "DISMINUIR_TONELAJE_SUAVE",
-    "AUMENTAR_TONELAJE_MUY_FUERTE", "AUMENTAR_TONELAJE_FUERTE",
-    "AUMENTAR_TONELAJE", "AUMENTAR_TONELAJE_SUAVE",
-    "DISMINUIR_AGUA_MOLINO_FUERTE", "DISMINUIR_AGUA_MOLINO",
-    "AUMENTAR_AGUA_MOLINO_FUERTE", "AUMENTAR_AGUA_MOLINO",
-    "DISMINUIR_AGUA_CAJON_FUERTE", "DISMINUIR_AGUA_CAJON",
-    "DISMINUIR_AGUA_CAJON_SUAVE", "AUMENTAR_AGUA_CAJON",
-    "DISMINUIR_RPM_BOMBA", "AUMENTAR_RPM_BOMBA",
-]
+def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict | None, str | None]:
+    if not isinstance(data, dict):
+        return None, "El payload debe ser un objeto JSON."
+
+    regla = dict(data)
+    if require_id:
+        regla_id = str(regla.get("id", "")).strip()
+        if not regla_id:
+            return None, "Campo 'id' requerido."
+        regla["id"] = regla_id
+
+    condiciones = regla.get("if")
+    if not isinstance(condiciones, list) or not condiciones:
+        return None, "Campo 'if' debe ser una lista no vacia."
+
+    condiciones_norm = []
+    for idx, condicion in enumerate(condiciones, start=1):
+        if not isinstance(condicion, (list, tuple)) or len(condicion) != 2:
+            return None, f"La condicion #{idx} debe tener el formato [variable, etiqueta]."
+        variable = str(condicion[0]).strip()
+        etiqueta = str(condicion[1]).strip().upper()
+        if variable not in VARIABLES_VALIDAS:
+            return None, f"Variable invalida en condicion #{idx}: '{variable}'."
+        if etiqueta not in ETIQUETAS_VALIDAS:
+            return None, f"Etiqueta invalida en condicion #{idx}: '{etiqueta}'."
+        condiciones_norm.append([variable, etiqueta])
+    regla["if"] = condiciones_norm
+
+    acciones = regla.get("then")
+    if not isinstance(acciones, list) or not acciones:
+        return None, "Campo 'then' debe ser una lista no vacia."
+
+    acciones_norm = []
+    for idx, accion in enumerate(acciones, start=1):
+        accion_norm = str(accion).strip().upper()
+        if accion_norm not in ACCIONES_VALIDAS:
+            return None, f"Accion invalida en then #{idx}: '{accion_norm}'."
+        acciones_norm.append(accion_norm)
+    regla["then"] = acciones_norm
+
+    for key in ("weight", "priority"):
+        if key in regla:
+            try:
+                regla[key] = float(regla[key])
+            except (TypeError, ValueError):
+                return None, f"Campo '{key}' debe ser numerico."
+
+    return regla, None
 
 
 # ============================================================
@@ -108,23 +137,27 @@ def api_update_regla(regla_id: str):
         return jsonify({"error": f"Regla '{regla_id}' no encontrada"}), 404
     data = request.get_json(force=True)
     data["id"] = regla_id
-    reglas[idx] = data
+    regla_norm, error = _normalizar_regla_payload(data, require_id=True)
+    if error is not None:
+        return jsonify({"error": error}), 400
+    reglas[idx] = regla_norm
     _save_reglas(reglas)
-    return jsonify({"ok": True, "regla": data})
+    return jsonify({"ok": True, "regla": regla_norm})
 
 
 @app.route("/api/reglas", methods=["POST"])
 def api_create_regla():
     data = request.get_json(force=True)
-    if "id" not in data:
-        return jsonify({"error": "Campo 'id' requerido"}), 400
+    regla_norm, error = _normalizar_regla_payload(data, require_id=True)
+    if error is not None:
+        return jsonify({"error": error}), 400
     reglas = _load_reglas()
-    _, existing = _find_regla(reglas, data["id"])
+    _, existing = _find_regla(reglas, regla_norm["id"])
     if existing is not None:
-        return jsonify({"error": f"Regla '{data['id']}' ya existe"}), 409
-    reglas.append(data)
+        return jsonify({"error": f"Regla '{regla_norm['id']}' ya existe"}), 409
+    reglas.append(regla_norm)
     _save_reglas(reglas)
-    return jsonify({"ok": True, "regla": data}), 201
+    return jsonify({"ok": True, "regla": regla_norm}), 201
 
 
 @app.route("/api/reglas/<regla_id>", methods=["DELETE"])
