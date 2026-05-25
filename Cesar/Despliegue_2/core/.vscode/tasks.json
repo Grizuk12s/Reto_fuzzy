@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Apply core -> Prototipo_2 sync",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "sync_core_to_prototipo.py",
+        "--apply"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch core -> Prototipo_2 sync",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "watch_core_to_prototipo.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch core -> Prototipo_2 sync + manual alerts",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "watch_core_to_prototipo.py",
+        "--include-manual-review"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

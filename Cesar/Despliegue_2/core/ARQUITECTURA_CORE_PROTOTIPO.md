@@ -1,23 +1,23 @@
-# Arquitectura y relacion entre `core` y `Prototipo_1`
+# Arquitectura y relacion entre `core` y `Prototipo_2`
 
 ## Resumen
 
 - `core/` es la fuente principal de verdad para la logica reusable del sistema experto.
-- `Prototipo_1/` es una adaptacion standalone que replica parte del nucleo y le agrega simulacion, API REST y UI Flask.
-- `Prototipo_1` no importa `core` en tiempo de ejecucion. La dependencia real entre ambos proyectos es de mantenimiento y sincronizacion de archivos, no de import directo.
+- `Prototipo_2/` es una adaptacion standalone que replica parte del nucleo y le agrega simulacion, API REST y UI Flask.
+- `Prototipo_2` no importa `core` en tiempo de ejecucion. La dependencia real entre ambos proyectos es de mantenimiento y sincronizacion de archivos, no de import directo.
 
 ## Proposito de cada carpeta importante
 
 | Carpeta | Proposito | Observaciones |
 |---|---|---|
 | `core/` | Nucleo reusable del sistema experto difuso. | Es un paquete Python; por eso incluye `__init__.py` y usa imports relativos. |
-| `Prototipo_1/` | Prototipo standalone para simulacion, edicion de reglas y pruebas manuales. | Duplica varios modulos del nucleo para poder ejecutarse sin depender del paquete `core`. |
+| `Prototipo_2/` | Prototipo standalone para simulacion, edicion de reglas y pruebas manuales. | Duplica varios modulos del nucleo para poder ejecutarse sin depender del paquete `core`. |
 | `core/__pycache__/` | Cache de Python. | No debe participar en sincronizaciones ni en revisiones de arquitectura. |
-| `Prototipo_1/__pycache__/` | Cache de Python. | No debe participar en sincronizaciones ni en revisiones de arquitectura. |
+| `Prototipo_2/__pycache__/` | Cache de Python. | No debe participar en sincronizaciones ni en revisiones de arquitectura. |
 
 ## Diferencias estructurales entre ambos proyectos
 
-| Tema | `core/` | `Prototipo_1/` |
+| Tema | `core/` | `Prototipo_2/` |
 |---|---|---|
 | Tipo de proyecto | Paquete Python reusable | Proyecto standalone |
 | Estilo de imports | Relativos: `from .modulo import ...` | Directos: `from modulo import ...` |
@@ -28,20 +28,20 @@
 
 ## Relacion entre archivos compartidos
 
-La siguiente tabla describe la dependencia de mantenimiento entre archivos homologos. No significa que `Prototipo_1` importe a `core` en runtime; significa que estos archivos existen en ambos lados y deben compararse cuando cambia el nucleo.
+La siguiente tabla describe la dependencia de mantenimiento entre archivos homologos. No significa que `Prototipo_2` importe a `core` en runtime; significa que estos archivos existen en ambos lados y deben compararse cuando cambia el nucleo.
 
-| Archivo en `Prototipo_1/` | Base en `core/` | Estado actual | Dependencia interna principal |
+| Archivo en `Prototipo_2/` | Base en `core/` | Estado actual | Dependencia interna principal |
 |---|---|---|---|
 | `config.py` | `core/config.py` | Espejo directo | Consumido por `runner.py` |
 | `defuzzy_actions.py` | `core/defuzzy_actions.py` | Espejo directo | Consumido por `runner.py` |
 | `fuzzys_eval.py` | `core/fuzzys_eval.py` | Espejo directo | Consumido por `runner.py` |
 | `fuzzys_templates.py` | `core/fuzzys_templates.py` | Espejo directo | Consumido por `fuzzys_models_1A.py` |
 | `motor.py` | `core/motor.py` | Espejo directo | Consumido por `runner.py` |
-| `fuzzys_models_1A.py` | `core/fuzzys_models_1A.py` | Casi espejo | Solo cambia el estilo de import y comentarios de cabecera |
+| `fuzzys_models_1A.py` | `core/fuzzys_models_1A.py` | Auto-adaptado | El sync reescribe imports relativos a imports locales |
 | `reglas_estrategia_correcta.py` | `core/reglas_estrategia_correcta.py` | Espejo directo hoy | Solo fallback; no es la fuente activa de reglas del prototipo |
-| `runner.py` | `core/runner.py` | Derivado | Agrega carga de `reglas.json` y firma propia para modo standalone |
+| `runner.py` | `core/runner.py` | Auto-adaptado | El sync preserva `reglas.json`, `cargar_reglas_json()` y `usar_reglas_json` |
 
-## Dependencias internas de `Prototipo_1`
+## Dependencias internas de `Prototipo_2`
 
 | Archivo | Depende de | Motivo |
 |---|---|---|
@@ -54,27 +54,29 @@ La siguiente tabla describe la dependencia de mantenimiento entre archivos homol
 
 ### 1. Mismatch de imports entre paquete y standalone
 
-`core` usa imports relativos y `Prototipo_1` usa imports absolutos locales. Si se copia un archivo desde `core` sin adaptar sus imports, el prototipo puede romperse al iniciar.
+`core` usa imports relativos y `Prototipo_2` usa imports absolutos locales. Si se copia un archivo desde `core` sin adaptar sus imports, el prototipo puede romperse al iniciar.
 
 Casos ya identificados:
 
-- `fuzzys_models_1A.py`: en `core` usa `from . import fuzzys_templates`; en `Prototipo_1` usa `import fuzzys_templates`.
-- `runner.py`: en `core` usa imports relativos; en `Prototipo_1` usa imports directos.
+- `fuzzys_models_1A.py`: en `core` usa `from . import fuzzys_templates`; en `Prototipo_2` usa `import fuzzys_templates`.
+- `runner.py`: en `core` usa imports relativos; en `Prototipo_2` usa imports directos.
+
+Hoy `sync_core_to_prototipo.py` corrige estos dos casos automaticamente al sincronizar.
 
 ### 2. `runner.py` no es un espejo del nucleo
 
-`Prototipo_1/runner.py` agrega comportamiento que no existe en `core/runner.py`:
+`Prototipo_2/runner.py` necesita comportamiento que no existe en `core/runner.py`:
 
 - `REGLAS_JSON_PATH`
 - `cargar_reglas_json()`
 - parametro `usar_reglas_json`
 - seleccion entre reglas explicitas, `reglas.json` o fallback Python
 
-Sobrescribirlo directamente con la version de `core` eliminaria la edicion en vivo de reglas.
+Por eso no se copia de forma plana: `sync_core_to_prototipo.py` lo genera desde `core` y vuelve a inyectar la capa standalone requerida.
 
 ### 3. La UI depende de metadatos compartidos del nucleo cercano
 
-`Prototipo_1/app.py` ya no mantiene listas locales de:
+`Prototipo_2/app.py` ya no mantiene listas locales de:
 
 - variables validas
 - etiquetas validas
@@ -84,7 +86,7 @@ Ahora las importa desde `config.py` y `defuzzy_actions.py`, y usa esa misma fuen
 
 ### 4. La simulacion contiene parametros que `core` evita fijar
 
-`Prototipo_1/simulacion.py` contiene:
+`Prototipo_2/simulacion.py` contiene:
 
 - `SETPOINTS_BASE`
 - `LIMITES_SP`
@@ -98,14 +100,22 @@ Eso es intencional: `core` no fija esos valores. Si cambia el contrato de entrad
 Hallazgos actuales:
 
 - `core/reglas_estrategia_correcta.py`: 28 reglas.
-- `Prototipo_1/reglas_estrategia_correcta.py`: 28 reglas.
-- `Prototipo_1/reglas.json`: 29 reglas.
+- `Prototipo_2/reglas_estrategia_correcta.py`: 28 reglas.
+- `Prototipo_2/reglas.json`: 29 reglas.
 - `reglas.json` contiene una regla extra con id `111`.
 
-Conclusion: el comportamiento real de `Prototipo_1` ya no debe asumirse como una copia exacta del fallback Python.
+Conclusion: el comportamiento real de `Prototipo_2` ya no debe asumirse como una copia exacta del fallback Python.
 
 ## Lectura recomendada para mantenimiento
 
 1. Leer primero `core/__init__.py` para entender el alcance del nucleo.
-2. Leer `Prototipo_1/proyecto_contexto.md` para entender el modo standalone.
+2. Leer `Prototipo_2/proyecto_contexto.md` para entender el modo standalone.
 3. Usar `GUIA_SINCRONIZACION_CORE_PROTOTIPO.md` como procedimiento operativo cuando cambie `core`.
+
+## Automatizacion continua
+
+- `watch_core_to_prototipo.py` monitorea los archivos sincronizables dentro de `core/`.
+- Cuando detecta cambios en archivos auto-sync o auto-adaptados, ejecuta `sync_core_to_prototipo.py --apply` hacia `Prototipo_2/`.
+- Si detecta cambios en `core/reglas_estrategia_correcta.py` con `--include-manual-review`, emite una alerta y genera un reporte Markdown en `.sync_reports/`.
+- El watcher no sobrescribe `app.py`, `simulacion.py` ni `reglas.json`.
+- `reglas_estrategia_correcta.py` puede vigilarse en modo alerta, pero sigue siendo una decision manual respecto a `reglas.json`.
