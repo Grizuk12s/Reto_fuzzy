@@ -1,689 +1,807 @@
 [
   {
-    "id": "1.1",
-    "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "DEC"
-      ],
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "HIGH"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_TONELAJE_MUY_FUERTE"
-    ],
-    "weight": 1.0,
+    "id": "E1.S1",
+    "bloque": "critico",
     "priority": 100.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "1.2",
+    "weight": 1.0,
     "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "STABLE"
-      ],
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "bed_level",
+            "LOW"
+          ],
+          [
+            "torque",
+            "HIGH"
+          ],
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      }
     ],
     "then": [
+      "DISMINUIR_VEL_BOMBA_FUERTE",
       "DISMINUIR_TONELAJE_FUERTE"
-    ],
+    ]
+  },
+  {
+    "id": "E1.S2",
+    "bloque": "critico",
+    "priority": 100.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_level",
+            "LOW"
+          ],
+          [
+            "torque",
+            "NO-HIGH"
+          ],
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA_FUERTE",
+      "DISMINUIR_TONELAJE"
+    ]
+  },
+  {
+    "id": "E1.S3",
+    "bloque": "critico",
+    "priority": 100.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_level",
+            "NO-LOW"
+          ],
+          [
+            "torque",
+            "HIGH"
+          ],
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA",
+      "DISMINUIR_TONELAJE_FUERTE"
+    ]
+  },
+  {
+    "id": "E1.S4",
+    "bloque": "critico",
+    "priority": 100.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_level",
+            "NO-LOW"
+          ],
+          [
+            "torque",
+            "NO-HIGH"
+          ],
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA",
+      "DISMINUIR_TONELAJE"
+    ]
+  },
+  {
+    "id": "E2.S1",
+    "bloque": "critico",
     "priority": 99.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "2.1",
+    "weight": 1.0,
     "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "DEC"
-      ],
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "NO-HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "HIGH"
+          ],
+          [
+            "pend_presion_descarga",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "DISMINUIR_TONELAJE_FUERTE",
-      "DISMINUIR_AGUA_CAJON_FUERTE"
-    ],
+      "DISMINUIR_VEL_BOMBA",
+      "DISMINUIR_TONELAJE"
+    ]
+  },
+  {
+    "id": "E2.S2",
+    "bloque": "critico",
+    "priority": 99.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "HIGH"
+          ],
+          [
+            "pend_presion_descarga",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E3.S1",
+    "bloque": "critico",
     "priority": 98.0,
-    "cooldown_s": {
-      "sp_tonelaje": 90,
-      "sp_agua_cajon": 60
-    }
-  },
-  {
-    "id": "2.2",
-    "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "STABLE"
-      ],
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "NO-HIGH"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_TONELAJE",
-      "DISMINUIR_AGUA_CAJON"
-    ],
-    "weight": 1,
-    "priority": 96,
-    "cooldown_s": {
-      "sp_agua_cajon": 60,
-      "sp_tonelaje": 90
-    }
-  },
-  {
-    "id": "3.1",
-    "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "DEC"
-      ],
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "HIGH"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_TONELAJE_FUERTE"
-    ],
     "weight": 1.0,
-    "priority": 94.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "3.2",
     "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "STABLE"
-      ],
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "nivel_rastra",
+            "HIGH"
+          ],
+          [
+            "pend_nivel_rastra",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
+      "AUMENTAR_VEL_BOMBA",
       "DISMINUIR_TONELAJE"
-    ],
-    "weight": 1.0,
-    "priority": 93.0,
-    "cooldown_s": 90
+    ]
   },
   {
-    "id": "4.1",
+    "id": "E3.S2",
+    "bloque": "critico",
+    "priority": 98.0,
+    "weight": 1.0,
     "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "DEC"
-      ],
-      [
-        "nivel",
-        "NO-HIGH"
-      ],
-      [
-        "p80",
-        "NO-HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "nivel_rastra",
+            "HIGH"
+          ],
+          [
+            "pend_nivel_rastra",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "AUMENTAR_AGUA_MOLINO_FUERTE",
-      "DISMINUIR_AGUA_CAJON_FUERTE"
-    ],
-    "weight": 1.0,
-    "priority": 92.0,
-    "cooldown_s": {
-      "sp_agua_molino": 60,
-      "sp_agua_cajon": 60
-    }
+      "AUMENTAR_VEL_BOMBA"
+    ]
   },
   {
-    "id": "4.2",
+    "id": "E4.S1",
+    "bloque": "critico",
+    "priority": 97.0,
+    "weight": 1.0,
     "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "STABLE"
-      ],
-      [
-        "nivel",
-        "NO-HIGH"
-      ],
-      [
-        "p80",
-        "NO-HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "torque",
+            "HIGH"
+          ],
+          [
+            "pend_torque",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "AUMENTAR_AGUA_MOLINO",
-      "DISMINUIR_AGUA_CAJON"
-    ],
-    "weight": 1.0,
-    "priority": 90.0,
-    "cooldown_s": {
-      "sp_agua_molino": 60,
-      "sp_agua_cajon": 60
-    }
+      "AUMENTAR_VEL_BOMBA"
+    ]
   },
   {
-    "id": "5.0",
+    "id": "E4.S2",
+    "bloque": "critico",
+    "priority": 97.0,
+    "weight": 1.0,
     "if": [
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "pend_nivel",
-        "NO-DEC"
-      ],
-      [
-        "presion",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "torque",
+            "HIGH"
+          ],
+          [
+            "pend_torque",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "DISMINUIR_TONELAJE"
-    ],
+      "AUMENTAR_VEL_BOMBA",
+      "DISMINUIR_FLOCULANTE"
+    ]
+  },
+  {
+    "id": "E5.S1",
+    "bloque": "critico",
+    "priority": 96.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "HIGH"
+          ],
+          [
+            "pend_bed_mass",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "AUMENTAR_VEL_BOMBA",
+      "AUMENTAR_FLOCULANTE_SUAVE"
+    ]
+  },
+  {
+    "id": "E5.S2",
+    "bloque": "critico",
+    "priority": 96.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "HIGH"
+          ],
+          [
+            "pend_bed_mass",
+            "NO-DEC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "AUMENTAR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E6.S1",
+    "bloque": "estabilidad",
+    "priority": 89.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "CERCA_BAJO"
+          ],
+          [
+            "pend_presion_diferencial",
+            "DEC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA",
+      "AUMENTAR_FLOCULANTE"
+    ]
+  },
+  {
+    "id": "E6.S2",
+    "bloque": "estabilidad",
+    "priority": 89.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "CERCA_BAJO"
+          ],
+          [
+            "pend_presion_diferencial",
+            "DEC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E7.S1",
+    "bloque": "estabilidad",
     "priority": 88.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "6.0",
+    "weight": 1.0,
     "if": [
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "pend_nivel",
-        "NO-DEC"
-      ],
-      [
-        "presion",
-        "HIGH"
-      ],
-      [
-        "p80",
-        "NO-HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_presion_descarga",
+            "INC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "DISMINUIR_AGUA_CAJON"
-    ],
+      "DISMINUIR_VEL_BOMBA",
+      "AUMENTAR_FLOCULANTE"
+    ]
+  },
+  {
+    "id": "E7.S2",
+    "bloque": "estabilidad",
+    "priority": 88.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_presion_descarga",
+            "INC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E8.S1",
+    "bloque": "estabilidad",
     "priority": 87.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "7.0",
+    "weight": 1.0,
     "if": [
-      [
-        "nivel",
-        "HIGH"
-      ],
-      [
-        "pend_nivel",
-        "NO-DEC"
-      ],
-      [
-        "presion",
-        "NO-HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "torque",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_torque",
+            "INC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "AUMENTAR_RPM_BOMBA"
-    ],
+      "AUMENTAR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E8.S2",
+    "bloque": "estabilidad",
+    "priority": 87.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "torque",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_torque",
+            "INC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_FLOCULANTE",
+      "AUMENTAR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E9.S1",
+    "bloque": "estabilidad",
     "priority": 86.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "8.0",
+    "weight": 1.0,
     "if": [
-      [
-        "p80",
-        "HIGH"
-      ],
-      [
-        "pend_p80",
-        "NO-DEC"
-      ],
-      [
-        "presion",
-        "NO-HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_bed_mass",
+            "INC"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "AUMENTAR_AGUA_CAJON"
-    ],
+      "AUMENTAR_VEL_BOMBA",
+      "AUMENTAR_FLOCULANTE_SUAVE"
+    ]
+  },
+  {
+    "id": "E9.S2",
+    "bloque": "estabilidad",
+    "priority": 86.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_bed_mass",
+            "INC"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "AUMENTAR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E10.A.S1",
+    "bloque": "estabilidad",
     "priority": 85.0,
-    "cooldown_s": 45
-  },
-  {
-    "id": "9.1",
+    "weight": 1.0,
     "if": [
-      [
-        "p80",
-        "HIGH"
-      ],
-      [
-        "pend_p80",
-        "STABLE"
-      ],
-      [
-        "presion",
-        "HIGH"
-      ]
+      {
+        "AND": [
+          [
+            "densidad",
+            "HIGH"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
     ],
     "then": [
-      "DISMINUIR_TONELAJE_SUAVE"
-    ],
+      "AUMENTAR_VEL_BOMBA",
+      "DISMINUIR_FLOCULANTE_SUAVE"
+    ]
+  },
+  {
+    "id": "E10.A.S2",
+    "bloque": "estabilidad",
+    "priority": 85.0,
     "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "HIGH"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "AUMENTAR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E10.B.S1",
+    "bloque": "estabilidad",
+    "priority": 85.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_FRENAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "bed_level",
+            "LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA",
+      "AUMENTAR_FLOCULANTE_SUAVE"
+    ]
+  },
+  {
+    "id": "E10.B.S2",
+    "bloque": "estabilidad",
+    "priority": 85.0,
+    "weight": 1.0,
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_FRENAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "bed_level",
+            "NO-LOW"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      "DISMINUIR_VEL_BOMBA"
+    ]
+  },
+  {
+    "id": "E11.S3",
+    "bloque": "estabilidad",
     "priority": 84.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "9.2",
-    "if": [
-      [
-        "p80",
-        "HIGH"
-      ],
-      [
-        "pend_p80",
-        "INC"
-      ],
-      [
-        "presion",
-        "HIGH"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_AGUA_MOLINO"
-    ],
     "weight": 1.0,
-    "priority": 83.0,
-    "cooldown_s": 60
-  },
-  {
-    "id": "10.0",
     "if": [
-      [
-        "potencia",
-        "CERCA_BAJO"
-      ],
-      [
-        "pend_potencia",
-        "DEC"
-      ]
+      {
+        "AND": [
+          [
+            "bed_level",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "densidad",
+            "OK"
+          ],
+          [
+            "pend_densidad",
+            "DEC"
+          ]
+        ]
+      }
     ],
     "then": [
-      "DISMINUIR_TONELAJE"
-    ],
+      "AUMENTAR_VEL_BOMBA",
+      "AUMENTAR_FLOCULANTE_SUAVE"
+    ]
+  },
+  {
+    "id": "E11.S4",
+    "bloque": "estabilidad",
+    "priority": 84.0,
     "weight": 1.0,
-    "priority": 82.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "12.1",
     "if": [
-      [
-        "__R15",
-        "OFF"
-      ],
-      [
-        "potencia",
-        "OK"
-      ],
-      [
-        "pend_potencia",
-        "STABLE"
-      ]
+      {
+        "AND": [
+          [
+            "bed_level",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "densidad",
+            "OK"
+          ],
+          [
+            "pend_densidad",
+            "INC"
+          ]
+        ]
+      }
     ],
     "then": [
-      "AUMENTAR_TONELAJE"
-    ],
-    "weight": 1.0,
-    "priority": 80.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "12.2",
-    "if": [
-      [
-        "__R15",
-        "OFF"
-      ],
-      [
-        "potencia",
-        "OK"
-      ],
-      [
-        "pend_potencia",
-        "INC"
-      ]
-    ],
-    "then": [
-      "AUMENTAR_TONELAJE_FUERTE"
-    ],
-    "weight": 1.0,
-    "priority": 79.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "12.3",
-    "if": [
-      [
-        "__R15",
-        "OFF"
-      ],
-      [
-        "potencia",
-        "HIGH"
-      ],
-      [
-        "pend_potencia",
-        "NO-DEC"
-      ]
-    ],
-    "then": [
-      "AUMENTAR_TONELAJE_MUY_FUERTE"
-    ],
-    "weight": 1.0,
-    "priority": 78.0,
-    "cooldown_s": 90
-  },
-  {
-    "id": "13.1",
-    "if": [
-      [
-        "p80",
-        "OK"
-      ],
-      [
-        "pend_p80",
-        "STABLE"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_AGUA_CAJON_SUAVE"
-    ],
-    "weight": 1.0,
-    "priority": 77.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "13.2",
-    "if": [
-      [
-        "p80",
-        "OK"
-      ],
-      [
-        "pend_p80",
-        "DEC"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_AGUA_CAJON"
-    ],
-    "weight": 1.0,
-    "priority": 76.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "13.3",
-    "if": [
-      [
-        "p80",
-        "LOW"
-      ],
-      [
-        "pend_p80",
-        "NO-INC"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_AGUA_CAJON_FUERTE"
-    ],
-    "weight": 1.0,
-    "priority": 75.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "14.0",
-    "if": [
-      [
-        "densidad",
-        "HIGH"
-      ],
-      [
-        "pend_densidad",
-        "NO-DEC"
-      ],
-      [
-        "presion",
-        "NO-HIGH"
-      ]
-    ],
-    "then": [
-      "AUMENTAR_AGUA_CAJON"
-    ],
-    "weight": 1.0,
-    "priority": 74.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "15.0",
-    "if": [
-      [
-        "densidad",
-        "HIGH"
-      ],
-      [
-        "pend_densidad",
-        "NO-DEC"
-      ],
-      [
-        "presion",
-        "HIGH"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_TONELAJE"
-    ],
-    "weight": 1.0,
-    "priority": 73.0,
-    "cooldown_s": 120
-  },
-  {
-    "id": "16.0",
-    "if": [
-      [
-        "densidad",
-        "LOW"
-      ],
-      [
-        "pend_densidad",
-        "NO-INC"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_AGUA_CAJON"
-    ],
-    "weight": 1.0,
-    "priority": 72.0,
-    "cooldown_s": 45
-  },
-  {
-    "id": "17.0",
-    "if": [
-      [
-        "presion",
-        "HIGH"
-      ],
-      [
-        "pend_presion",
-        "NO-DEC"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_RPM_BOMBA"
-    ],
-    "weight": 1.0,
-    "priority": 71.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "18.0",
-    "if": [
-      [
-        "presion",
-        "LOW"
-      ],
-      [
-        "pend_presion",
-        "NO-INC"
-      ],
-      [
-        "nivel",
-        "NO-LOW"
-      ]
-    ],
-    "then": [
-      "AUMENTAR_RPM_BOMBA"
-    ],
-    "weight": 1.0,
-    "priority": 70.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "19.0",
-    "if": [
-      [
-        "nivel",
-        "LOW"
-      ],
-      [
-        "pend_nivel",
-        "NO-INC"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_RPM_BOMBA"
-    ],
-    "weight": 1.0,
-    "priority": 69.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "20.0",
-    "if": [
-      [
-        "nivel",
-        "LOW"
-      ],
-      [
-        "pend_nivel",
-        "NO-INC"
-      ]
-    ],
-    "then": [
-      "AUMENTAR_AGUA_CAJON"
-    ],
-    "weight": 1.0,
-    "priority": 68.0,
-    "cooldown_s": 30
-  },
-  {
-    "id": "111",
-    "if": [
-      [
-        "potencia",
-        "LOW"
-      ],
-      [
-        "pend_potencia",
-        "DEC"
-      ]
-    ],
-    "then": [
-      "DISMINUIR_TONELAJE"
-    ],
-    "weight": 1,
-    "priority": 50,
-    "cooldown_s": 60
+      "AUMENTAR_VEL_BOMBA"
+    ]
   }
 ]

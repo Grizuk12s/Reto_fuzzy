@@ -1,0 +1,274 @@
+{
+  "PERMITIR_FRENAR_DESCARGA": [
+    {
+      "NOT": {
+        "var": "tonelaje_sag_delta_30min",
+        "op": ">",
+        "value": 300.0
+      }
+    },
+    {
+      "NOT": {
+        "var": "tonelaje_sag_desv_est_30min",
+        "op": ">",
+        "value": 50.0
+      }
+    },
+    {
+      "NOT": {
+        "AND": [
+          {
+            "fuzzy_var": "torque",
+            "label": "OK",
+            "min_mu": 0.5
+          },
+          {
+            "fuzzy_var": "pend_torque",
+            "label": "INC",
+            "min_mu": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "NOT": {
+        "AND": [
+          {
+            "fuzzy_var": "torque",
+            "label": "OK",
+            "min_mu": 0.5
+          },
+          {
+            "fuzzy_var": "pend_torque",
+            "label": "INC",
+            "min_mu": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "NOT": {
+        "AND": [
+          {
+            "fuzzy_var": "bed_level",
+            "label": "CERCA_BAJO",
+            "min_mu": 0.4
+          },
+          {
+            "fuzzy_var": "pend_bed_level",
+            "label": "DEC",
+            "min_mu": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "NOT": {
+        "AND": [
+          {
+            "fuzzy_var": "bed_mass",
+            "label": "CERCA_ALTO",
+            "min_mu": 0.4
+          },
+          {
+            "fuzzy_var": "pend_bed_mass",
+            "label": "INC",
+            "min_mu": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "NOT": {
+        "AND": [
+          {
+            "fuzzy_var": "presion_descarga",
+            "label": "CERCA_ALTO",
+            "min_mu": 0.4
+          },
+          {
+            "fuzzy_var": "pend_presion_descarga",
+            "label": "INC",
+            "min_mu": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "NOT": {
+        "var": "nivel_rastra",
+        "op": ">",
+        "value": 15.0
+      }
+    },
+    {
+      "NOT": {
+        "var": "turbiedad_agua",
+        "op": ">",
+        "value": 50.0
+      }
+    },
+    {
+      "NOT": {
+        "AND": [
+          {
+            "var": "diferencial_ton_sag_relave",
+            "op": ">",
+            "value": 0.0
+          },
+          {
+            "var": "tonelaje_sag_delta_30min",
+            "op": ">",
+            "value": 3500.0
+          }
+        ]
+      }
+    }
+  ],
+  "PERMITIR_SOLTAR_DESCARGA": [
+    {
+      "NOT": {
+        "var": "diferencial_presion_bbas",
+        "op": ">",
+        "value": 0.0
+      }
+    },
+    {
+      "NOT": {
+        "var": "diferencial_presion_bbas",
+        "op": ">",
+        "value": 5.0
+      }
+    },
+    {
+      "NOT": {
+        "fuzzy_var": "presion_diferencial",
+        "label": "LOW",
+        "min_mu": 0.5
+      }
+    },
+    {
+      "NOT": {
+        "fuzzy_var": "torque_bomba",
+        "label": "HIGH",
+        "min_mu": 0.5
+      }
+    }
+  ],
+  "OPTIMIZAR_SUBIR_OBJETIVO_DENSIDAD": [
+    {
+      "OR": [
+        {
+          "var": "tonelaje_sag_delta_30min",
+          "op": "<",
+          "value": -200.0
+        },
+        {
+          "var": "tonelaje_sag_desv_est_30min",
+          "op": "<",
+          "value": 20.0
+        }
+      ]
+    },
+    {
+      "AND": [
+        {
+          "fuzzy_var": "torque",
+          "label": "OK",
+          "min_mu": 0.6
+        },
+        {
+          "fuzzy_var": "pend_torque",
+          "label": "STABLE",
+          "min_mu": 0.5
+        }
+      ]
+    },
+    {
+      "AND": [
+        {
+          "fuzzy_var": "bed_level",
+          "label": "OK",
+          "min_mu": 0.6
+        },
+        {
+          "fuzzy_var": "pend_bed_level",
+          "label": "STABLE",
+          "min_mu": 0.5
+        }
+      ]
+    },
+    {
+      "AND": [
+        {
+          "fuzzy_var": "presion_descarga",
+          "label": "OK",
+          "min_mu": 0.5
+        },
+        {
+          "NOT": {
+            "fuzzy_var": "pend_presion_descarga",
+            "label": "INC",
+            "min_mu": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "NOT": {
+        "fuzzy_var": "presion_descarga",
+        "label": "HIGH",
+        "min_mu": 0.5
+      }
+    }
+  ],
+  "OPTIMIZAR_BAJAR_OBJETIVO_DENSIDAD": [
+    {
+      "OR": [
+        {
+          "var": "tonelaje_sag_delta_30min",
+          "op": ">",
+          "value": 200.0
+        },
+        {
+          "var": "tonelaje_sag_desv_est_30min",
+          "op": ">",
+          "value": 30.0
+        }
+      ]
+    },
+    {
+      "AND": [
+        {
+          "fuzzy_var": "torque",
+          "label": "OK",
+          "min_mu": 0.5
+        },
+        {
+          "fuzzy_var": "pend_torque",
+          "label": "INC",
+          "min_mu": 0.5
+        }
+      ]
+    },
+    {
+      "AND": [
+        {
+          "fuzzy_var": "bed_level",
+          "label": "OK",
+          "min_mu": 0.5
+        },
+        {
+          "fuzzy_var": "pend_bed_level",
+          "label": "DEC",
+          "min_mu": 0.5
+        }
+      ]
+    },
+    {
+      "fuzzy_var": "pend_presion_descarga",
+      "label": "INC",
+      "min_mu": 0.5
+    }
+  ]
+}

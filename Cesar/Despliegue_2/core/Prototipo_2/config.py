@@ -1,122 +1,179 @@
 # -*- coding: utf-8 -*-
-"""Contrato mínimo del núcleo para despliegue en planta.
+"""Contrato del sistema experto Espesador.
 
-Este módulo NO contiene valores operacionales de prueba como setpoints
-base, límites numéricos fijos, frecuencias de simulación o rutas de salida.
-Solo define el contrato estructural que debe cumplir la data que entra al
-sistema experto.
-
-La idea es simple:
-- el core conoce *qué roles* necesita;
-- cada integración o prueba decide *en qué columnas reales* vienen esos roles.
-
-Además, como los fuzzy requieren límites, esos límites también se consideran
-parte de la data de entrada esperada por el experto.
+Define:
+- Variables medidas (PV) que evaluan los fuzzys
+- Variables crudas de sensores (inputs del calculo de variables derivadas)
+- Variables externas (calculadas por variables_calculadas.py, NO pre-calculadas aguas arriba)
+- Setpoints manipulados
+- Mapeo de roles a columnas del DataFrame
+- Cooldowns por familia de SP (NO se ponen en cada regla, ver decision D)
+- Definicion de bloques jerarquicos
 """
 
 from __future__ import annotations
 
-# Roles canónicos de proceso evaluados por el sistema experto.
-VARIABLES_PROCESO = ["potencia", "nivel", "presion", "p80", "densidad"]
-
-# Variables derivadas que pueden aparecer en reglas sobre tendencia.
-VARIABLES_PENDIENTE = [f"pend_{var}" for var in VARIABLES_PROCESO]
-
-# Flags meta que el motor puede expandir como variables booleanas de regla.
-META_FLAGS_DISPONIBLES = ["__R15"]
-
-# Variables válidas para editores de reglas y capas UI.
-VARIABLES_REGLAS_DISPONIBLES = [*VARIABLES_PROCESO, *VARIABLES_PENDIENTE, *META_FLAGS_DISPONIBLES]
-
-# Etiquetas válidas para reglas.
-ETIQUETAS_ESTADO = ["LOW", "OK", "HIGH"]
-ETIQUETAS_ESTADO_NEGADAS = ["NO-LOW", "NO-HIGH"]
-ETIQUETAS_PENDIENTE = ["DEC", "STABLE", "INC"]
-ETIQUETAS_PENDIENTE_NEGADAS = ["NO-DEC", "NO-INC"]
-ETIQUETAS_ESPECIALES = ["CERCA_BAJO", "ON", "OFF"]
-ETIQUETAS_REGLAS_DISPONIBLES = [
-    *ETIQUETAS_ESTADO,
-    *ETIQUETAS_ESTADO_NEGADAS,
-    *ETIQUETAS_PENDIENTE,
-    *ETIQUETAS_PENDIENTE_NEGADAS,
-    *ETIQUETAS_ESPECIALES,
+# ============================================================
+# VARIABLES DE PROCESO (PV) -- las que se fuzzifican y reciben pendiente
+# ============================================================
+VARIABLES_PROCESO = [
+    "torque",               # Torque Espesador (%)
+    "bed_mass",             # Bed Mass
+    "bed_level",            # Bed Level (mts)
+    "densidad",             # Densidad Descarga (%)
+    "torque_bomba",         # Torque Bomba (%)
+    "potencia_bomba",       # Potencia Bomba (kW)
+    "presion_descarga",     # Presion Descarga
+    "presion_diferencial",  # Presion Diferencial (impulsion - sello)
+    "nivel_rastra",         # Nivel Rastra (%) -- usado como trigger en Estado 3
 ]
 
-# Setpoints manipulados por las acciones del experto.
-SETPOINT_KEYS = ["sp_ton", "sp_am", "sp_ac", "sp_rpm"]
+# ============================================================
+# VARIABLES CRUDAS DE SENSORES
+# ------------------------------------------------------------
+# Son las variables brutas que el proceso o el SCADA entrega directamente.
+# El modulo variables_calculadas.py las consume para producir las
+# VARIABLES_EXTERNAS. El DataFrame de entrada debe incluir estas columnas.
+#
+# Detalle completo en variables_calculadas.VARIABLES_CRUDAS.
+# ============================================================
+VARIABLES_CRUDAS_REQUERIDAS = [
+    "tonelaje_sag_1",   # Tonelaje SAG Mill 1 (t/h)
+    "tonelaje_sag_2",   # Tonelaje SAG Mill 2 (t/h)
+    "tonelaje_relave",  # Tonelaje de relave (t/h)
+    "presion_bomba_1",  # Presion impulsion bomba descarga 1 (bar)
+    "presion_bomba_2",  # Presion impulsion bomba descarga 2 (bar)
+    "turbiedad_agua",   # Turbiedad agua recuperada (NTU) -- sensor directo
+]
 
-# Campo temporal mínimo esperado por los runners.
+# ============================================================
+# VARIABLES EXTERNAS -- calculadas por variables_calculadas.py
+# ------------------------------------------------------------
+# Ya NO se asumen pre-calculadas aguas arriba.
+# El runner llama a calcular_variables_df() ANTES del pipeline
+# principal, lo que agrega estas columnas al DataFrame.
+# Los permisivos las leen directamente desde el row del DataFrame.
+# ============================================================
+VARIABLES_EXTERNAS = [
+    "tonelaje_sag_delta_30min",    # delta de tonelaje SAG 1+2 en ultimos 30 min
+    "tonelaje_sag_desv_est_30min", # desv. estandar de tonelaje SAG 1+2 en 30 min
+    "turbiedad_agua",              # turbiedad del agua recuperada (sensor directo)
+    "diferencial_ton_sag_relave",  # diferencial Ton (SAG total - relave)
+    "diferencial_presion_bbas",    # diferencial de presion entre bombas (impulsion)
+]
+
+# ============================================================
+# SETPOINTS MANIPULADOS
+# ============================================================
+SETPOINT_KEYS = ["sp_tonelaje", "sp_floculante", "sp_vel_bomba"]
+
+# Campo temporal minimo esperado por los runners
 TIME_KEY = "t_s"
 
-# Mapeo rol -> nombre de columna esperado por defecto.
-# En planta este diccionario puede sobreescribirse por la capa integradora.
-COLUMNAS_ENTRADA = {
-    # tiempo
+# ============================================================
+# COLUMNAS_ENTRADA: mapeo rol -> nombre de columna esperado en el DataFrame
+# ============================================================
+COLUMNAS_ENTRADA: dict = {
     TIME_KEY: TIME_KEY,
-
-    # variables de proceso
-    "potencia": "potencia",
-    "nivel": "nivel",
-    "presion": "presion",
-    "p80": "p80",
-    "densidad": "densidad",
-
-    # setpoints actuales
-    "sp_ton": "sp_ton",
-    "sp_am": "sp_am",
-    "sp_ac": "sp_ac",
-    "sp_rpm": "sp_rpm",
-
-    # límites requeridos por los fuzzys; también entran como data de proceso
-    "potencia_lmin": "potencia_lmin",
-    "potencia_lmax": "potencia_lmax",
-    "nivel_lmin": "nivel_lmin",
-    "nivel_lmax": "nivel_lmax",
-    "presion_lmin": "presion_lmin",
-    "presion_lmax": "presion_lmax",
-    "p80_lmin": "p80_lmin",
-    "p80_lmax": "p80_lmax",
-    "densidad_lmin": "densidad_lmin",
-    "densidad_lmax": "densidad_lmax",
 }
 
-# Relación estructural entre cada variable y sus columnas de límites fuzzy.
+# PV canonicas
+for _var in VARIABLES_PROCESO:
+    COLUMNAS_ENTRADA[_var] = _var
+
+# Limites de fuzzificacion por variable (lmin / lmax)
+for _var in VARIABLES_PROCESO:
+    COLUMNAS_ENTRADA[f"{_var}_lmin"] = f"{_var}_lmin"
+    COLUMNAS_ENTRADA[f"{_var}_lmax"] = f"{_var}_lmax"
+
+# Variables crudas de sensores
+for _var in VARIABLES_CRUDAS_REQUERIDAS:
+    COLUMNAS_ENTRADA[_var] = _var
+
+# Variables externas calculadas (presentes en el DF despues de calcular_variables_df)
+for _var in VARIABLES_EXTERNAS:
+    COLUMNAS_ENTRADA[_var] = _var
+
+# Setpoints actuales (estado del actuador)
+for _sp in SETPOINT_KEYS:
+    COLUMNAS_ENTRADA[_sp] = _sp
+
+
+# Relacion estructural entre variable y columnas de limites
 LIMITES_FUZZY_POR_VARIABLE = {
-    "potencia": {"lmin": "potencia_lmin", "lmax": "potencia_lmax"},
-    "nivel": {"lmin": "nivel_lmin", "lmax": "nivel_lmax"},
-    "presion": {"lmin": "presion_lmin", "lmax": "presion_lmax"},
-    "p80": {"lmin": "p80_lmin", "lmax": "p80_lmax"},
-    "densidad": {"lmin": "densidad_lmin", "lmax": "densidad_lmax"},
+    var: {"lmin": f"{var}_lmin", "lmax": f"{var}_lmax"}
+    for var in VARIABLES_PROCESO
 }
 
-# Roles obligatorios para una corrida completa del experto.
 ROLES_REQUERIDOS = [TIME_KEY, *VARIABLES_PROCESO, *SETPOINT_KEYS]
-
-# Columnas de límites obligatorias para poder fuzzificar correctamente.
 ROLES_LIMITES_REQUERIDOS = [
-    limite_role
-    for meta in LIMITES_FUZZY_POR_VARIABLE.values()
-    for limite_role in meta.values()
+    limite for meta in LIMITES_FUZZY_POR_VARIABLE.values() for limite in meta.values()
 ]
 
-# Relación entre familia lógica del motor y clave de setpoint en la data.
-SP_FAMILIA_A_KEY = {
-    "sp_tonelaje": "sp_ton",
-    "sp_agua_molino": "sp_am",
-    "sp_agua_cajon": "sp_ac",
-    "sp_agua_ciclones": "sp_ac",
-    "sp_rpm_bomba": "sp_rpm",
+
+# ============================================================
+# COOLDOWNS POR FAMILIA DE SP (decision D)
+# ============================================================
+COOLDOWN_FAMILIA_S = {
+    "sp_vel_bomba":  15 * 60,   # 15 min
+    "sp_tonelaje":   45 * 60,   # 45 min
+    "sp_floculante": 30 * 60,   # 30 min
 }
 
-# Metadatos opcionales útiles para capas superiores.
+SP_FAMILIA_A_KEY = {
+    "sp_vel_bomba":  "sp_vel_bomba",
+    "sp_tonelaje":   "sp_tonelaje",
+    "sp_floculante": "sp_floculante",
+}
+
+
+# ============================================================
+# BLOQUES (decision C)
+# ============================================================
+BLOQUES = {
+    "critico": {
+        "label": "Estados Criticos",
+        "level": 1,
+        "independent": False,
+    },
+    "estabilidad": {
+        "label": "Estabilidad",
+        "level": 2,
+        "independent": False,
+    },
+    "optimizacion": {
+        "label": "Optimizacion",
+        "level": 99,
+        "independent": True,
+    },
+}
+
+
+# ============================================================
+# Metadatos opcionales
+# ============================================================
 DESCRIPCION_ROLES = {
-    "potencia": "Variable de proceso: potencia del molino",
-    "nivel": "Variable de proceso: nivel de cajón/sump",
-    "presion": "Variable de proceso: presión",
-    "p80": "Variable de proceso: granulometría P80",
-    "densidad": "Variable de proceso: densidad",
-    "sp_ton": "Setpoint de tonelaje",
-    "sp_am": "Setpoint de agua molino",
-    "sp_ac": "Setpoint de agua cajón/ciclones",
-    "sp_rpm": "Setpoint de RPM de bomba",
+    "torque":              "Torque del espesador (%)",
+    "bed_mass":            "Masa de la cama del espesador",
+    "bed_level":           "Nivel de la cama (mts)",
+    "densidad":            "Densidad de descarga (%)",
+    "torque_bomba":        "Torque bomba descarga (%)",
+    "potencia_bomba":      "Potencia bomba descarga (kW)",
+    "presion_descarga":    "Presion de descarga",
+    "presion_diferencial": "Presion diferencial (impulsion - sello)",
+    "nivel_rastra":        "Nivel rastra (%)",
+    "sp_tonelaje":         "Setpoint tonelaje",
+    "sp_floculante":       "Setpoint flujo de floculante",
+    "sp_vel_bomba":        "Setpoint % velocidad de bomba (descarga)",
+    "tonelaje_sag_1":      "Tonelaje SAG Mill 1 (t/h)",
+    "tonelaje_sag_2":      "Tonelaje SAG Mill 2 (t/h)",
+    "tonelaje_relave":     "Tonelaje de relave (t/h)",
+    "presion_bomba_1":     "Presion impulsion bomba descarga 1 (bar)",
+    "presion_bomba_2":     "Presion impulsion bomba descarga 2 (bar)",
+    "turbiedad_agua":      "Turbiedad del agua recuperada (NTU)",
+    "tonelaje_sag_total":          "Tonelaje SAG total (SAG1+SAG2) (t/h)",
+    "tonelaje_sag_delta_30min":    "Delta tonelaje SAG total en 30 min (t/h)",
+    "tonelaje_sag_desv_est_30min": "Desv. estandar tonelaje SAG total en 30 min",
+    "diferencial_ton_sag_relave":  "Diferencial tonelaje SAG total - relave (t/h)",
+    "diferencial_presion_bbas":    "Diferencial presion impulsion entre bombas (bar)",
 }

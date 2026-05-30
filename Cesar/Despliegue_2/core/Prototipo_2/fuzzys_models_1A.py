@@ -1,5 +1,5 @@
 # ============================================================
-# fuzzys_models_1A.py  (standalone — Prototipo_2)
+# fuzzys_models_1A.py
 # ------------------------------------------------------------
 # FUZZYS hardcodeados desde "fuzzys 1A Cuajone.xlsx" (Hoja1)
 # + se agrega DENSIDAD (no venía en ese Excel)

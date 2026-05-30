@@ -1,9 +1,27 @@
 # -*- coding: utf-8 -*-
-"""Runner reusable del sistema experto.
+"""Runner del sistema experto Espesador (v2).
 
-Este runner pertenece al núcleo, por lo que no fija límites numéricos,
-setpoints base ni parámetros de simulación. Todo eso debe ser inyectado
-desde la capa de integración o desde las pruebas.
+Pipeline por fila:
+  0. Calcular variables derivadas desde crudas (variables_calculadas.py)  <- NUEVO v2
+  1. Extraer PV crudas del row -> dict {var: float}
+  2. Filtrar con Exp-Q (config_por_variable obligatoria)
+  3. Fuzzificar PV filtradas + calcular pendientes
+  4. Expandir etiquetas compuestas (NO-X, CERCA_ALTO, CERCA_BAJO)
+  5. Evaluar permisivos -> inyectar como pseudo-variables __PERM_X (ON/OFF)
+  6. Motor de reglas con jerarquia de bloques (decision C)
+  7. Aplicar acciones disparadas sobre SPs (defuzzy Sugeno por tabla)
+
+Cambios respecto a v1
+---------------------
+- El DataFrame de entrada ahora puede incluir solo variables CRUDAS de sensores
+  (tonelaje_sag_1, tonelaje_sag_2, tonelaje_relave, presion_bomba_1,
+  presion_bomba_2, turbiedad_agua).
+- El runner llama a calcular_variables_df() en el paso 0 para producir
+  automaticamente las variables externas (tonelaje_sag_delta_30min, etc.).
+- El usuario puede deshabilitar este paso con calcular_vars=False si ya
+  entrega las columnas calculadas en el DataFrame.
+- Se agrego el parametro dt_s (intervalo de muestreo en segundos). Si es None
+  se detecta automaticamente desde la columna TIME_KEY.
 """
 
 from __future__ import annotations
@@ -15,15 +33,26 @@ from .config import (
     COLUMNAS_ENTRADA,
     LIMITES_FUZZY_POR_VARIABLE,
     SP_FAMILIA_A_KEY,
+    SETPOINT_KEYS,
     TIME_KEY,
     VARIABLES_PROCESO,
 )
-from .defuzzy_actions import apply_action
+from .defuzzy_actions import apply_actions
+from .exp_q_filter import ExpQFilter, CONFIG_FILTRO_ESPESADOR_DEFAULT
 from .fuzzys_eval import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas
-from .fuzzys_models_1A import FUZZY_MODELOS, PEND_MODELOS
-from .reglas_estrategia_correcta import REGLAS
+from .fuzzys_models_espesador import FUZZY_MODELOS, PEND_MODELOS
+from .permisivos import PERMISIVOS, evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
+from .reglas_espesador import REGLAS_ESPESADOR
+from .variables_calculadas import (
+    calcular_variables_df,
+    detectar_dt_s,
+    DEFINICIONES_CALCULADAS,
+)
 
 
+# ============================================================
+# Helpers para extraer datos del DataFrame
+# ============================================================
 def _resolver_col(role: str, columnas_entrada: dict) -> str:
     return str(columnas_entrada.get(role, role))
 
@@ -51,53 +80,24 @@ def extraer_limites_fuzzy_desde_row(row: pd.Series, columnas_entrada: dict | Non
 
 def extraer_setpoints_desde_row(row: pd.Series, columnas_entrada: dict | None = None) -> dict:
     columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada
-    return {
-        "sp_ton": _resolver_float(row, "sp_ton", columnas_entrada),
-        "sp_am": _resolver_float(row, "sp_am", columnas_entrada),
-        "sp_ac": _resolver_float(row, "sp_ac", columnas_entrada),
-        "sp_rpm": _resolver_float(row, "sp_rpm", columnas_entrada),
-    }
+    return {sp: _resolver_float(row, sp, columnas_entrada) for sp in SETPOINT_KEYS}
 
 
-def aplicar_acciones_sobre_setpoints(acciones: list[str], setpoints: dict, limites_sp: dict) -> dict:
-    ton_ll, ton_hl = limites_sp["ton"]
-    am_ll, am_hl = limites_sp["am"]
-    ac_ll, ac_hl = limites_sp["ac"]
-    rpm_ll, rpm_hl = limites_sp["rpm"]
-
-    sp_ton = float(setpoints["sp_ton"])
-    sp_am = float(setpoints["sp_am"])
-    sp_ac = float(setpoints["sp_ac"])
-    sp_rpm = float(setpoints["sp_rpm"])
-
-    for accion in acciones:
-        sp_ton, sp_am, sp_ac, sp_rpm = apply_action(
-            action=str(accion),
-            sp_ton=sp_ton,
-            sp_am=sp_am,
-            sp_ac=sp_ac,
-            sp_rpm=sp_rpm,
-            ton_ll=ton_ll,
-            ton_hl=ton_hl,
-            am_ll=am_ll,
-            am_hl=am_hl,
-            ac_ll=ac_ll,
-            ac_hl=ac_hl,
-            rpm_ll=rpm_ll,
-            rpm_hl=rpm_hl,
-        )
-
-    return {"sp_ton": sp_ton, "sp_am": sp_am, "sp_ac": sp_ac, "sp_rpm": sp_rpm}
-
-
+# ============================================================
+# Fuzzificacion + pendientes para una fila
+# ============================================================
 def _evaluar_estado_fuzzy(
     row: pd.Series,
     hist: dict,
     columnas_entrada: dict | None = None,
     meta_flags: dict | None = None,
+    inputs_override: dict | None = None,
 ) -> dict:
     columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada
-    inputs = extraer_inputs_desde_row(row, columnas_entrada)
+    if inputs_override is not None:
+        inputs = {var: float(inputs_override[var]) for var in VARIABLES_PROCESO}
+    else:
+        inputs = extraer_inputs_desde_row(row, columnas_entrada)
     limites_fuzzy = extraer_limites_fuzzy_desde_row(row, columnas_entrada)
     fuzzy_out = evaluar_fuzzys(inputs, limites_fuzzy, FUZZY_MODELOS)
 
@@ -115,6 +115,9 @@ def _evaluar_estado_fuzzy(
     return fuzzy_out
 
 
+# ============================================================
+# Pipeline principal
+# ============================================================
 def correr_prueba_general(
     df_data: pd.DataFrame,
     reglas: list[dict] | None = None,
@@ -124,17 +127,75 @@ def correr_prueba_general(
     setpoints_base: dict | None = None,
     limites_sp: dict | None = None,
     meta_flags: dict | None = None,
+    filtro_exp_q: ExpQFilter | None = None,
+    usar_filtro_exp_q: bool = True,
+    config_filtro: dict | None = None,
+    permisivos_config: dict | None = None,
+    min_mu_permisivo: float = 0.50,
+    # --- Nuevos parametros v2 ---
+    calcular_vars: bool = True,
+    dt_s: float | None = None,
+    definiciones_calculadas: dict | None = None,
 ) -> dict:
+    """Ejecuta el flujo completo del experto sobre un DataFrame.
+
+    Parametros
+    ----------
+    df_data : pd.DataFrame
+        Datos del proceso. En v2 puede contener variables crudas de sensores
+        (tonelaje_sag_1, tonelaje_sag_2, tonelaje_relave, presion_bomba_1,
+        presion_bomba_2, turbiedad_agua); el runner calcula las derivadas
+        automaticamente antes del pipeline si calcular_vars=True.
+    setpoints_base : dict  OBLIGATORIO
+        SPs iniciales. Claves: sp_tonelaje, sp_floculante, sp_vel_bomba.
+    limites_sp : dict  OBLIGATORIO
+        Limites por familia de SP. Ejemplo:
+            {"sp_tonelaje":   (LL, HL),
+             "sp_floculante": (LL, HL),
+             "sp_vel_bomba":  (LL, HL)}
+    calcular_vars : bool (default True)
+        Si True, llama a calcular_variables_df() antes del pipeline para
+        producir las columnas externas derivadas desde variables crudas.
+        Poner en False solo si el DataFrame ya tiene esas columnas.
+    dt_s : float | None
+        Intervalo de muestreo en segundos. Si es None, se detecta
+        automaticamente desde la columna TIME_KEY.
+    definiciones_calculadas : dict | None
+        Definiciones a usar en calcular_variables_df(). Si es None, usa
+        variables_calculadas.DEFINICIONES_CALCULADAS.
+    """
     if setpoints_base is None:
-        raise ValueError("setpoints_base es obligatorio fuera del core; no se fija en el núcleo.")
+        raise ValueError("setpoints_base es obligatorio; no se fija en el nucleo.")
     if limites_sp is None:
-        raise ValueError("limites_sp es obligatorio fuera del core; no se fija en el núcleo.")
+        raise ValueError("limites_sp es obligatorio; no se fija en el nucleo.")
 
-    reglas = list(REGLAS if reglas is None else reglas)
+    reglas = list(REGLAS_ESPESADOR if reglas is None else reglas)
     columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada
+    permisivos_config = PERMISIVOS if permisivos_config is None else permisivos_config
 
-    hist = {}
-    last_action_time = {}
+    # ---- Paso 0 (v2): Calcular variables derivadas desde crudas ----
+    if calcular_vars:
+        col_t = _resolver_col(TIME_KEY, columnas_entrada)
+        if dt_s is None:
+            dt_s_efectivo = detectar_dt_s(df_data, col_t=col_t)
+        else:
+            dt_s_efectivo = float(dt_s)
+        defs = definiciones_calculadas if definiciones_calculadas is not None else DEFINICIONES_CALCULADAS
+        df_data = calcular_variables_df(df_data, dt_s=dt_s_efectivo, definiciones=defs)
+
+    # ---- Filtro ----
+    if usar_filtro_exp_q:
+        if filtro_exp_q is not None:
+            filtro = filtro_exp_q
+        else:
+            cfg = config_filtro if config_filtro is not None else CONFIG_FILTRO_ESPESADOR_DEFAULT
+            filtro = ExpQFilter(config_por_variable=cfg)
+        filtro.reset()
+    else:
+        filtro = None
+
+    hist: dict = {}
+    last_action_time: dict = {}
     setpoints_actuales = dict(setpoints_base)
 
     rows_resultado = []
@@ -143,8 +204,32 @@ def correr_prueba_general(
     df_iter = df_data.sort_values(_resolver_col(TIME_KEY, columnas_entrada))
     for _, row in df_iter.iterrows():
         t_s = _resolver_float(row, TIME_KEY, columnas_entrada)
-        inputs = extraer_inputs_desde_row(row, columnas_entrada)
-        fuzzy_out = _evaluar_estado_fuzzy(row, hist, columnas_entrada=columnas_entrada, meta_flags=meta_flags)
+
+        inputs_raw = extraer_inputs_desde_row(row, columnas_entrada)
+
+        if filtro is not None:
+            inputs = filtro.actualizar(inputs_raw)
+        else:
+            inputs = dict(inputs_raw)
+
+        fuzzy_out = _evaluar_estado_fuzzy(
+            row,
+            hist,
+            columnas_entrada=columnas_entrada,
+            meta_flags=meta_flags,
+            inputs_override=inputs,
+        )
+
+        estados_permisivos = evaluar_permisivos(
+            permisivos_config,
+            fuzzy_out=fuzzy_out,
+            row=row,
+            inputs=inputs,
+            setpoints=setpoints_actuales,
+            columnas_entrada=columnas_entrada,
+            min_mu_default=min_mu_permisivo,
+        )
+        fuzzy_out = inyectar_permisivos_en_fuzzy_out(fuzzy_out, estados_permisivos)
 
         motor_out = motor.evaluar_reglas(
             reglas=reglas,
@@ -158,19 +243,24 @@ def correr_prueba_general(
         fired = motor_out["fired"]
         if fired:
             for evento in fired:
-                acciones = list(evento.get("acciones", []))
+                acciones_belief = [(a, float(evento["belief"])) for a in evento.get("acciones", [])]
                 setpoints_antes = dict(setpoints_actuales)
-                setpoints_actuales = aplicar_acciones_sobre_setpoints(acciones, setpoints_actuales, limites_sp)
+                setpoints_actuales = apply_actions(
+                    acciones_con_belief=acciones_belief,
+                    setpoints=setpoints_actuales,
+                    limites_sp=limites_sp,
+                )
                 familias = list(evento.get("familias_cooldown", []))
                 eventos.append(
                     {
                         "t_s": t_s,
                         "t_min": t_s / 60.0,
-                        "ventana_idx": int(row.get("ventana_idx", -1)),
-                        "ventana_nombre": row.get("ventana_nombre", ""),
+                        "ventana_idx": int(row.get("ventana_idx", -1)) if "ventana_idx" in row else -1,
+                        "ventana_nombre": row.get("ventana_nombre", "") if "ventana_nombre" in row else "",
                         "regla_id": str(evento["id"]),
-                        "n_acciones": len(acciones),
-                        "acciones": " | ".join(acciones),
+                        "bloque": str(evento.get("bloque", "")),
+                        "n_acciones": len(acciones_belief),
+                        "acciones": " | ".join(a for a, _ in acciones_belief),
                         "belief": float(evento["belief"]),
                         "familias_cooldown": " | ".join(familias),
                         "sp_afectados": " | ".join(SP_FAMILIA_A_KEY.get(f, "") for f in familias),
@@ -184,12 +274,18 @@ def correr_prueba_general(
                 "t_s": t_s,
                 "t_min": t_s / 60.0,
                 "t_h": t_s / 3600.0,
-                "ventana_idx": int(row.get("ventana_idx", -1)),
-                "ventana_nombre": row.get("ventana_nombre", ""),
-                **inputs,
+                "ventana_idx": int(row.get("ventana_idx", -1)) if "ventana_idx" in row else -1,
+                "ventana_nombre": row.get("ventana_nombre", "") if "ventana_nombre" in row else "",
+                **{k: float(v) for k, v in inputs_raw.items()},
+                **{f"{k}_filt": float(v) for k, v in inputs.items()},
                 **{k: float(v) for k, v in setpoints_actuales.items()},
+                **{f"perm_{k}": bool(v) for k, v in estados_permisivos.items()},
+                "permisivos": " | ".join(
+                    f"{k}={'ON' if v else 'OFF'}" for k, v in estados_permisivos.items()
+                ),
                 "n_reglas_activadas": len(fired),
                 "reglas_activadas": " | ".join(str(e["id"]) for e in fired),
+                "bloques_activados": " | ".join(str(e.get("bloque", "")) for e in fired),
                 "acciones_activadas": " | ".join(" | ".join(e.get("acciones", [])) for e in fired),
                 "familias_activadas": " | ".join(" | ".join(e.get("familias_cooldown", [])) for e in fired),
             }
@@ -197,47 +293,36 @@ def correr_prueba_general(
 
     df_resultados = pd.DataFrame(rows_resultado)
     df_eventos = pd.DataFrame(eventos)
-    df_resumen_ventanas = resumir_ventanas(df_resultados, df_eventos)
 
     if verbose:
         print("=" * 110)
-        print("PRUEBA GENERAL DEL SISTEMA EXPERTO | Todas las reglas juntas")
+        print("PRUEBA GENERAL DEL SISTEMA EXPERTO ESPESADOR  [v2 -- variables calculadas automaticamente]")
         print("=" * 110)
+        if calcular_vars:
+            print(f"Variables calculadas automaticamente (dt_s={dt_s_efectivo:.1f} s)")
+        else:
+            print("Variables calculadas: DESACTIVADO (se usan columnas preexistentes en el DF)")
+        if filtro is not None:
+            print(f"Filtro Exp-Q activo: {filtro}")
+        else:
+            print("Filtro Exp-Q DESACTIVADO (se usan PV crudas)")
+        if permisivos_config:
+            print(f"Permisivos en configuracion: {len(permisivos_config)}")
+        else:
+            print("Permisivos en configuracion: 0")
+        print(f"Reglas cargadas: {len(reglas)}")
         print(f"Muestras evaluadas: {len(df_resultados):,}")
         print(f"Eventos disparados: {len(df_eventos):,}")
         if not df_eventos.empty:
             print("\nActivaciones por regla:")
             print(df_eventos["regla_id"].value_counts().sort_index().to_string())
-        print("\nResumen por ventana de 10 minutos:")
-        print(df_resumen_ventanas.to_string(index=False))
+            print("\nActivaciones por bloque:")
+            print(df_eventos["bloque"].value_counts().to_string())
         print("=" * 110)
 
     return {
         "data_proceso": df_data.copy(),
         "resultados": df_resultados,
         "eventos": df_eventos,
-        "resumen_ventanas": df_resumen_ventanas,
+        "filtro_exp_q": filtro,
     }
-
-
-def resumir_ventanas(df_resultados: pd.DataFrame, df_eventos: pd.DataFrame) -> pd.DataFrame:
-    base = df_resultados[["ventana_idx", "ventana_nombre"]].drop_duplicates().sort_values("ventana_idx")
-    if df_eventos.empty:
-        return base.assign(hay_activacion=False, n_activaciones=0, reglas="", acciones="")
-
-    activaciones = (
-        df_eventos.groupby(["ventana_idx", "ventana_nombre"], as_index=False)
-        .agg(
-            hay_activacion=("regla_id", lambda s: True),
-            n_activaciones=("regla_id", "size"),
-            reglas=("regla_id", lambda s: " | ".join(pd.unique(s.astype(str)))),
-            acciones=("acciones", lambda s: " | ".join(pd.unique(s.astype(str)))),
-        )
-    )
-
-    out = base.merge(activaciones, on=["ventana_idx", "ventana_nombre"], how="left")
-    out["hay_activacion"] = out["hay_activacion"].fillna(False)
-    out["n_activaciones"] = out["n_activaciones"].fillna(0).astype(int)
-    out["reglas"] = out["reglas"].fillna("")
-    out["acciones"] = out["acciones"].fillna("")
-    return out.reset_index(drop=True)

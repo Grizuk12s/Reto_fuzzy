@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -16,27 +17,52 @@ DEFAULT_TARGET_NAME = "Prototipo_2"
 DEFAULT_BACKUP_ROOT = WORKSPACE_ROOT / ".sync_backups"
 DEFAULT_REPORT_ROOT = WORKSPACE_ROOT / ".sync_reports"
 
+
+# ============================================================
+# Reglas de sincronizacion (Espesador v2)
+# ------------------------------------------------------------
+# AUTO_SYNC      : copia byte a byte (modulos sin imports relativos).
+# AUTO_ADAPT     : se reescribe `from .x import ...` y `from . import x`
+#                  como imports planos para el modo standalone.
+# MANUAL_REVIEW  : se reporta pero no se toca automaticamente.
+# PROTECTED_ONLY : pertenece al prototipo y nunca se sobreescribe.
+# ============================================================
+
 AUTO_SYNC_RULES: tuple[tuple[str, str], ...] = (
-    ("config.py", "Contrato de datos comun al motor."),
-    ("defuzzy_actions.py", "Traduccion de acciones compartida."),
-    ("fuzzys_eval.py", "Evaluacion fuzzy compartida."),
-    ("fuzzys_templates.py", "Fabricas de modelos fuzzy compartidas."),
-    ("motor.py", "Motor de reglas compartido."),
+    ("config.py", "Contrato de datos del experto."),
+    ("calculos_variables.py", "Definiciones declarativas de variables crudas y calculadas."),
+    ("defuzzy_actions.py", "Tablas defuzzy estilo Sugeno y aplicacion de acciones."),
+    ("exp_q_filter.py", "Filtro Exp-Q por variable."),
+    ("fuzzys_eval.py", "Evaluacion fuzzy y etiquetas compuestas."),
+    ("fuzzys_templates.py", "Fabricas Low/High/Norm/Pendiente."),
+    ("permisivos.py", "Permisivos operacionales (OR/AND/NOT)."),
+    ("reglas_espesador.py", "Reglas del experto Espesador (default)."),
+    ("reglas_estrategia_correcta.py", "Reglas v1 legacy mantenidas para referencia."),
 )
 
 AUTO_ADAPT_RULES: tuple[tuple[str, str], ...] = (
-    ("fuzzys_models_1A.py", "Se genera desde core adaptando imports para el modo standalone."),
-    ("runner.py", "Se genera desde core y preserva reglas.json para el modo standalone."),
+    ("fun_calc_variables.py", "Funciones de calculo de variables derivadas; imports planos."),
+    ("variables_calculadas.py", "Shim de compatibilidad; imports planos."),
+    ("fuzzys_models_espesador.py", "Modelos fuzzy del Espesador; imports planos."),
+    ("motor.py", "Motor de reglas; imports planos."),
+    ("runner.py", "Pipeline completo; imports planos + helper reglas.json."),
+    ("fuzzys_models_1A.py", "Modelos fuzzy v1 legacy; imports planos."),
 )
 
 MANUAL_REVIEW_RULES: tuple[tuple[str, str], ...] = (
-    ("reglas_estrategia_correcta.py", "Solo es fallback; revisar tambien la migracion de reglas.json."),
+    # vacio en v2: las reglas viven en reglas_espesador.py (auto-sync) y en
+    # Prototipo_2/reglas.json (protegido).
 )
 
 PROTECTED_ONLY: tuple[tuple[str, str], ...] = (
     ("app.py", "UI y API Flask propias del prototipo standalone."),
     ("simulacion.py", "Simulacion y parametros de prueba propios del prototipo."),
     ("reglas.json", "Fuente activa de reglas en vivo del prototipo."),
+    ("filtros.json", "Config Exp-Q (q, window_size) editable en vivo desde la UI."),
+    ("defuzzy.json", "Tablas Sugeno por familia de SP editables en vivo desde la UI."),
+    ("fuzzy.json", "Membresias fuzzy (offset + HIGH/OK/LOW) editables en vivo desde la UI."),
+    ("variables.json", "Catalogo de variables crudas y definiciones calculadas editables en vivo."),
+    ("permisivos.json", "Permisivos operacionales (OR/AND/NOT) editables en vivo desde la UI."),
     ("requirements.txt", "Dependencias del modo standalone."),
     ("README.txt", "Documentacion operativa del prototipo."),
     ("proyecto_contexto.md", "Contexto funcional del prototipo."),
@@ -55,48 +81,357 @@ class PairStatus:
     state: str
 
 
+# ============================================================
+# Adaptadores
+# ============================================================
+
+_RE_FROM_DOT_MODULE = re.compile(r"^from\s+\.([a-zA-Z_][\w]*)\s+import\s+", re.MULTILINE)
+_RE_FROM_DOT_BARE = re.compile(r"^from\s+\.\s+import\s+([a-zA-Z_][\w]*)", re.MULTILINE)
+_RE_RELATIVE_PARENT = re.compile(r"^from\s+\.\.", re.MULTILINE)
+
+
+def flatten_relative_imports(text: str) -> str:
+    """Convierte imports relativos del paquete core en imports planos.
+
+    - `from .modulo import X`  ->  `from modulo import X`
+    - `from . import modulo`   ->  `import modulo`
+    - `from ..xxx import Y`    ->  no soportado (se lanza ValueError).
+    """
+    if _RE_RELATIVE_PARENT.search(text):
+        raise ValueError(
+            "El nucleo contiene un import relativo con `..` que no se puede aplanar automaticamente."
+        )
+    text = _RE_FROM_DOT_MODULE.sub(r"from \1 import ", text)
+    text = _RE_FROM_DOT_BARE.sub(r"import \1", text)
+    return text
+
+
+def adapt_generic(source_text: str, target_name: str) -> str:
+    """Adaptador por defecto: solo aplana imports relativos."""
+    return flatten_relative_imports(source_text)
+
+
+_RUNNER_REGLAS_HELPER = '''
+
+# ============================================================
+# Helper para cargar reglas desde reglas.json (modo standalone)
+# ------------------------------------------------------------
+# Permite editar las reglas en vivo desde la UI Flask sin tener
+# que reiniciar el proceso.
+# ============================================================
+import json as _json
+import os as _os
+
+REGLAS_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "reglas.json"
+)
+
+
+def cargar_reglas_json(path: str | None = None) -> list[dict]:
+    """Carga reglas desde reglas.json. Si el archivo no existe o esta vacio,
+    retorna las reglas por defecto del experto (REGLAS_ESPESADOR).
+    """
+    ruta = path or REGLAS_JSON_PATH
+    if not _os.path.exists(ruta):
+        return list(REGLAS_ESPESADOR)
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return list(REGLAS_ESPESADOR)
+    if not isinstance(datos, list) or not datos:
+        return list(REGLAS_ESPESADOR)
+
+    # JSON serializa tuplas como listas. El motor solo reconoce hojas como
+    # tuple(var,label), asi que coercemos recursivamente cualquier lista de
+    # 2 strings -> tuple, dentro de AND/OR/NOT y a top-level.
+    def _coerce(node):
+        if isinstance(node, list):
+            if len(node) == 2 and all(isinstance(x, str) for x in node):
+                return (node[0], node[1])
+            return [_coerce(x) for x in node]
+        if isinstance(node, dict):
+            return {k: _coerce(v) for k, v in node.items()}
+        return node
+
+    for regla in datos:
+        regla["if"] = [_coerce(c) for c in regla.get("if", [])]
+    return datos
+
+
+# ============================================================
+# Helper para cargar config Exp-Q desde filtros.json
+# ------------------------------------------------------------
+# Si filtros.json falta o esta vacio, se devuelven los defaults de
+# `exp_q_filter.CONFIG_FILTRO_ESPESADOR_DEFAULT`.
+# ============================================================
+FILTROS_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "filtros.json"
+)
+
+
+def cargar_filtros_json(path: str | None = None) -> dict:
+    ruta = path or FILTROS_JSON_PATH
+    if not _os.path.exists(ruta):
+        return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+    if not isinstance(datos, dict) or not datos:
+        return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+    # Sanitizar tipos: q float, window_size int.
+    out = {}
+    for var, cfg in datos.items():
+        if not isinstance(cfg, dict):
+            continue
+        try:
+            q = float(cfg.get("q", 0.0))
+            ws = int(cfg.get("window_size", 1))
+        except (TypeError, ValueError):
+            continue
+        out[str(var)] = {"q": q, "window_size": max(1, ws)}
+    return out or {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+
+
+# ============================================================
+# Helper para cargar tablas Defuzzy desde defuzzy.json
+# ------------------------------------------------------------
+# Schema:
+#   { "<sp_familia>": {"belief_axis": [...], "steps_por_accion": {"AUMENTAR_FUERTE":[...], ...}} }
+# Si falta o esta vacio, devuelve un deepcopy de DEFUZZY_POR_FAMILIA del core.
+# ============================================================
+DEFUZZY_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "defuzzy.json"
+)
+
+
+def _defuzzy_defaults_deepcopy() -> dict:
+    from defuzzy_actions import DEFUZZY_POR_FAMILIA as _D
+    out = {}
+    for fam, tabla in _D.items():
+        out[fam] = {
+            "belief_axis": list(tabla["belief_axis"]),
+            "steps_por_accion": {k: list(v) for k, v in tabla["steps_por_accion"].items()},
+        }
+    return out
+
+
+def cargar_defuzzy_json(path: str | None = None) -> dict:
+    ruta = path or DEFUZZY_JSON_PATH
+    if not _os.path.exists(ruta):
+        return _defuzzy_defaults_deepcopy()
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return _defuzzy_defaults_deepcopy()
+    if not isinstance(datos, dict) or not datos:
+        return _defuzzy_defaults_deepcopy()
+    return datos
+
+
+# ============================================================
+# Helper para cargar membresias fuzzy desde fuzzy.json
+# ------------------------------------------------------------
+# Schema:
+#   { "<var>": {"offset": [..], "labels": {"HIGH":[..], "OK":[..], "LOW":[..]}} }
+# El tipo (high/low/norm) NO es editable: se toma del FUZZY_MODELOS del core.
+# ============================================================
+FUZZY_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "fuzzy.json"
+)
+
+
+def _fuzzy_defaults_from_modelos() -> dict:
+    out = {}
+    for var, entry in FUZZY_MODELOS.items():
+        mdl = entry["model"]
+        out[var] = {
+            "type":   entry["type"],
+            "offset": [float(x) for x in list(mdl.offset)],
+            "labels": {str(k): [float(x) for x in list(v)] for k, v in mdl.conjuntos.items()},
+        }
+    return out
+
+
+def cargar_fuzzy_json(path: str | None = None) -> dict:
+    ruta = path or FUZZY_JSON_PATH
+    defaults = _fuzzy_defaults_from_modelos()
+    if not _os.path.exists(ruta):
+        return defaults
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return defaults
+    if not isinstance(datos, dict) or not datos:
+        return defaults
+    return datos
+
+
+# ============================================================
+# Helper para cargar variables crudas y definiciones calculadas
+# ------------------------------------------------------------
+# Schema variables.json:
+#   { "crudas": {<nombre>: <descripcion>},
+#     "definiciones": [ {nombre, descripcion, tipo, ...}, ... ] }
+# ------------------------------------------------------------
+# tipos soportados:
+#   - aritmetica   : operacion + args [a, b]
+#   - rolling_delta: arg + ventana_min
+#   - rolling_std  : arg + ventana_min
+# ============================================================
+VARIABLES_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "variables.json"
+)
+
+
+def _variables_defaults_from_core() -> dict:
+    from variables_calculadas import VARIABLES_CRUDAS as _CRUDAS_CORE
+    crudas = {k: str(v) for k, v in _CRUDAS_CORE.items()}
+    definiciones = []
+    for nombre, cfg in DEFINICIONES_CALCULADAS.items():
+        item = {"nombre": nombre, "descripcion": str(cfg.get("descripcion", "")), "tipo": cfg["tipo"]}
+        if cfg["tipo"] == "aritmetica":
+            item["operacion"] = cfg["operacion"]
+            item["args"] = list(cfg["args"])
+        else:
+            item["arg"] = cfg["arg"]
+            item["ventana_min"] = float(cfg["ventana_min"])
+        definiciones.append(item)
+    return {"crudas": crudas, "definiciones": definiciones}
+
+
+def cargar_variables_json(path: str | None = None) -> dict:
+    ruta = path or VARIABLES_JSON_PATH
+    defaults = _variables_defaults_from_core()
+    if not _os.path.exists(ruta):
+        return defaults
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return defaults
+    if not isinstance(datos, dict) or "definiciones" not in datos:
+        return defaults
+    return datos
+
+
+def definiciones_lista_a_dict(definiciones_lista: list) -> dict:
+    """Convierte la lista ordenada del JSON al dict que espera el runner."""
+    out = {}
+    for item in definiciones_lista:
+        if not isinstance(item, dict) or "nombre" not in item:
+            continue
+        nombre = item["nombre"]
+        cfg = {"descripcion": item.get("descripcion", ""), "tipo": item["tipo"]}
+        if item["tipo"] == "aritmetica":
+            cfg["operacion"] = item["operacion"]
+            cfg["args"] = list(item["args"])
+        else:
+            cfg["arg"] = item["arg"]
+            cfg["ventana_min"] = float(item["ventana_min"])
+        out[nombre] = cfg
+    return out
+
+
+# ============================================================
+# Helper para cargar permisivos desde permisivos.json
+# ------------------------------------------------------------
+# Schema:
+#   { "<NOMBRE_PERMISIVO>": [ <condicion>, ... ] }
+# donde cada <condicion> puede ser:
+#   {"var": <str>, "op": <str>, "value": <num>}
+#   {"fuzzy_var": <str>, "label": <str>, "min_mu": <num>}
+#   {"OR":  [<condicion>, ...]}
+#   {"AND": [<condicion>, ...]}
+#   {"NOT": <condicion>}
+# Si falta o esta vacio, devuelve deepcopy de PERMISIVOS del core.
+# ============================================================
+PERMISIVOS_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "permisivos.json"
+)
+
+
+def _permisivos_defaults_deepcopy() -> dict:
+    import copy as _copy
+    return _copy.deepcopy(PERMISIVOS)
+
+
+def cargar_permisivos_json(path: str | None = None) -> dict:
+    ruta = path or PERMISIVOS_JSON_PATH
+    if not _os.path.exists(ruta):
+        return _permisivos_defaults_deepcopy()
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return _permisivos_defaults_deepcopy()
+    if not isinstance(datos, dict) or not datos:
+        return _permisivos_defaults_deepcopy()
+    return datos
+
+'''
+
+
+def adapt_runner(source_text: str, target_name: str) -> str:
+    """Adaptador del runner: imports planos + helper de reglas.json."""
+    adapted = flatten_relative_imports(source_text)
+
+    # Cabecera: marcar la version standalone para que sea evidente al abrir el archivo.
+    header_marker = '"""Runner del sistema experto Espesador (v2).'
+    if header_marker in adapted:
+        adapted = adapted.replace(
+            header_marker,
+            f'"""Runner del sistema experto Espesador (v2) — standalone ({target_name}).',
+            1,
+        )
+
+    # Inyecta el helper justo despues del ultimo `from ... import` superior.
+    # Lo metemos al final del bloque de imports para que `REGLAS_ESPESADOR`
+    # ya este disponible cuando se referencie en cargar_reglas_json().
+    anchor = "from reglas_espesador import REGLAS_ESPESADOR\n"
+    if anchor not in adapted:
+        raise ValueError(
+            "No se pudo localizar el import de REGLAS_ESPESADOR en runner.py para inyectar el helper."
+        )
+    adapted = adapted.replace(anchor, anchor + _RUNNER_REGLAS_HELPER, 1)
+    return adapted
+
+
+ADAPTERS: dict[str, Callable[[str, str], str]] = {
+    "runner.py": adapt_runner,
+}
+
+
+def render_expected_text(name: str, source: Path, target_name: str) -> str:
+    adapter = ADAPTERS.get(name, adapt_generic)
+    return adapter(source.read_text(encoding="utf-8"), target_name)
+
+
+# ============================================================
+# CLI
+# ============================================================
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            f"Sincroniza de forma segura la lista blanca desde core/ hacia {DEFAULT_TARGET_NAME}/. "
+            f"Sincroniza de forma segura el nucleo core/ hacia {DEFAULT_TARGET_NAME}/. "
             "Por defecto solo reporta cambios; usa --apply para copiar archivos."
         )
     )
     parser.add_argument(
         "--target-name",
         default=DEFAULT_TARGET_NAME,
-        help=(
-            "Nombre de la carpeta prototipo destino bajo el workspace root. "
-            f"Valor por defecto: {DEFAULT_TARGET_NAME}."
-        ),
+        help=f"Nombre de la carpeta destino bajo el workspace root. Default: {DEFAULT_TARGET_NAME}.",
     )
-    parser.add_argument(
-        "--apply",
-        action="store_true",
-        help="Aplica la sincronizacion de la lista blanca y crea backups de los archivos reemplazados.",
-    )
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Sale con codigo 1 si hay archivos auto-sync desalineados.",
-    )
-    parser.add_argument(
-        "--backup-root",
-        type=Path,
-        default=DEFAULT_BACKUP_ROOT,
-        help="Directorio raiz para backups al usar --apply.",
-    )
-    parser.add_argument(
-        "--write-report",
-        action="store_true",
-        help="Genera un reporte Markdown de la ejecucion en .sync_reports/ o en la ruta indicada.",
-    )
-    parser.add_argument(
-        "--report-root",
-        type=Path,
-        default=DEFAULT_REPORT_ROOT,
-        help="Directorio raiz para reportes Markdown al usar --write-report.",
-    )
+    parser.add_argument("--apply", action="store_true", help="Aplica la sincronizacion y crea backups.")
+    parser.add_argument("--check", action="store_true", help="Sale con codigo 1 si hay desalineados.")
+    parser.add_argument("--backup-root", type=Path, default=DEFAULT_BACKUP_ROOT)
+    parser.add_argument("--write-report", action="store_true", help="Genera un reporte Markdown.")
+    parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)
     return parser
 
 
@@ -110,98 +445,6 @@ def sha256_file(path: Path) -> str:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def expect_replace(text: str, old: str, new: str, label: str) -> str:
-    count = text.count(old)
-    if count != 1:
-        raise ValueError(f"No se pudo adaptar {label}: se esperaban 1 coincidencia y se encontraron {count}.")
-    return text.replace(old, new, 1)
-
-
-def adapt_fuzzys_models(source_text: str, target_name: str) -> str:
-    adapted = source_text
-    adapted = expect_replace(
-        adapted,
-        "from . import fuzzys_templates\n",
-        "import fuzzys_templates\n",
-        "fuzzys_models_1A.py imports",
-    )
-    adapted = expect_replace(
-        adapted,
-        "# fuzzys_models_1A.py\n",
-        f"# fuzzys_models_1A.py  (standalone — {target_name})\n",
-        "fuzzys_models_1A.py cabecera",
-    )
-    return adapted
-
-
-def adapt_runner(source_text: str, target_name: str) -> str:
-    adapted = source_text
-    adapted = expect_replace(
-        adapted,
-        '"""Runner reusable del sistema experto.\n\nEste runner pertenece al núcleo, por lo que no fija límites numéricos,\nsetpoints base ni parámetros de simulación. Todo eso debe ser inyectado\ndesde la capa de integración o desde las pruebas.\n"""\n',
-        '"""Runner reusable del sistema experto (standalone — ' + target_name + ').\n\nSoporta carga de reglas desde reglas.json para edición en vivo.\n"""\n',
-        "runner.py docstring",
-    )
-    adapted = expect_replace(
-        adapted,
-        "import pandas as pd\n",
-        "import json\nimport os\nimport pandas as pd\n",
-        "runner.py imports stdlib",
-    )
-    adapted = expect_replace(adapted, "from . import motor\n", "import motor\n", "runner.py import motor")
-    adapted = expect_replace(adapted, "from .config import (\n", "from config import (\n", "runner.py import config")
-    adapted = expect_replace(
-        adapted,
-        "from .defuzzy_actions import apply_action\n",
-        "from defuzzy_actions import apply_action\n",
-        "runner.py import defuzzy_actions",
-    )
-    adapted = expect_replace(
-        adapted,
-        "from .fuzzys_eval import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas\n",
-        "from fuzzys_eval import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas\n",
-        "runner.py import fuzzys_eval",
-    )
-    adapted = expect_replace(
-        adapted,
-        "from .fuzzys_models_1A import FUZZY_MODELOS, PEND_MODELOS\n",
-        "from fuzzys_models_1A import FUZZY_MODELOS, PEND_MODELOS\n",
-        "runner.py import fuzzys_models_1A",
-    )
-    adapted = expect_replace(
-        adapted,
-        "from .reglas_estrategia_correcta import REGLAS\n\n\ndef _resolver_col",
-        "from reglas_estrategia_correcta import REGLAS as REGLAS_DEFAULT\n\nREGLAS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), \"reglas.json\")\n\n\ndef cargar_reglas_json(path: str | None = None) -> list[dict]:\n    \"\"\"Carga reglas desde reglas.json. Si no existe, retorna las reglas por defecto.\"\"\"\n    path = path or REGLAS_JSON_PATH\n    if not os.path.exists(path):\n        return list(REGLAS_DEFAULT)\n    with open(path, \"r\", encoding=\"utf-8\") as f:\n        reglas = json.load(f)\n    for regla in reglas:\n        regla[\"if\"] = [tuple(condicion) if isinstance(condicion, list) else condicion for condicion in regla.get(\"if\", [])]\n    return reglas\n\n\ndef _resolver_col",
-        "runner.py reglas json block",
-    )
-    adapted = expect_replace(
-        adapted,
-        "def correr_prueba_general(\n    df_data: pd.DataFrame,\n    reglas: list[dict] | None = None,\n    min_belief: float = 0.05,\n    verbose: bool = True,\n    columnas_entrada: dict | None = None,\n    setpoints_base: dict | None = None,\n    limites_sp: dict | None = None,\n    meta_flags: dict | None = None,\n) -> dict:\n    if setpoints_base is None:\n",
-        "def correr_prueba_general(\n    df_data: pd.DataFrame,\n    reglas: list[dict] | None = None,\n    min_belief: float = 0.05,\n    verbose: bool = True,\n    columnas_entrada: dict | None = None,\n    setpoints_base: dict | None = None,\n    limites_sp: dict | None = None,\n    meta_flags: dict | None = None,\n    usar_reglas_json: bool = False,\n) -> dict:\n    \"\"\"Ejecuta la prueba general del sistema experto.\n\n    Si usar_reglas_json=True, las reglas se cargan desde reglas.json\n    (permite edición en vivo desde la interfaz Flask).\n    \"\"\"\n    if setpoints_base is None:\n",
-        "runner.py firma",
-    )
-    adapted = expect_replace(
-        adapted,
-        "    reglas = list(REGLAS if reglas is None else reglas)\n    columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada\n",
-        "    if reglas is not None:\n        reglas = list(reglas)\n    elif usar_reglas_json:\n        reglas = cargar_reglas_json()\n    else:\n        reglas = list(REGLAS_DEFAULT)\n    columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada\n",
-        "runner.py seleccion de reglas",
-    )
-    return adapted
-
-
-ADAPTERS: dict[str, Callable[[str, str], str]] = {
-    "fuzzys_models_1A.py": adapt_fuzzys_models,
-    "runner.py": adapt_runner,
-}
-
-
-def render_expected_text(name: str, source: Path, target_name: str) -> str:
-    adapter = ADAPTERS.get(name)
-    if adapter is None:
-        raise ValueError(f"No existe adaptador registrado para: {name}")
-    return adapter(source.read_text(encoding="utf-8"), target_name)
 
 
 def compare_pair(name: str, reason: str, target_dir: Path, strategy: str = "copy") -> PairStatus:
@@ -224,14 +467,8 @@ def compare_pair(name: str, reason: str, target_dir: Path, strategy: str = "copy
         state = "different"
 
     return PairStatus(
-        name=name,
-        source=source,
-        target=target,
-        reason=reason,
-        strategy=strategy,
-        source_exists=source_exists,
-        target_exists=target_exists,
-        state=state,
+        name=name, source=source, target=target, reason=reason, strategy=strategy,
+        source_exists=source_exists, target_exists=target_exists, state=state,
     )
 
 
@@ -262,7 +499,6 @@ def print_section(title: str, statuses: list[PairStatus], sync_mode: bool) -> No
         print("  (sin elementos)")
         print()
         return
-
     for status in statuses:
         label = format_state(status, sync_mode)
         print(f"- {status.name}: {label}")
@@ -307,10 +543,9 @@ def copy_with_backup(
     backup_root: Path,
     target_name: str,
 ) -> tuple[list[str], Path | None]:
-    changed = [status for status in statuses if status.state in {"different", "missing-target"}]
+    changed = [s for s in statuses if s.state in {"different", "missing-target"}]
     if not changed:
         return [], None
-
     backup_dir: Path | None = None
     applied: list[str] = []
     for status in changed:
@@ -330,7 +565,6 @@ def markdown_table(title: str, statuses: list[PairStatus], sync_mode: bool) -> l
         lines.append("| _(sin elementos)_ | - | - |")
         lines.append("")
         return lines
-
     for status in statuses:
         state = format_state(status, sync_mode)
         reason = status.reason.replace("|", "\\|")
@@ -340,37 +574,29 @@ def markdown_table(title: str, statuses: list[PairStatus], sync_mode: bool) -> l
 
 
 def write_markdown_report(
-    report_root: Path,
-    target_dir: Path,
-    target_name: str,
-    mode: str,
-    auto_statuses: list[PairStatus],
-    adapted_statuses: list[PairStatus],
-    manual_statuses: list[PairStatus],
-    protected_statuses: list[PairStatus],
-    pending: list[PairStatus],
-    applied: list[str],
-    backup_dir: Path | None,
+    report_root: Path, target_dir: Path, target_name: str, mode: str,
+    auto_statuses: list[PairStatus], adapted_statuses: list[PairStatus],
+    manual_statuses: list[PairStatus], protected_statuses: list[PairStatus],
+    pending: list[PairStatus], applied: list[str], backup_dir: Path | None,
     exit_code: int,
 ) -> Path:
     report_path = ensure_report_path(report_root)
     timestamp = datetime.now().isoformat(timespec="seconds")
-    summary_state = "sin cambios" if not pending and not applied else "con pendientes" if pending and not applied else "aplicado"
-
+    summary_state = (
+        "sin cambios" if not pending and not applied
+        else "con pendientes" if pending and not applied
+        else "aplicado"
+    )
     lines = [
-        f"# Reporte de sincronizacion core -> {target_name}",
-        "",
-        "## Resumen",
-        "",
+        f"# Reporte de sincronizacion core -> {target_name}", "",
+        "## Resumen", "",
         f"- Fecha: `{timestamp}`",
         f"- Modo: `{mode}`",
         f"- Estado resumido: `{summary_state}`",
         f"- Codigo de salida esperado: `{exit_code}`",
         f"- Directorio canonico: `{CORE_DIR}`",
         f"- Directorio objetivo: `{target_dir}`",
-        "",
-        "## Resultado",
-        "",
+        "", "## Resultado", "",
         f"- Archivos auto-sync evaluados: `{len(auto_statuses)}`",
         f"- Archivos auto-adaptados evaluados: `{len(adapted_statuses)}`",
         f"- Archivos sincronizables pendientes: `{len(pending)}`",
@@ -378,26 +604,21 @@ def write_markdown_report(
         f"- Archivos con revision manual: `{len(manual_statuses)}`",
         f"- Archivos protegidos: `{len(protected_statuses)}`",
     ]
-
     if applied:
         lines.extend(["", "### Cambios aplicados", ""])
         for name in applied:
             lines.append(f"- `{name}`")
-
     if backup_dir is not None:
         lines.extend(["", f"- Backups: `{backup_dir}`"])
-
     lines.extend(["", *markdown_table("Archivos auto-sync", auto_statuses, sync_mode=(mode == "apply"))])
     lines.extend(markdown_table("Archivos auto-adaptados", adapted_statuses, sync_mode=(mode == "apply")))
     lines.extend(markdown_table("Archivos con revision manual", manual_statuses, sync_mode=False))
     lines.extend(markdown_table("Archivos protegidos del prototipo", protected_statuses, sync_mode=False))
-
     if manual_statuses:
         lines.extend(["## Revision manual posterior", ""])
         for status in manual_statuses:
             lines.append(f"- `{status.name}`: {status.reason}")
         lines.append("")
-
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return report_path
 
@@ -422,11 +643,8 @@ def main(argv: list[str] | None = None) -> int:
 
     protected_statuses = [
         PairStatus(
-            name=name,
-            source=CORE_DIR / name,
-            target=target_dir / name,
-            reason=reason,
-            strategy="protected",
+            name=name, source=CORE_DIR / name, target=target_dir / name,
+            reason=reason, strategy="protected",
             source_exists=(CORE_DIR / name).is_file(),
             target_exists=(target_dir / name).is_file(),
             state="protected",
@@ -446,14 +664,16 @@ def main(argv: list[str] | None = None) -> int:
     print_section("Archivos protegidos del prototipo", protected_statuses, sync_mode=False)
 
     syncable_statuses = [*auto_statuses, *adapted_statuses]
-    pending = [status for status in syncable_statuses if status.state in {"different", "missing-target"}]
-    missing_sources = [status for status in syncable_statuses if status.state == "missing-source"]
+    pending = [s for s in syncable_statuses if s.state in {"different", "missing-target"}]
+    missing_sources = [s for s in syncable_statuses if s.state == "missing-source"]
     applied: list[str] = []
     backup_dir: Path | None = None
     exit_code = 0
 
     if missing_sources:
         print("No se puede aplicar la sincronizacion porque faltan archivos canonicos en core/.")
+        for s in missing_sources:
+            print(f"- {s.name}")
         exit_code = 2
     elif args.apply:
         applied, backup_dir = copy_with_backup(syncable_statuses, args.backup_root, target_name)
@@ -483,18 +703,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.write_report:
         report_path = write_markdown_report(
-            report_root=args.report_root,
-            target_dir=target_dir,
-            target_name=target_name,
+            report_root=args.report_root, target_dir=target_dir, target_name=target_name,
             mode="apply" if args.apply else "dry-run",
-            auto_statuses=auto_statuses,
-            adapted_statuses=adapted_statuses,
-            manual_statuses=manual_statuses,
-            protected_statuses=protected_statuses,
-            pending=pending,
-            applied=applied,
-            backup_dir=backup_dir,
-            exit_code=exit_code,
+            auto_statuses=auto_statuses, adapted_statuses=adapted_statuses,
+            manual_statuses=manual_statuses, protected_statuses=protected_statuses,
+            pending=pending, applied=applied, backup_dir=backup_dir, exit_code=exit_code,
         )
         print()
         print(f"Reporte Markdown generado en: {report_path}")

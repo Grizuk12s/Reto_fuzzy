@@ -1,0 +1,38 @@
+{
+  "torque": {
+    "q": 0.15,
+    "window_size": 10
+  },
+  "bed_mass": {
+    "q": 0.2,
+    "window_size": 8
+  },
+  "bed_level": {
+    "q": 0.1,
+    "window_size": 15
+  },
+  "densidad": {
+    "q": 0.15,
+    "window_size": 10
+  },
+  "torque_bomba": {
+    "q": 0.15,
+    "window_size": 10
+  },
+  "potencia_bomba": {
+    "q": 0.15,
+    "window_size": 10
+  },
+  "presion_descarga": {
+    "q": 0.15,
+    "window_size": 10
+  },
+  "presion_diferencial": {
+    "q": 0.15,
+    "window_size": 10
+  },
+  "nivel_rastra": {
+    "q": 0.1,
+    "window_size": 15
+  }
+}

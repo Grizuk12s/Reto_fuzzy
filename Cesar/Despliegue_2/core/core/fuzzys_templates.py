@@ -174,7 +174,6 @@ def crear_clase_fuzzy_varianza(nombre_clase, x, **conjuntos):
 
     FuzzyVarianzaTemplate.__name__ = nombre_clase
     return FuzzyVarianzaTemplate
-9
 
 
 

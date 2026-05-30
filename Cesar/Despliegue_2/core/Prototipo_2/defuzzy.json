@@ -1,0 +1,119 @@
+{
+  "sp_floculante": {
+    "belief_axis": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "steps_por_accion": {
+      "AUMENTAR_FUERTE": [
+        0.0,
+        5.0,
+        10.0
+      ],
+      "AUMENTAR": [
+        0.0,
+        3.0,
+        6.0
+      ],
+      "AUMENTAR_SUAVE": [
+        0.0,
+        1.0,
+        2.0
+      ],
+      "DISMINUIR_SUAVE": [
+        0.0,
+        -1.0,
+        -2.0
+      ],
+      "DISMINUIR": [
+        0.0,
+        -3.0,
+        -6.0
+      ],
+      "DISMINUIR_FUERTE": [
+        0.0,
+        -5.0,
+        -10.0
+      ]
+    }
+  },
+  "sp_vel_bomba": {
+    "belief_axis": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "steps_por_accion": {
+      "AUMENTAR_FUERTE": [
+        0.0,
+        0.4,
+        0.5
+      ],
+      "AUMENTAR": [
+        0.0,
+        0.3,
+        0.4
+      ],
+      "AUMENTAR_SUAVE": [
+        0.0,
+        0.3,
+        0.15
+      ],
+      "DISMINUIR_SUAVE": [
+        0.0,
+        0.15,
+        0.3
+      ],
+      "DISMINUIR": [
+        0.0,
+        -0.3,
+        -0.4
+      ],
+      "DISMINUIR_FUERTE": [
+        0.0,
+        -0.4,
+        -0.5
+      ]
+    }
+  },
+  "sp_tonelaje": {
+    "belief_axis": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "steps_por_accion": {
+      "AUMENTAR_FUERTE": [
+        0.0,
+        2.0,
+        3.0
+      ],
+      "AUMENTAR": [
+        0.0,
+        1.0,
+        2.0
+      ],
+      "AUMENTAR_SUAVE": [
+        0.0,
+        0.5,
+        1.0
+      ],
+      "DISMINUIR_SUAVE": [
+        0.0,
+        -0.5,
+        -1.0
+      ],
+      "DISMINUIR": [
+        0.0,
+        -1.0,
+        -2.0
+      ],
+      "DISMINUIR_FUERTE": [
+        0.0,
+        -2.0,
+        -3.0
+      ]
+    }
+  }
+}

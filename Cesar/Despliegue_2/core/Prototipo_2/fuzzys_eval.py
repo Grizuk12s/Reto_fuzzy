@@ -1,11 +1,12 @@
-
 # ============================================================
 # fuzzys_eval.py
 # ------------------------------------------------------------
-# EVALUACIÓN FUZZY (modificado para pruebas por regla)
-# - evaluar_fuzzys(...)
-# - evaluar_pendiente_var(...)
-# - expandir_etiquetas_compuestas(...)
+# Evaluacion fuzzy de PV, calculo de pendientes y expansion de
+# etiquetas compuestas usadas por las reglas del Espesador:
+#   - NO-HIGH, NO-LOW, NO-OK
+#   - NO-DEC, NO-INC, NO-STABLE
+#   - CERCA_ALTO  = min(mu_OK, mu_HIGH)
+#   - CERCA_BAJO  = min(mu_OK, mu_LOW)
 # ============================================================
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ def _upper_dom(s):
 
 
 # ============================================================
-# Evaluación base
+# Evaluacion base
 # ============================================================
 def evaluar_fuzzys(inputs: dict,
                    limites: dict,
@@ -66,19 +67,11 @@ def evaluar_pendiente_var(var_name: str,
                           dt_min_floor: float = 1e-6,
                           ventana_s: float = 60.0,
                           min_puntos: int = 3) -> dict:
-    """
-    Evalúa la pendiente fuzzy usando todos los datos disponibles en una
-    ventana temporal hacia atrás.
-
-    La pendiente numérica se estima con una regresión lineal sobre los puntos
-    (tiempo, valor) dentro de la ventana, y luego se convierte a unidades por
-    minuto antes de pasarla al modelo fuzzy correspondiente.
-    """
+    """Pendiente fuzzy estimada por regresion lineal en una ventana."""
     import numpy as np
 
     modelo = PEND_MODELOS[var_name]
 
-    # Compatibilidad con historiales antiguos que guardaban solo el último punto
     prev_hist = hist.get(var_name)
     if prev_hist is None:
         hist[var_name] = []
@@ -87,10 +80,8 @@ def evaluar_pendiente_var(var_name: str,
     elif not isinstance(prev_hist, list):
         hist[var_name] = []
 
-    # Agregar la muestra actual
     hist[var_name].append((float(t_s), float(pv)))
 
-    # Conservar solo los puntos dentro de la ventana
     t_min_aceptable = float(t_s) - float(ventana_s)
     hist[var_name] = [(tt, yy) for tt, yy in hist[var_name] if float(tt) >= t_min_aceptable]
 
@@ -101,19 +92,12 @@ def evaluar_pendiente_var(var_name: str,
     else:
         t_vals = np.array([float(p[0]) for p in puntos], dtype=float)
         y_vals = np.array([float(p[1]) for p in puntos], dtype=float)
-
-        # Referencia temporal para estabilidad numérica
         t_ref = t_vals - t_vals[0]
-
-        # Evitar ajuste degenerado
         if np.allclose(t_ref.max() - t_ref.min(), 0.0):
             slope_per_min = 0.0
         else:
             m, b = np.polyfit(t_ref, y_vals, 1)
-            # m queda en unidades/seg -> convertir a unidades/min
             slope_per_min = float(m * 60.0)
-
-            # Protección numérica extra
             if abs(slope_per_min) < float(dt_min_floor):
                 slope_per_min = 0.0
 
@@ -134,47 +118,36 @@ def evaluar_pendiente_var(var_name: str,
 
 
 # ============================================================
-# Etiquetas derivadas para compatibilizar reglas
+# Etiquetas compuestas
 # ============================================================
-def _triangular(x: float, a: float, b: float, c: float) -> float:
-    if x <= a or x >= c:
-        return 0.0
-    if x == b:
-        return 1.0
-    if x < b:
-        return (x - a) / (b - a) if (b - a) != 0 else 0.0
-    return (c - x) / (c - b) if (c - b) != 0 else 0.0
-
-
 def expandir_etiquetas_compuestas(fuzzy_out: dict,
                                   meta_flags: dict | None = None) -> dict:
     """
-    Agrega etiquetas que aparecen en las reglas pero no en los fuzzys base:
-      - NO-HIGH, NO-LOW
-      - NO-DEC, NO-INC
-      - CERCA_BAJO (solo para potencia)
-      - flags meta, por ejemplo __R15=OFF
+    Agrega etiquetas derivadas que aparecen en las reglas/permisivos:
+      - NO-<LABEL> = 1 - mu(<LABEL>)  para cada etiqueta presente
+      - CERCA_ALTO = min(mu_OK, mu_HIGH)   (transicion OK->HIGH)
+      - CERCA_BAJO = min(mu_OK, mu_LOW)    (transicion OK->LOW)
+      - flags meta (ej. __R15=OFF si quedara alguno en uso)
     """
     out = deepcopy(fuzzy_out)
 
     for var, info in out.items():
         pert = info.setdefault("pert", {})
 
-        if "HIGH" in pert:
-            pert.setdefault("NO-HIGH", float(max(0.0, 1.0 - pert.get("HIGH", 0.0))))
-        if "LOW" in pert:
-            pert.setdefault("NO-LOW", float(max(0.0, 1.0 - pert.get("LOW", 0.0))))
-        if "DEC" in pert:
-            pert.setdefault("NO-DEC", float(max(0.0, 1.0 - pert.get("DEC", 0.0))))
-        if "INC" in pert:
-            pert.setdefault("NO-INC", float(max(0.0, 1.0 - pert.get("INC", 0.0))))
+        # Genericos: NO-<X> para cada etiqueta existente
+        for label in list(pert.keys()):
+            no_label = f"NO-{label}"
+            if no_label not in pert:
+                pert[no_label] = float(max(0.0, 1.0 - pert.get(label, 0.0)))
 
-        if str(var).lower() == "potencia":
-            off = float(info.get("offset", 0.0))
-            # cercanía al límite bajo: pico en 120 y cae hacia 0 y 500
-            pert.setdefault("CERCA_BAJO", float(max(0.0, min(1.0, _triangular(off, 0.0, 120.0, 500.0)))))
+        # CERCA_ALTO / CERCA_BAJO si existen las tres etiquetas L/O/H
+        if "OK" in pert and "HIGH" in pert:
+            pert.setdefault("CERCA_ALTO", float(min(pert["OK"], pert["HIGH"])))
+        if "OK" in pert and "LOW" in pert:
+            pert.setdefault("CERCA_BAJO", float(min(pert["OK"], pert["LOW"])))
 
-    meta_flags = meta_flags or {"__R15": "OFF"}
+    # Meta-flags ON/OFF
+    meta_flags = meta_flags or {}
     for meta_name, active_label in meta_flags.items():
         label = str(active_label).upper()
         entry = out.setdefault(str(meta_name), {"dom": label, "val": 1.0, "offset": 0.0, "pert": {}})

@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Simulación del sistema experto con datos aleatorios (standalone — Prototipo_2).
+"""Simulacion del sistema experto Espesador con datos aleatorios (standalone -- Prototipo_2).
 
-Genera un DataFrame con datos de proceso sintéticos que varían
-de forma realista, inyecta los parámetros operacionales requeridos,
-ejecuta el sistema experto y muestra los resultados.
+Genera un DataFrame con datos sinteticos del proceso de espesado:
+- Variables de proceso (PV) que el motor fuzzifica.
+- Variables crudas de sensores (tonelajes SAG, presiones de bombas,
+  turbiedad), a partir de las cuales el runner calcula automaticamente
+  las variables derivadas (delta tonelaje, desv. estandar, diferenciales).
+
+Los datos se construyen en 3 fases (estable -> alerta -> recuperacion) para
+ejercitar reglas de los bloques critico y de estabilidad.
 """
 
-import sys
 import os
+import sys
 
-# Asegurar que este directorio esté en el path
+# Asegurar que este directorio este en el path para imports planos.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
@@ -17,205 +22,191 @@ import pandas as pd
 
 from runner import correr_prueba_general
 
+
 # ============================================================
-# 1. PARAMETROS OPERACIONALES (inyectados desde fuera del core)
+# 1. PARAMETROS OPERACIONALES
 # ============================================================
 
-# Setpoints iniciales
+# Setpoints iniciales (claves segun SETPOINT_KEYS en config.py).
 SETPOINTS_BASE = {
-    "sp_ton": 1500.0,   # ton/h
-    "sp_am": 250.0,     # m3/h agua molino
-    "sp_ac": 120.0,     # m3/h agua cajón
-    "sp_rpm": 900.0,    # RPM bomba
+    "sp_tonelaje":   2200.0,   # t/h
+    "sp_floculante": 25.0,     # g/t
+    "sp_vel_bomba":  55.0,     # % velocidad bomba descarga
 }
 
-# Límites de setpoints para clip y cálculo de magnitudes
+# Limites por familia de SP para clipear los efectos defuzzy.
 LIMITES_SP = {
-    "ton": (1000.0, 2200.0),
-    "am":  (100.0, 450.0),
-    "ac":  (50.0, 250.0),
-    "rpm": (400.0, 1400.0),
+    "sp_tonelaje":   (1500.0, 3500.0),
+    "sp_floculante": (5.0,    80.0),
+    "sp_vel_bomba":  (20.0,   95.0),
 }
 
-# Límites fuzzy fijos para la simulación
+# Limites fuzzy fijos por variable de proceso (lmin, lmax).
+# Si en el futuro estos limites varian dia a dia, basta con escribir las
+# columnas {var}_lmin / {var}_lmax fila a fila en el DataFrame.
 LIMITES_FUZZY = {
-    "potencia_lmin": 2800.0,
-    "potencia_lmax": 5200.0,
-    "nivel_lmin": 40.0,
-    "nivel_lmax": 90.0,
-    "presion_lmin": 8.0,
-    "presion_lmax": 22.0,
-    "p80_lmin": 140.0,
-    "p80_lmax": 260.0,
-    "densidad_lmin": 1.35,
-    "densidad_lmax": 1.85,
+    "torque":               (40.0,  90.0),    # %
+    "bed_mass":             (200.0, 900.0),   # t
+    "bed_level":            (0.8,   4.0),     # m
+    "densidad":             (55.0,  78.0),    # % solidos
+    "torque_bomba":         (30.0,  90.0),    # %
+    "potencia_bomba":       (150.0, 750.0),   # kW
+    "presion_descarga":     (5.0,   22.0),    # bar
+    "presion_diferencial":  (1.0,   12.0),    # bar
+    "nivel_rastra":         (0.0,   20.0),    # %
 }
 
-# Meta flags
-META_FLAGS = {"__R15": "OFF"}
-
 
 # ============================================================
-# 2. GENERACION DE DATOS ALEATORIOS REALISTAS
+# 2. GENERACION DE DATOS
 # ============================================================
 
-def generar_datos_proceso(n_muestras: int = 200, dt_s: float = 5.0, seed: int = 42) -> pd.DataFrame:
-    """
-    Genera un DataFrame con datos de proceso sintéticos.
+def _tres_fases(n: int, valor_inicio: float, valor_pico: float, valor_final: float) -> np.ndarray:
+    """Construye una serie en 3 fases (estable -> alerta -> recuperacion)."""
+    n1 = int(n * 0.35)
+    n2 = int(n * 0.35)
+    n3 = n - n1 - n2
+    return np.concatenate([
+        np.linspace(valor_inicio, valor_inicio, n1),
+        np.linspace(valor_inicio, valor_pico, n2),
+        np.linspace(valor_pico, valor_final, n3),
+    ])
 
-    Los valores simulan un proceso de molienda con:
-    - Tendencias suaves (random walk con drift)
-    - Ruido de medición
-    - Periodos de anomalía (potencia baja, nivel alto, etc.)
+
+def generar_datos_proceso(n_muestras: int = 240, dt_s: float = 60.0, seed: int = 42) -> pd.DataFrame:
+    """Genera datos sinteticos del Espesador.
+
+    Devuelve un DataFrame listo para el runner v2: incluye todas las PV,
+    sus limites fuzzy y las variables crudas de sensores. El runner aplica
+    `calcular_variables_df()` para producir las variables externas.
     """
     rng = np.random.default_rng(seed)
-
     t_s = np.arange(0, n_muestras * dt_s, dt_s, dtype=float)
     n = len(t_s)
 
-    # --- Potencia: oscila entre 2900 y 5100 con tendencias ---
-    # Creamos 3 fases: normal, caída, recuperación
-    fase1 = int(n * 0.4)
-    fase2 = int(n * 0.3)
-    fase3 = n - fase1 - fase2
+    # --- Variables de proceso (PV) con anomalias para disparar reglas ---
+    torque              = _tres_fases(n, 70.0,  92.0, 72.0) + rng.normal(0, 1.2, n)
+    bed_mass            = _tres_fases(n, 500.0, 870.0, 520.0) + rng.normal(0, 12.0, n)
+    bed_level           = _tres_fases(n, 2.4,   1.0,  2.5) + rng.normal(0, 0.08, n)
+    densidad            = _tres_fases(n, 66.0,  77.0, 65.0) + rng.normal(0, 0.4, n)
+    torque_bomba        = _tres_fases(n, 60.0,  88.0, 62.0) + rng.normal(0, 1.5, n)
+    potencia_bomba      = _tres_fases(n, 400.0, 720.0, 420.0) + rng.normal(0, 8.0, n)
+    presion_descarga    = _tres_fases(n, 12.0,  21.0, 13.0) + rng.normal(0, 0.3, n)
+    presion_diferencial = _tres_fases(n, 5.0,   1.4,  5.2) + rng.normal(0, 0.15, n)
+    nivel_rastra        = _tres_fases(n, 3.0,   18.0, 4.0) + rng.normal(0, 0.4, n)
 
-    pot_base = np.concatenate([
-        np.linspace(4000, 3800, fase1),       # operación normal, leve caída
-        np.linspace(3800, 3050, fase2),        # caída de potencia (problema)
-        np.linspace(3050, 4200, fase3),        # recuperación
-    ])
-    potencia = pot_base + rng.normal(0, 40, n)
+    # --- Variables crudas de sensores (las consume calcular_variables_df) ---
+    tonelaje_sag_1   = _tres_fases(n, 2000.0, 2600.0, 2050.0) + rng.normal(0, 25.0, n)
+    tonelaje_sag_2   = _tres_fases(n, 2050.0, 2700.0, 2080.0) + rng.normal(0, 25.0, n)
+    tonelaje_relave  = _tres_fases(n, 3800.0, 4900.0, 3900.0) + rng.normal(0, 35.0, n)
+    presion_bomba_1  = _tres_fases(n, 14.0,   20.0,  14.5) + rng.normal(0, 0.4, n)
+    presion_bomba_2  = _tres_fases(n, 14.0,   19.0,  14.0) + rng.normal(0, 0.4, n)
+    turbiedad_agua   = _tres_fases(n, 25.0,   60.0,  28.0) + rng.normal(0, 2.0, n)
 
-    # --- Nivel: sube cuando la potencia cae ---
-    nivel_base = np.concatenate([
-        np.linspace(65, 70, fase1),
-        np.linspace(70, 85, fase2),           # nivel sube con el problema
-        np.linspace(85, 60, fase3),
-    ])
-    nivel = nivel_base + rng.normal(0, 1.5, n)
-
-    # --- Presión: correlaciona parcialmente con nivel ---
-    presion_base = np.concatenate([
-        np.linspace(14, 15, fase1),
-        np.linspace(15, 20, fase2),           # presión sube
-        np.linspace(20, 13, fase3),
-    ])
-    presion = presion_base + rng.normal(0, 0.5, n)
-
-    # --- P80: sube cuando hay problema ---
-    p80_base = np.concatenate([
-        np.linspace(200, 210, fase1),
-        np.linspace(210, 255, fase2),          # p80 sube (molienda gruesa)
-        np.linspace(255, 195, fase3),
-    ])
-    p80 = p80_base + rng.normal(0, 2, n)
-
-    # --- Densidad: varia moderadamente ---
-    densidad_base = np.concatenate([
-        np.linspace(1.58, 1.62, fase1),
-        np.linspace(1.62, 1.75, fase2),        # densidad sube
-        np.linspace(1.75, 1.55, fase3),
-    ])
-    densidad = densidad_base + rng.normal(0, 0.02, n)
-
-    # Asignar ventanas de 10 minutos
+    # --- Ventanas de 10 min (informativas) ---
     ventana_dur_s = 600.0
     ventana_idx = (t_s // ventana_dur_s).astype(int)
     ventana_nombre = [f"V{int(vi):02d}" for vi in ventana_idx]
 
-    df = pd.DataFrame({
+    datos = {
         "t_s": t_s,
-        "potencia": potencia,
-        "nivel": nivel,
-        "presion": presion,
-        "p80": p80,
-        "densidad": densidad,
-        # Setpoints iniciales (el experto los sobrescribirá internamente)
-        "sp_ton": SETPOINTS_BASE["sp_ton"],
-        "sp_am": SETPOINTS_BASE["sp_am"],
-        "sp_ac": SETPOINTS_BASE["sp_ac"],
-        "sp_rpm": SETPOINTS_BASE["sp_rpm"],
-        # Límites fuzzy (fijos en esta simulación)
-        "potencia_lmin": LIMITES_FUZZY["potencia_lmin"],
-        "potencia_lmax": LIMITES_FUZZY["potencia_lmax"],
-        "nivel_lmin": LIMITES_FUZZY["nivel_lmin"],
-        "nivel_lmax": LIMITES_FUZZY["nivel_lmax"],
-        "presion_lmin": LIMITES_FUZZY["presion_lmin"],
-        "presion_lmax": LIMITES_FUZZY["presion_lmax"],
-        "p80_lmin": LIMITES_FUZZY["p80_lmin"],
-        "p80_lmax": LIMITES_FUZZY["p80_lmax"],
-        "densidad_lmin": LIMITES_FUZZY["densidad_lmin"],
-        "densidad_lmax": LIMITES_FUZZY["densidad_lmax"],
+        # PV
+        "torque":              torque,
+        "bed_mass":            bed_mass,
+        "bed_level":           bed_level,
+        "densidad":            densidad,
+        "torque_bomba":        torque_bomba,
+        "potencia_bomba":      potencia_bomba,
+        "presion_descarga":    presion_descarga,
+        "presion_diferencial": presion_diferencial,
+        "nivel_rastra":        nivel_rastra,
+        # Crudas
+        "tonelaje_sag_1":   tonelaje_sag_1,
+        "tonelaje_sag_2":   tonelaje_sag_2,
+        "tonelaje_relave":  tonelaje_relave,
+        "presion_bomba_1":  presion_bomba_1,
+        "presion_bomba_2":  presion_bomba_2,
+        "turbiedad_agua":   turbiedad_agua,
         # Ventanas
-        "ventana_idx": ventana_idx,
-        "ventana_nombre": ventana_nombre,
-    })
+        "ventana_idx":     ventana_idx,
+        "ventana_nombre":  ventana_nombre,
+    }
 
-    return df
+    # Limites fuzzy por variable (constantes en la simulacion).
+    for var, (lmin, lmax) in LIMITES_FUZZY.items():
+        datos[f"{var}_lmin"] = np.full(n, lmin, dtype=float)
+        datos[f"{var}_lmax"] = np.full(n, lmax, dtype=float)
+
+    # SPs como columnas (el runner los lee desde setpoints_base, pero
+    # COLUMNAS_ENTRADA los mapea por nombre).
+    for sp, valor in SETPOINTS_BASE.items():
+        datos[sp] = np.full(n, valor, dtype=float)
+
+    return pd.DataFrame(datos)
 
 
 # ============================================================
 # 3. EJECUCION
 # ============================================================
 
-def main():
+def main() -> dict:
     print("=" * 80)
-    print("  SIMULACION DEL SISTEMA EXPERTO DIFUSO")
-    print("  Datos aleatorios — Prototipo 2")
+    print("  SIMULACION DEL SISTEMA EXPERTO ESPESADOR")
+    print("  Datos aleatorios -- Prototipo_2")
     print("=" * 80)
 
-    # Generar datos
-    df_data = generar_datos_proceso(n_muestras=200, dt_s=5.0, seed=42)
+    df_data = generar_datos_proceso(n_muestras=240, dt_s=60.0, seed=42)
     print(f"\nDatos generados: {len(df_data)} muestras, "
-          f"duración: {df_data['t_s'].max():.0f} s ({df_data['t_s'].max()/60:.1f} min)")
-    print(f"\nPrimeras 5 filas de datos de entrada:")
-    print(df_data[["t_s", "potencia", "nivel", "presion", "p80", "densidad"]].head().to_string(index=False))
+          f"duracion: {df_data['t_s'].max():.0f} s "
+          f"({df_data['t_s'].max() / 60:.1f} min).")
+    print("\nPrimeras 5 filas (PV principales):")
+    cols_pv = [
+        "t_s", "torque", "bed_mass", "bed_level", "densidad",
+        "presion_descarga", "presion_diferencial", "nivel_rastra",
+    ]
+    print(df_data[cols_pv].head().to_string(index=False))
 
     print(f"\nSetpoints iniciales: {SETPOINTS_BASE}")
-    print(f"Límites de SP: {LIMITES_SP}")
+    print(f"Limites de SP:       {LIMITES_SP}")
 
-    # Ejecutar el sistema experto
     print("\n" + "-" * 80)
-    print("  EJECUTANDO SISTEMA EXPERTO...")
+    print("  EJECUTANDO SISTEMA EXPERTO ESPESADOR (v2)...")
     print("-" * 80 + "\n")
 
     resultados = correr_prueba_general(
         df_data=df_data,
         setpoints_base=SETPOINTS_BASE,
         limites_sp=LIMITES_SP,
-        meta_flags=META_FLAGS,
         min_belief=0.05,
         verbose=True,
+        calcular_vars=True,
+        dt_s=60.0,
     )
 
-    # Resumen adicional
     df_res = resultados["resultados"]
     df_ev = resultados["eventos"]
 
     print("\n" + "=" * 80)
     print("  RESUMEN DE LA SIMULACION")
     print("=" * 80)
+    print(f"Muestras procesadas: {len(df_res)}")
+    print(f"Eventos disparados:  {len(df_ev)}")
 
-    print(f"\nMuestras procesadas:    {len(df_res)}")
-    print(f"Eventos disparados:     {len(df_ev)}")
+    if not df_res.empty:
+        ultima = df_res.iloc[-1]
+        print("\nSetpoints finales:")
+        for sp in SETPOINTS_BASE.keys():
+            print(f"  {sp:<14} = {float(ultima[sp]):.3f}")
 
     if not df_ev.empty:
-        print(f"\nSetpoints finales:")
-        ultima = df_res.iloc[-1]
-        print(f"  sp_ton = {ultima['sp_ton']:.2f}")
-        print(f"  sp_am  = {ultima['sp_am']:.2f}")
-        print(f"  sp_ac  = {ultima['sp_ac']:.2f}")
-        print(f"  sp_rpm = {ultima['sp_rpm']:.2f}")
-
-        print(f"\nDetalle de eventos (primeros 15):")
-        cols_ev = ["t_s", "regla_id", "acciones", "belief"]
-        cols_ev = [c for c in cols_ev if c in df_ev.columns]
+        print("\nDetalle de eventos (primeros 15):")
+        cols_ev = [c for c in ("t_s", "regla_id", "bloque", "acciones", "belief") if c in df_ev.columns]
         print(df_ev[cols_ev].head(15).to_string(index=False))
     else:
-        print("\nNo se disparó ninguna regla durante la simulación.")
+        print("\nNo se disparo ninguna regla durante la simulacion.")
 
     print("\n" + "=" * 80)
-    print("  SIMULACION COMPLETADA EXITOSAMENTE")
+    print("  SIMULACION COMPLETADA")
     print("=" * 80)
 
     return resultados
