@@ -2,8 +2,6 @@
   {
     "id": "E1.S1",
     "bloque": "critico",
-    "priority": 100.0,
-    "weight": 1.0,
     "if": [
       {
         "AND": [
@@ -45,13 +43,13 @@
     "then": [
       "DISMINUIR_VEL_BOMBA_FUERTE",
       "DISMINUIR_TONELAJE_FUERTE"
-    ]
+    ],
+    "weight": 1.0,
+    "priority": 40.0
   },
   {
     "id": "E1.S2",
     "bloque": "critico",
-    "priority": 100.0,
-    "weight": 1.0,
     "if": [
       {
         "AND": [
@@ -93,13 +91,13 @@
     "then": [
       "DISMINUIR_VEL_BOMBA_FUERTE",
       "DISMINUIR_TONELAJE"
-    ]
+    ],
+    "weight": 1.0,
+    "priority": 90.0
   },
   {
     "id": "E1.S3",
     "bloque": "critico",
-    "priority": 100.0,
-    "weight": 1.0,
     "if": [
       {
         "AND": [
@@ -141,7 +139,9 @@
     "then": [
       "DISMINUIR_VEL_BOMBA",
       "DISMINUIR_TONELAJE_FUERTE"
-    ]
+    ],
+    "weight": 1.0,
+    "priority": 40.0
   },
   {
     "id": "E1.S4",

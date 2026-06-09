@@ -1,0 +1,321 @@
+{
+  "tags": [
+    {
+      "id": 1,
+      "name": "RETO.IN.Potencia_SAG",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 2,
+      "name": "RETO.IN.Potencia_Bolas",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 3,
+      "name": "RETO.IN.Nivel_Molino",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 4,
+      "name": "RETO.PV.torque",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 5,
+      "name": "RETO.PV.bed_mass",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 6,
+      "name": "RETO.PV.bed_level",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 7,
+      "name": "RETO.PV.densidad",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 8,
+      "name": "RETO.PV.torque_bomba",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 9,
+      "name": "RETO.PV.potencia_bomba",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 10,
+      "name": "RETO.PV.presion_descarga",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 11,
+      "name": "RETO.PV.presion_diferencial",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 12,
+      "name": "RETO.PV.nivel_rastra",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 13,
+      "name": "RETO.CRUDA.tonelaje_sag_1",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 14,
+      "name": "RETO.CRUDA.tonelaje_sag_2",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 15,
+      "name": "RETO.CRUDA.tonelaje_relave",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 16,
+      "name": "RETO.CRUDA.presion_bomba_1",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 17,
+      "name": "RETO.CRUDA.presion_bomba_2",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 18,
+      "name": "RETO.CRUDA.turbiedad_agua",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 19,
+      "name": "RETO.LIM.torque_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 20,
+      "name": "RETO.LIM.torque_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 21,
+      "name": "RETO.LIM.bed_mass_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 22,
+      "name": "RETO.LIM.bed_mass_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 23,
+      "name": "RETO.LIM.bed_level_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 24,
+      "name": "RETO.LIM.bed_level_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 25,
+      "name": "RETO.LIM.densidad_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 26,
+      "name": "RETO.LIM.densidad_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 27,
+      "name": "RETO.LIM.torque_bomba_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 28,
+      "name": "RETO.LIM.torque_bomba_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 29,
+      "name": "RETO.LIM.potencia_bomba_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 30,
+      "name": "RETO.LIM.potencia_bomba_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 31,
+      "name": "RETO.LIM.presion_descarga_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 32,
+      "name": "RETO.LIM.presion_descarga_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 33,
+      "name": "RETO.LIM.presion_diferencial_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 34,
+      "name": "RETO.LIM.presion_diferencial_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 35,
+      "name": "RETO.LIM.nivel_rastra_lmin",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 36,
+      "name": "RETO.LIM.nivel_rastra_lmax",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 37,
+      "name": "RETO.SP.sp_tonelaje",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 38,
+      "name": "RETO.SP.sp_floculante",
+      "data_type": "Float",
+      "enabled": true
+    },
+    {
+      "id": 39,
+      "name": "RETO.SP.sp_vel_bomba",
+      "data_type": "Float",
+      "enabled": true
+    }
+  ],
+  "next_id": 40,
+  "simulation_mode": false,
+  "generator": {
+    "intervalo_s": 5.0,
+    "n_ciclo": 60,
+    "ranges": {
+      "RETO.PV.torque": {
+        "min": 40,
+        "max": 90,
+        "noise": 3
+      },
+      "RETO.PV.bed_mass": {
+        "min": 200,
+        "max": 900,
+        "noise": 20
+      },
+      "RETO.PV.bed_level": {
+        "min": 1.5,
+        "max": 6,
+        "noise": 0.2
+      },
+      "RETO.PV.densidad": {
+        "min": 45,
+        "max": 75,
+        "noise": 2
+      },
+      "RETO.PV.torque_bomba": {
+        "min": 30,
+        "max": 80,
+        "noise": 3
+      },
+      "RETO.PV.potencia_bomba": {
+        "min": 50,
+        "max": 200,
+        "noise": 8
+      },
+      "RETO.PV.presion_descarga": {
+        "min": 2,
+        "max": 12,
+        "noise": 0.5
+      },
+      "RETO.PV.presion_diferencial": {
+        "min": 0.5,
+        "max": 4,
+        "noise": 0.2
+      },
+      "RETO.PV.nivel_rastra": {
+        "min": 20,
+        "max": 80,
+        "noise": 3
+      },
+      "RETO.CRUDA.tonelaje_sag_1": {
+        "min": 800,
+        "max": 1800,
+        "noise": 40
+      },
+      "RETO.CRUDA.tonelaje_sag_2": {
+        "min": 800,
+        "max": 1800,
+        "noise": 40
+      },
+      "RETO.CRUDA.tonelaje_relave": {
+        "min": 1500,
+        "max": 3500,
+        "noise": 60
+      },
+      "RETO.CRUDA.presion_bomba_1": {
+        "min": 2,
+        "max": 10,
+        "noise": 0.4
+      },
+      "RETO.CRUDA.presion_bomba_2": {
+        "min": 2,
+        "max": 10,
+        "noise": 0.4
+      },
+      "RETO.CRUDA.turbiedad_agua": {
+        "min": 5,
+        "max": 50,
+        "noise": 3
+      }
+    }
+  }
+}

@@ -63,10 +63,51 @@ PROTECTED_ONLY: tuple[tuple[str, str], ...] = (
     ("fuzzy.json", "Membresias fuzzy (offset + HIGH/OK/LOW) editables en vivo desde la UI."),
     ("variables.json", "Catalogo de variables crudas y definiciones calculadas editables en vivo."),
     ("permisivos.json", "Permisivos operacionales (OR/AND/NOT) editables en vivo desde la UI."),
+    ("tags.json", "Configuracion de tags KEPserver editable desde la UI."),
     ("requirements.txt", "Dependencias del modo standalone."),
     ("README.txt", "Documentacion operativa del prototipo."),
     ("proyecto_contexto.md", "Contexto funcional del prototipo."),
 )
+
+IGNORED_FILES: set[str] = {"__init__.py", "__pycache__"}
+
+
+def discover_new_core_files() -> list[tuple[str, str]]:
+    """Detect .py files in core/ not listed in any sync rule.
+
+    Returns them as AUTO_SYNC candidates (safe default: byte-for-byte copy).
+    Files with relative imports are flagged for AUTO_ADAPT instead.
+    """
+    known = {name for name, _ in AUTO_SYNC_RULES}
+    known |= {name for name, _ in AUTO_ADAPT_RULES}
+    known |= {name for name, _ in MANUAL_REVIEW_RULES}
+    known |= {name for name, _ in PROTECTED_ONLY}
+    known |= IGNORED_FILES
+
+    new_files: list[tuple[str, str]] = []
+    if not CORE_DIR.is_dir():
+        return new_files
+    for path in sorted(CORE_DIR.iterdir()):
+        if not path.is_file() or path.name in known:
+            continue
+        if path.suffix not in (".py", ".json", ".txt", ".md"):
+            continue
+        new_files.append((path.name, f"Auto-descubierto en core/ (no listado en reglas)."))
+    return new_files
+
+
+def classify_new_file(name: str) -> str:
+    """Determine if a new file needs adapt (has relative imports) or plain copy."""
+    source = CORE_DIR / name
+    if not source.is_file():
+        return "copy"
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError:
+        return "copy"
+    if _RE_FROM_DOT_MODULE.search(text) or _RE_FROM_DOT_BARE.search(text):
+        return "adapt"
+    return "copy"
 
 
 @dataclass(frozen=True)
@@ -637,9 +678,24 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: {error}", file=sys.stderr)
         return 2
 
-    auto_statuses = build_pair_statuses(AUTO_SYNC_RULES, target_dir)
-    adapted_statuses = build_pair_statuses(AUTO_ADAPT_RULES, target_dir, strategy="adapt")
+    # Discover new files in core/ not in any rule list
+    new_core_files = discover_new_core_files()
+    new_sync = [(n, r) for n, r in new_core_files if classify_new_file(n) == "copy"]
+    new_adapt = [(n, r) for n, r in new_core_files if classify_new_file(n) == "adapt"]
+
+    effective_auto_sync = AUTO_SYNC_RULES + tuple(new_sync)
+    effective_auto_adapt = AUTO_ADAPT_RULES + tuple(new_adapt)
+
+    auto_statuses = build_pair_statuses(effective_auto_sync, target_dir)
+    adapted_statuses = build_pair_statuses(effective_auto_adapt, target_dir, strategy="adapt")
     manual_statuses = build_pair_statuses(MANUAL_REVIEW_RULES, target_dir)
+
+    if new_core_files:
+        print(f"Archivos nuevos descubiertos en core/ ({len(new_core_files)}):")
+        for name, _ in new_core_files:
+            strategy = classify_new_file(name)
+            print(f"  + {name}  (estrategia: {strategy})")
+        print()
 
     protected_statuses = [
         PairStatus(

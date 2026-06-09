@@ -24,6 +24,12 @@ Endpoints API:
   GET    /api/permisivos           -- Permisivos vigentes (permisivos.json).
   PUT    /api/permisivos           -- Reemplazar el catalogo completo de permisivos.
   POST   /api/permisivos/reset     -- Restaurar defaults de core.
+  GET    /api/tags                 -- Listar todos los tags con su estado KEPserver.
+  POST   /api/tags                 -- Crear un tag nuevo.
+  PUT    /api/tags/<id>            -- Actualizar un tag (nombre, tipo, enabled).
+  DELETE /api/tags/<id>            -- Eliminar un tag.
+  POST   /api/tags/<id>/write      -- Escribir un valor al KEPserver.
+  POST   /api/tags/refresh         -- Re-leer todos los valores del KEPserver.
   POST   /api/simulacion           -- Ejecutar simulacion completa (sincrona).
   POST   /api/simulacion/start     -- Inicializar streaming.
   GET    /api/simulacion/next      -- Devolver siguiente lote (streaming).
@@ -38,6 +44,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 import traceback
 
 from flask import Flask, Response, jsonify, request
@@ -62,6 +70,7 @@ DEFUZZY_JSON    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "defu
 FUZZY_JSON      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fuzzy.json")
 VARIABLES_JSON  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "variables.json")
 PERMISIVOS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "permisivos.json")
+TAGS_JSON       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tags.json")
 
 
 # ============================================================
@@ -1035,6 +1044,645 @@ def api_reset_permisivos():
 
 
 # ============================================================
+# Tags KEPserver
+# ============================================================
+
+def _load_tags() -> dict:
+    if not os.path.exists(TAGS_JSON):
+        return {"tags": [], "next_id": 1}
+    with open(TAGS_JSON, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_tags(data: dict) -> None:
+    with open(TAGS_JSON, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+KEPSERVER_URL = "opc.tcp://127.0.0.1:49320"
+
+
+def _read_kepserver_tags_batch(tag_names: list[str]) -> dict[str, dict]:
+    """Read multiple tags from KEPserver in a single OPC-UA session.
+
+    Returns {tag_name: {"connected", "exists", "value", "quality"}} for each tag.
+    """
+    default = lambda: {"connected": False, "exists": False, "value": None, "quality": "Unknown"}
+    results = {n: default() for n in tag_names}
+    if not tag_names:
+        return results
+    try:
+        from opcua import Client  # type: ignore
+        client = Client(KEPSERVER_URL)
+        client.connect()
+        try:
+            for name in tag_names:
+                try:
+                    node = client.get_node(f'ns=2;s={name}')
+                    val = node.get_value()
+                    results[name] = {"connected": True, "exists": True,
+                                     "value": val, "quality": "Good"}
+                except Exception:
+                    results[name] = {"connected": True, "exists": False,
+                                     "value": None, "quality": "Bad"}
+        finally:
+            client.disconnect()
+    except Exception:
+        pass
+    return results
+
+
+def _try_write_kepserver_tag(tag_name: str, value, data_type: str) -> dict:
+    """Write a value to a KEPserver tag via OPC-UA."""
+    try:
+        from opcua import Client, ua  # type: ignore
+        client = Client(KEPSERVER_URL)
+        client.connect()
+        try:
+            node = client.get_node(f'ns=2;s={tag_name}')
+            type_map = {
+                "Float": ua.VariantType.Float,
+                "Int": ua.VariantType.Int32,
+                "Boolean": ua.VariantType.Boolean,
+                "String": ua.VariantType.String,
+            }
+            vtype = type_map.get(data_type, ua.VariantType.Float)
+            node.set_value(ua.DataValue(ua.Variant(value, vtype)))
+            return {"ok": True, "error": None}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            client.disconnect()
+    except Exception as e:
+        return {"ok": False, "error": f"Sin conexion OPC-UA: {e}"}
+
+
+def _enrich_tags_with_kepserver(tags: list[dict]) -> list[dict]:
+    """Add KEPserver live data to each tag dict."""
+    enabled_tags = {t["name"]: t for t in tags if t.get("enabled", True)}
+    live = _read_kepserver_tags_batch(list(enabled_tags.keys()))
+    results = []
+    for tag in tags:
+        if tag.get("enabled", True) and tag["name"] in live:
+            results.append({**tag, **live[tag["name"]]})
+        else:
+            results.append({**tag, "connected": False, "exists": False,
+                            "value": None, "quality": "Suspended"})
+    return results
+
+
+@app.route("/api/tags", methods=["GET"])
+def api_get_tags():
+    data = _load_tags()
+    return jsonify({
+        "tags": _enrich_tags_with_kepserver(data["tags"]),
+        "simulation_mode": data.get("simulation_mode", True),
+    })
+
+
+@app.route("/api/tags", methods=["POST"])
+def api_create_tag():
+    body = request.get_json(force=True)
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "El nombre del tag es obligatorio."}), 400
+    data_type = body.get("data_type", "Float")
+    if data_type not in ("Float", "Int", "Boolean", "String"):
+        return jsonify({"error": "Tipo de dato no soportado."}), 400
+
+    store = _load_tags()
+    for t in store["tags"]:
+        if t["name"] == name:
+            return jsonify({"error": f"Ya existe un tag con nombre '{name}'."}), 409
+    new_tag = {
+        "id": store["next_id"],
+        "name": name,
+        "data_type": data_type,
+        "enabled": True,
+    }
+    store["tags"].append(new_tag)
+    store["next_id"] += 1
+    _save_tags(store)
+    live = _read_kepserver_tags_batch([name])
+    return jsonify({"ok": True, "tag": {**new_tag, **live.get(name, {})}}), 201
+
+
+@app.route("/api/tags/<int:tag_id>", methods=["PUT"])
+def api_update_tag(tag_id: int):
+    body = request.get_json(force=True)
+    store = _load_tags()
+    tag = next((t for t in store["tags"] if t["id"] == tag_id), None)
+    if not tag:
+        return jsonify({"error": "Tag no encontrado."}), 404
+    if "name" in body:
+        new_name = body["name"].strip()
+        if new_name and new_name != tag["name"]:
+            if any(t["name"] == new_name for t in store["tags"] if t["id"] != tag_id):
+                return jsonify({"error": f"Ya existe un tag '{new_name}'."}), 409
+            tag["name"] = new_name
+    if "data_type" in body:
+        tag["data_type"] = body["data_type"]
+    if "enabled" in body:
+        tag["enabled"] = bool(body["enabled"])
+    _save_tags(store)
+    live = _read_kepserver_tags_batch([tag["name"]]) if tag["enabled"] else {}
+    info = live.get(tag["name"], {"connected": False, "exists": False, "value": None, "quality": "Suspended"})
+    return jsonify({"ok": True, "tag": {**tag, **info}})
+
+
+@app.route("/api/tags/<int:tag_id>", methods=["DELETE"])
+def api_delete_tag(tag_id: int):
+    store = _load_tags()
+    before = len(store["tags"])
+    store["tags"] = [t for t in store["tags"] if t["id"] != tag_id]
+    if len(store["tags"]) == before:
+        return jsonify({"error": "Tag no encontrado."}), 404
+    _save_tags(store)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tags/<int:tag_id>/write", methods=["POST"])
+def api_write_tag(tag_id: int):
+    body = request.get_json(force=True)
+    store = _load_tags()
+    tag = next((t for t in store["tags"] if t["id"] == tag_id), None)
+    if not tag:
+        return jsonify({"error": "Tag no encontrado."}), 404
+    if not tag["enabled"]:
+        return jsonify({"error": "El tag esta suspendido."}), 400
+    value = body.get("value")
+    result = _try_write_kepserver_tag(tag["name"], value, tag["data_type"])
+    return jsonify(result)
+
+
+@app.route("/api/tags/refresh", methods=["POST"])
+def api_refresh_tags():
+    """Re-read all tag values from KEPserver."""
+    store = _load_tags()
+    return jsonify({"tags": _enrich_tags_with_kepserver(store["tags"])})
+
+
+@app.route("/api/tags/simulation", methods=["GET"])
+def api_get_simulation_mode():
+    store = _load_tags()
+    return jsonify({"simulation_mode": store.get("simulation_mode", True)})
+
+
+@app.route("/api/tags/simulation", methods=["PUT"])
+def api_set_simulation_mode():
+    body = request.get_json(force=True)
+    mode = bool(body.get("simulation_mode", True))
+    store = _load_tags()
+    store["simulation_mode"] = mode
+    _save_tags(store)
+    return jsonify({"ok": True, "simulation_mode": mode})
+
+
+# ============================================================
+# Generador de datos para Tags KEPserver
+# ============================================================
+
+GENERATOR_DEFAULTS_PV = {
+    "RETO.PV.torque":               {"min": 40.0,  "max": 90.0,  "noise": 3.0},
+    "RETO.PV.bed_mass":             {"min": 200.0, "max": 900.0, "noise": 20.0},
+    "RETO.PV.bed_level":            {"min": 1.5,   "max": 6.0,   "noise": 0.2},
+    "RETO.PV.densidad":             {"min": 45.0,  "max": 75.0,  "noise": 2.0},
+    "RETO.PV.torque_bomba":         {"min": 30.0,  "max": 80.0,  "noise": 3.0},
+    "RETO.PV.potencia_bomba":       {"min": 50.0,  "max": 200.0, "noise": 8.0},
+    "RETO.PV.presion_descarga":     {"min": 2.0,   "max": 12.0,  "noise": 0.5},
+    "RETO.PV.presion_diferencial":  {"min": 0.5,   "max": 4.0,   "noise": 0.2},
+    "RETO.PV.nivel_rastra":         {"min": 20.0,  "max": 80.0,  "noise": 3.0},
+}
+
+GENERATOR_DEFAULTS_CRUDA = {
+    "RETO.CRUDA.tonelaje_sag_1":   {"min": 800.0,  "max": 1800.0, "noise": 40.0},
+    "RETO.CRUDA.tonelaje_sag_2":   {"min": 800.0,  "max": 1800.0, "noise": 40.0},
+    "RETO.CRUDA.tonelaje_relave":  {"min": 1500.0, "max": 3500.0, "noise": 60.0},
+    "RETO.CRUDA.presion_bomba_1":  {"min": 2.0,    "max": 10.0,   "noise": 0.4},
+    "RETO.CRUDA.presion_bomba_2":  {"min": 2.0,    "max": 10.0,   "noise": 0.4},
+    "RETO.CRUDA.turbiedad_agua":   {"min": 5.0,    "max": 50.0,   "noise": 3.0},
+}
+
+GENERATOR_DEFAULTS = {**GENERATOR_DEFAULTS_PV, **GENERATOR_DEFAULTS_CRUDA}
+
+
+def _tres_fases_valor(tick: int, n_ciclo: int, vmin: float, vmax: float, noise: float) -> float:
+    """Generate a value following 3-phase pattern (stable, alert, recovery) for given tick."""
+    import random
+    phase_pos = (tick % n_ciclo) / n_ciclo
+
+    if phase_pos < 0.35:
+        base = vmin + (vmax - vmin) * 0.2
+    elif phase_pos < 0.70:
+        progress = (phase_pos - 0.35) / 0.35
+        base = vmin + (vmax - vmin) * (0.2 + 0.7 * progress)
+    else:
+        progress = (phase_pos - 0.70) / 0.30
+        base = vmin + (vmax - vmin) * (0.9 - 0.5 * progress)
+
+    val = base + random.gauss(0, noise)
+    return max(vmin, min(vmax, val))
+
+
+class TagGenerator:
+    """Background thread that writes generated values to KEPserver."""
+
+    def __init__(self):
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._tick = 0
+        self._running = False
+        self._intervalo_s = 5.0
+        self._n_ciclo = 60
+        self._ranges: dict[str, dict] = dict(GENERATOR_DEFAULTS)
+        self._last_values: dict[str, float] = {}
+        self._last_error: str | None = None
+        self._load_config()
+
+    def _load_config(self):
+        store = _load_tags()
+        gen_cfg = store.get("generator", {})
+        self._intervalo_s = gen_cfg.get("intervalo_s", 5.0)
+        self._n_ciclo = gen_cfg.get("n_ciclo", 60)
+        if gen_cfg.get("ranges"):
+            self._ranges.update(gen_cfg["ranges"])
+
+    def _save_config(self):
+        store = _load_tags()
+        store["generator"] = {
+            "intervalo_s": self._intervalo_s,
+            "n_ciclo": self._n_ciclo,
+            "ranges": self._ranges,
+        }
+        _save_tags(store)
+
+    def _worker(self):
+        while not self._stop_event.is_set():
+            try:
+                self._write_tick()
+                self._tick += 1
+            except Exception as e:
+                self._last_error = str(e)
+            self._stop_event.wait(self._intervalo_s)
+
+    def _write_tick(self):
+        tags_to_write = {}
+        for tag_name, cfg in self._ranges.items():
+            val = _tres_fases_valor(
+                self._tick, self._n_ciclo,
+                cfg["min"], cfg["max"], cfg.get("noise", 0)
+            )
+            tags_to_write[tag_name] = val
+            self._last_values[tag_name] = val
+
+        try:
+            from opcua import Client, ua  # type: ignore
+            client = Client(KEPSERVER_URL)
+            client.connect()
+            try:
+                for tag_name, val in tags_to_write.items():
+                    try:
+                        node = client.get_node(f'ns=2;s={tag_name}')
+                        node.set_value(
+                            ua.DataValue(ua.Variant(float(val), ua.VariantType.Float))
+                        )
+                    except Exception:
+                        pass
+            finally:
+                client.disconnect()
+            self._last_error = None
+        except Exception as e:
+            self._last_error = f"OPC-UA: {e}"
+
+    def start(self):
+        if self._running:
+            return
+        self._load_config()
+        self._stop_event.clear()
+        self._tick = 0
+        self._last_error = None
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+        self._running = True
+
+    def stop(self):
+        if not self._running:
+            return
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=3)
+        self._running = False
+        self._thread = None
+
+    def update_config(self, intervalo_s=None, n_ciclo=None, ranges=None):
+        if intervalo_s is not None:
+            self._intervalo_s = max(0.5, float(intervalo_s))
+        if n_ciclo is not None:
+            self._n_ciclo = max(10, int(n_ciclo))
+        if ranges is not None:
+            for tag_name, cfg in ranges.items():
+                if tag_name in self._ranges:
+                    self._ranges[tag_name].update(cfg)
+                else:
+                    self._ranges[tag_name] = cfg
+        self._save_config()
+
+    def status(self) -> dict:
+        return {
+            "running": self._running,
+            "tick": self._tick,
+            "intervalo_s": self._intervalo_s,
+            "n_ciclo": self._n_ciclo,
+            "ranges": self._ranges,
+            "last_values": self._last_values,
+            "last_error": self._last_error,
+        }
+
+
+_tag_generator = TagGenerator()
+
+
+# ============================================================
+# SE Engine -- Sistema Experto en tiempo real via KEPserver
+# ============================================================
+
+TAG_TO_PV = {f"RETO.PV.{v}": v for v in [
+    "torque", "bed_mass", "bed_level", "densidad", "torque_bomba",
+    "potencia_bomba", "presion_descarga", "presion_diferencial", "nivel_rastra"
+]}
+TAG_TO_CRUDA = {f"RETO.CRUDA.{v}": v for v in [
+    "tonelaje_sag_1", "tonelaje_sag_2", "tonelaje_relave",
+    "presion_bomba_1", "presion_bomba_2", "turbiedad_agua"
+]}
+TAG_TO_LIM = {}
+for _var in ["torque", "bed_mass", "bed_level", "densidad", "torque_bomba",
+             "potencia_bomba", "presion_descarga", "presion_diferencial", "nivel_rastra"]:
+    TAG_TO_LIM[f"RETO.LIM.{_var}_lmin"] = (_var, "lmin")
+    TAG_TO_LIM[f"RETO.LIM.{_var}_lmax"] = (_var, "lmax")
+
+SP_TO_TAG = {
+    "sp_tonelaje":   "RETO.SP.sp_tonelaje",
+    "sp_floculante": "RETO.SP.sp_floculante",
+    "sp_vel_bomba":  "RETO.SP.sp_vel_bomba",
+}
+
+
+class SEEngine:
+    """Background thread that reads tags, runs the expert system pipeline, writes SPs."""
+
+    def __init__(self):
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._running = False
+        self._tick = 0
+        self._t_s = 0.0
+        self._intervalo_s = 5.0
+
+        self._setpoints: dict = {}
+        self._limites_sp: dict = {}
+        self._last_action_time: dict = {}
+        self._hist: dict = {}
+        self._filtro = None
+        self._reglas: list = []
+        self._permisivos_config: dict = {}
+
+        self._last_events: list = []
+        self._last_error: str | None = None
+
+    def _init_state(self):
+        from simulacion import SETPOINTS_BASE, LIMITES_SP
+        from exp_q_filter import ExpQFilter, CONFIG_FILTRO_ESPESADOR_DEFAULT
+        from runner import cargar_reglas_json, cargar_permisivos_json
+        import copy
+
+        self._setpoints = copy.deepcopy(SETPOINTS_BASE)
+        self._limites_sp = copy.deepcopy(LIMITES_SP)
+        self._last_action_time = {}
+        self._hist = {}
+        self._t_s = 0.0
+        self._tick = 0
+        self._last_events = []
+        self._last_error = None
+
+        self._filtro = ExpQFilter(CONFIG_FILTRO_ESPESADOR_DEFAULT)
+        self._filtro.reset()
+
+        self._reglas = cargar_reglas_json()
+        self._permisivos_config = cargar_permisivos_json()
+
+    def _read_tags(self) -> tuple[dict, dict, dict] | None:
+        """Read PV, CRUDA and LIM tags from KEPserver. Returns (inputs, crudas, limites) or None."""
+        all_tags = list(TAG_TO_PV.keys()) + list(TAG_TO_CRUDA.keys()) + list(TAG_TO_LIM.keys())
+        live = _read_kepserver_tags_batch(all_tags)
+
+        inputs = {}
+        for tag, var in TAG_TO_PV.items():
+            info = live.get(tag, {})
+            if info.get("exists") and info.get("value") is not None:
+                inputs[var] = float(info["value"])
+            else:
+                return None
+
+        crudas = {}
+        for tag, var in TAG_TO_CRUDA.items():
+            info = live.get(tag, {})
+            if info.get("exists") and info.get("value") is not None:
+                crudas[var] = float(info["value"])
+            else:
+                crudas[var] = 0.0
+
+        limites = {}
+        for tag, (var, bound) in TAG_TO_LIM.items():
+            info = live.get(tag, {})
+            if var not in limites:
+                limites[var] = {}
+            if info.get("exists") and info.get("value") is not None:
+                limites[var][bound] = float(info["value"])
+            else:
+                limites[var][bound] = 0.0
+
+        return inputs, crudas, limites
+
+    def _write_setpoints(self):
+        """Write current setpoints to KEPserver."""
+        try:
+            from opcua import Client, ua  # type: ignore
+            client = Client(KEPSERVER_URL)
+            client.connect()
+            try:
+                for sp_key, tag_name in SP_TO_TAG.items():
+                    val = self._setpoints.get(sp_key, 0.0)
+                    try:
+                        node = client.get_node(f'ns=2;s={tag_name}')
+                        node.set_value(ua.DataValue(ua.Variant(float(val), ua.VariantType.Float)))
+                    except Exception:
+                        pass
+            finally:
+                client.disconnect()
+        except Exception as e:
+            self._last_error = f"Write SP: {e}"
+
+    def _run_tick(self):
+        """Execute one tick of the SE pipeline."""
+        from runner import _evaluar_estado_fuzzy, extraer_inputs_desde_row
+        from permisivos import evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
+        import motor as motor_mod
+        from defuzzy_actions import apply_actions
+        from config import VARIABLES_PROCESO, COLUMNAS_ENTRADA
+        import pandas as pd
+
+        data = self._read_tags()
+        if data is None:
+            self._last_error = "No se pudieron leer todos los PV tags del KEPserver."
+            return
+
+        inputs_raw, crudas, limites = data
+
+        inputs = self._filtro.actualizar(inputs_raw)
+
+        self._t_s += self._intervalo_s
+
+        row_data = {**inputs, **crudas}
+        for var, bounds in limites.items():
+            row_data[f"{var}_lmin"] = bounds.get("lmin", 0)
+            row_data[f"{var}_lmax"] = bounds.get("lmax", 0)
+        for sp_key, val in self._setpoints.items():
+            row_data[sp_key] = val
+        row_data["t_s"] = self._t_s
+        row = pd.Series(row_data)
+
+        fuzzy_out = _evaluar_estado_fuzzy(
+            row, self._hist,
+            columnas_entrada=COLUMNAS_ENTRADA,
+            meta_flags=None,
+            inputs_override=inputs
+        )
+
+        estados_perm = evaluar_permisivos(
+            self._permisivos_config,
+            fuzzy_out=fuzzy_out,
+            row=row,
+            inputs=inputs,
+            setpoints=self._setpoints,
+            columnas_entrada=COLUMNAS_ENTRADA,
+        )
+        fuzzy_out = inyectar_permisivos_en_fuzzy_out(fuzzy_out, estados_perm)
+
+        motor_out = motor_mod.evaluar_reglas(
+            self._reglas, fuzzy_out, self._t_s,
+            self._last_action_time, min_belief=0.05
+        )
+
+        self._last_action_time = motor_out.get("last_action_time", self._last_action_time)
+
+        tick_events = []
+        for evento in motor_out.get("fired", []):
+            acciones_con_belief = [(a, evento.get("belief", 0.5)) for a in evento.get("acciones", [])]
+            if acciones_con_belief:
+                apply_actions(acciones_con_belief, self._setpoints, self._limites_sp)
+            tick_events.append({
+                "regla_id": evento.get("id", "?"),
+                "bloque": evento.get("bloque", ""),
+                "acciones": evento.get("acciones", []),
+                "belief": round(evento.get("belief", 0), 3),
+            })
+
+        if tick_events:
+            self._last_events = tick_events[-5:]
+
+        self._write_setpoints()
+        self._last_error = None
+
+    def _worker(self):
+        while not self._stop_event.is_set():
+            try:
+                self._run_tick()
+                self._tick += 1
+            except Exception as e:
+                self._last_error = str(e)
+            self._stop_event.wait(self._intervalo_s)
+
+    def start(self, intervalo_s: float = 5.0):
+        if self._running:
+            return
+        self._intervalo_s = intervalo_s
+        self._init_state()
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+        self._running = True
+
+    def stop(self):
+        if not self._running:
+            return
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=3)
+        self._running = False
+        self._thread = None
+
+    def status(self) -> dict:
+        return {
+            "running": self._running,
+            "tick": self._tick,
+            "t_s": round(self._t_s, 1),
+            "setpoints": {k: round(v, 3) for k, v in self._setpoints.items()},
+            "last_events": self._last_events,
+            "last_error": self._last_error,
+        }
+
+
+_se_engine = SEEngine()
+
+
+@app.route("/api/se/status", methods=["GET"])
+def api_se_status():
+    return jsonify(_se_engine.status())
+
+
+@app.route("/api/se/start", methods=["POST"])
+def api_se_start():
+    body = request.get_json(force=True) if request.content_length else {}
+    intervalo = float(body.get("intervalo_s", 5.0)) if body else 5.0
+    _se_engine.start(intervalo_s=intervalo)
+    return jsonify({"ok": True, "running": True})
+
+
+@app.route("/api/se/stop", methods=["POST"])
+def api_se_stop():
+    _se_engine.stop()
+    return jsonify({"ok": True, "running": False})
+
+
+@app.route("/api/tags/generator", methods=["GET"])
+def api_get_generator():
+    return jsonify(_tag_generator.status())
+
+
+@app.route("/api/tags/generator", methods=["PUT"])
+def api_put_generator():
+    body = request.get_json(force=True)
+    _tag_generator.update_config(
+        intervalo_s=body.get("intervalo_s"),
+        n_ciclo=body.get("n_ciclo"),
+        ranges=body.get("ranges"),
+    )
+    return jsonify({"ok": True, **_tag_generator.status()})
+
+
+@app.route("/api/tags/generator/start", methods=["POST"])
+def api_start_generator():
+    _tag_generator.start()
+    return jsonify({"ok": True, "running": True})
+
+
+@app.route("/api/tags/generator/stop", methods=["POST"])
+def api_stop_generator():
+    _tag_generator.stop()
+    return jsonify({"ok": True, "running": False})
+
+
+# ============================================================
 # Simulacion
 # ============================================================
 
@@ -1327,6 +1975,47 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
 .ev-table{max-height:300px;overflow-y:auto}
 .loading{color:#94a3b8;font-style:italic}
 .hint{font-size:.7rem;color:#64748b;margin-top:2px}
+
+.tags-legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#1e293b;border-radius:8px;border:1px solid #334155}
+.tags-legend-item{display:flex;align-items:center;gap:6px;font-size:.8rem;color:#cbd5e1}
+.tags-legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.dot-connected{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.5)}
+.dot-disconnected{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.5)}
+.dot-not-found{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,.5)}
+.dot-suspended{background:#64748b}
+.dot-unknown{background:#6366f1;box-shadow:0 0 6px rgba(99,102,241,.4)}
+
+.tag-status-cell{display:flex;align-items:center;gap:8px}
+.tag-status-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600;white-space:nowrap}
+.badge-connected{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.badge-disconnected{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
+.badge-not-found{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.badge-suspended{background:rgba(100,116,139,.15);color:#94a3b8;border:1px solid rgba(100,116,139,.3)}
+.badge-unknown{background:rgba(99,102,241,.15);color:#818cf8;border:1px solid rgba(99,102,241,.3)}
+.badge-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+.tag-value-display{font-family:'Cascadia Code','Fira Code',monospace;font-size:.9rem;color:#38bdf8;font-weight:600}
+.tag-value-na{color:#64748b;font-style:italic;font-weight:400}
+
+.tag-row-suspended{opacity:.5}
+.tag-row-suspended td{color:#64748b}
+
+.tags-add-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#1e293b;border-radius:8px;border:1px solid #334155}
+.tags-add-form input,.tags-add-form select{min-width:200px}
+.tags-actions{display:flex;gap:4px}
+
+.toggle-switch{position:relative;display:inline-block;width:52px;height:28px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ef4444;transition:.3s;border-radius:28px}
+.toggle-slider:before{position:absolute;content:"";height:22px;width:22px;left:3px;bottom:3px;background:#fff;transition:.3s;border-radius:50%}
+.toggle-switch input:checked + .toggle-slider{background:#22c55e}
+.toggle-switch input:checked + .toggle-slider:before{transform:translateX(24px)}
+
+.sim-mode-on #sim-toggle-box{border-color:#22c55e;background:linear-gradient(135deg,#1a2e1a,#1e293b)}
+.sim-mode-off #sim-toggle-box{border-color:#ef4444;background:linear-gradient(135deg,#2e1a1a,#1e293b)}
+
+.tag-group-header{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 14px;margin-top:16px;margin-bottom:8px;font-size:.82rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.tag-group-header .group-dot{width:10px;height:10px;border-radius:50%}
 </style>
 </head>
 <body>
@@ -1339,7 +2028,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
   <a href="#variables"  data-sec="variables">Variables calc.</a>
   <a href="#permisivos" data-sec="permisivos">Permisivos</a>
   <hr class="sep">
+  <a href="#tags" data-sec="tags">Tags KEPserver</a>
+  <hr class="sep">
   <a href="/graficos" class="external">Graficos en Vivo →</a>
+  <a href="/diagrama" class="external">Diagrama de Flujo →</a>
 </aside>
 <main class="main">
 <section class="seccion" id="seccion-reglas">
@@ -1513,6 +2205,164 @@ Operadores logicos (anidables):
 Top-level del permisivo = AND implicito (lista de condiciones).
 Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
 </pre>
+  </details>
+</section>
+
+<section class="seccion" id="seccion-tags">
+  <div class="top-bar">
+    <div>
+      <h1>Tags KEPserver</h1>
+      <h2>Monitor y editor de tags OPC-UA. Agrega, elimina, habilita o suspende tags
+          del KEPserver. Los indicadores de color muestran el estado de cada tag en tiempo real.</h2>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn-primary" onclick="refreshTags()">Actualizar valores</button>
+    </div>
+  </div>
+
+  <!-- Toggle simulacion -->
+  <div id="sim-toggle-box" style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px 20px;border-radius:10px;border:2px solid #334155;background:#1e293b">
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:.95rem;margin-bottom:4px" id="sim-toggle-title">Modo de Entrada</div>
+      <div style="font-size:.8rem;color:#94a3b8" id="sim-toggle-desc">Cargando...</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="sim-label-off" style="font-size:.78rem;font-weight:600;color:#64748b">TAGS REALES</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="sim-toggle-input" onchange="toggleSimulationMode(this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span id="sim-label-on" style="font-size:.78rem;font-weight:600;color:#64748b">SIMULACION</span>
+    </div>
+  </div>
+
+  <!-- Boton Iniciar/Detener Sistema -->
+  <div id="system-control-box" style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px 20px;border-radius:10px;border:2px solid #334155;background:#1e293b">
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:.95rem;margin-bottom:4px" id="system-status-title">Sistema detenido</div>
+      <div style="font-size:.8rem;color:#94a3b8" id="system-status-desc">Presiona "Iniciar Sistema" para arrancar el generador de datos y activar la lectura de tags.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span id="system-indicator" style="width:14px;height:14px;border-radius:50%;background:#64748b;flex-shrink:0"></span>
+      <button class="btn-success" id="btn-system-start" onclick="startSystem()">Iniciar Sistema</button>
+      <button class="btn-danger" id="btn-system-stop" onclick="stopSystem()" style="display:none">Detener Sistema</button>
+    </div>
+  </div>
+
+  <!-- SE Live Status Panel -->
+  <div id="se-live-panel" style="display:none;margin-bottom:18px;padding:14px 20px;border-radius:10px;border:2px solid #3b82f6;background:linear-gradient(135deg,#1a1e3a,#1e293b)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-weight:700;font-size:.9rem;color:#3b82f6">Sistema Experto en Vivo</span>
+      <span id="se-tick-display" style="font-size:.75rem;color:#64748b;margin-left:auto">Tick: 0</span>
+    </div>
+    <div id="se-sp-values" style="display:flex;gap:24px;margin-bottom:10px"></div>
+    <div style="font-size:.75rem;color:#94a3b8;margin-bottom:4px;font-weight:600">Ultimos eventos:</div>
+    <div id="se-events-display" style="max-height:100px;overflow-y:auto"><span style="color:#64748b;font-size:.78rem">Esperando primer tick...</span></div>
+    <div id="se-error-display" style="display:none;margin-top:8px;font-size:.8rem;color:#ef4444"></div>
+  </div>
+
+  <div class="tags-legend">
+    <span style="font-weight:600;color:#94a3b8;margin-right:4px">Leyenda:</span>
+    <span class="tags-legend-item"><span class="tags-legend-dot dot-connected"></span> Conectado y existente</span>
+    <span class="tags-legend-item"><span class="tags-legend-dot dot-not-found"></span> Conectado pero tag no existe</span>
+    <span class="tags-legend-item"><span class="tags-legend-dot dot-disconnected"></span> Sin conexion al servidor</span>
+    <span class="tags-legend-item"><span class="tags-legend-dot dot-suspended"></span> Tag suspendido</span>
+    <span class="tags-legend-item"><span class="tags-legend-dot dot-unknown"></span> Estado desconocido</span>
+  </div>
+
+  <!-- Generador de datos -->
+  <details id="gen-panel" style="margin-bottom:18px">
+    <summary style="cursor:pointer;padding:12px 16px;background:#1e293b;border:1px solid #334155;border-radius:8px;font-weight:700;color:#e2e8f0;font-size:.9rem;display:flex;align-items:center;gap:10px;user-select:none">
+      <span style="font-size:1.1rem">&#9881;</span> Generador de Datos para KEPserver
+      <span id="gen-status-badge" style="margin-left:auto;padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:rgba(100,116,139,.2);color:#94a3b8">DETENIDO</span>
+    </summary>
+    <div style="padding:16px;background:#1e293b;border:1px solid #334155;border-top:none;border-radius:0 0 8px 8px">
+      <p style="font-size:.82rem;color:#94a3b8;margin-bottom:14px">
+        Genera valores dinamicos (3 fases: estable, alerta, recuperacion) y los escribe al KEPserver periodicamente.
+        Solo escribe en tags RETO.PV.* y RETO.CRUDA.* (entradas de proceso).
+      </p>
+
+      <!-- Controles globales -->
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Intervalo (seg)</label>
+          <input id="gen-intervalo" type="number" step="0.5" min="0.5" max="60" value="5" style="width:90px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Ticks por ciclo</label>
+          <input id="gen-n-ciclo" type="number" step="1" min="10" max="500" value="60" style="width:90px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tick actual</label>
+          <span id="gen-tick" style="font-size:.9rem;font-weight:700;color:#38bdf8;padding:8px 0">0</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button class="btn-primary" onclick="saveGeneratorConfig()">Guardar config</button>
+          <button class="btn-success" id="gen-start-btn" onclick="startGenerator()">Iniciar</button>
+          <button class="btn-danger" id="gen-stop-btn" onclick="stopGenerator()" style="display:none">Detener</button>
+        </div>
+      </div>
+
+      <div id="gen-error" style="font-size:.82rem;color:#ef4444;margin-bottom:8px;min-height:1em"></div>
+
+      <!-- Tabla de rangos -->
+      <div style="max-height:400px;overflow-y:auto">
+        <table style="font-size:.82rem">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th style="width:90px">Min</th>
+              <th style="width:90px">Max</th>
+              <th style="width:80px">Ruido</th>
+              <th style="width:100px">Valor actual</th>
+            </tr>
+          </thead>
+          <tbody id="gen-ranges-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  <div id="tags-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+
+  <div class="tags-add-form">
+    <input id="tag-new-name" type="text" placeholder="Nombre del tag (ej: RETO.IN.Potencia_SAG)" style="flex:1;min-width:280px">
+    <select id="tag-new-type">
+      <option value="Float">Float</option>
+      <option value="Int">Int</option>
+      <option value="Boolean">Boolean</option>
+      <option value="String">String</option>
+    </select>
+    <button class="btn-success" onclick="addTag()">+ Agregar Tag</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px">#</th>
+        <th>Nombre del Tag</th>
+        <th style="width:90px">Tipo</th>
+        <th style="width:120px">Valor</th>
+        <th style="width:160px">Estado</th>
+        <th style="width:100px">Quality</th>
+        <th style="width:180px">Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="tags-body">
+      <tr><td colspan="7" class="loading">Cargando tags...</td></tr>
+    </tbody>
+  </table>
+
+  <details style="margin-top:18px">
+    <summary style="cursor:pointer;color:#94a3b8">Informacion sobre Tags KEPserver</summary>
+    <div style="background:#0f172a;color:#cbd5e1;padding:14px;border-radius:6px;font-size:.82rem;margin-top:6px;line-height:1.6">
+      <p><strong>Formato de tag:</strong> <code>Canal.Dispositivo.Variable</code> (ej: <code>RETO.IN.Potencia_SAG</code>)</p>
+      <p style="margin-top:8px"><strong>Tipos soportados:</strong> Float, Int, Boolean, String.</p>
+      <p style="margin-top:8px"><strong>Conectividad:</strong> El sistema intenta conectarse via OPC-UA a <code>opc.tcp://127.0.0.1:49320</code>.
+         Si el KEPserver no esta disponible, los tags se mostraran como desconectados pero su configuracion se mantiene.</p>
+      <p style="margin-top:8px"><strong>Tags suspendidos:</strong> No se leeran ni escribiran al KEPserver mientras esten suspendidos.
+         Esto es util para desactivar temporalmente un tag sin eliminarlo.</p>
+    </div>
   </details>
 </section>
 
@@ -1824,8 +2674,8 @@ async function runSim() {
 // ============================================================
 // Router del sidebar (hash -> seccion)
 // ============================================================
-const SECCIONES = ['reglas','filtros','defuzzy','fuzzy','variables','permisivos'];
-const _seccionLoaded = {reglas: false, filtros: false, defuzzy: false, fuzzy: false, variables: false, permisivos: false};
+const SECCIONES = ['reglas','filtros','defuzzy','fuzzy','variables','permisivos','tags'];
+const _seccionLoaded = {reglas: false, filtros: false, defuzzy: false, fuzzy: false, variables: false, permisivos: false, tags: false};
 
 function _activarSeccion(name) {
   if (!SECCIONES.includes(name)) name = 'reglas';
@@ -1859,6 +2709,10 @@ function _activarSeccion(name) {
   if (name === 'permisivos' && !_seccionLoaded.permisivos) {
     loadPermisivos();
     _seccionLoaded.permisivos = true;
+  }
+  if (name === 'tags' && !_seccionLoaded.tags) {
+    loadTags();
+    _seccionLoaded.tags = true;
   }
 }
 
@@ -2537,6 +3391,513 @@ async function resetPermisivos() {
   setTimeout(() => _setPermisivosMsg(''), 4000);
 }
 
+// ============================================================
+// Tags KEPserver
+// ============================================================
+
+let _tagsData = [];
+let _simulationMode = true;
+
+function _setTagsMsg(text, color) {
+  const m = document.getElementById('tags-msg');
+  if (m) { m.textContent = text || ''; m.style.color = color || '#94a3b8'; }
+}
+
+function _updateSimToggleUI(mode) {
+  _simulationMode = mode;
+  const input = document.getElementById('sim-toggle-input');
+  const title = document.getElementById('sim-toggle-title');
+  const desc = document.getElementById('sim-toggle-desc');
+  const labelOn = document.getElementById('sim-label-on');
+  const labelOff = document.getElementById('sim-label-off');
+  const section = document.getElementById('seccion-tags');
+
+  if (input) input.checked = mode;
+  section.classList.toggle('sim-mode-on', mode);
+  section.classList.toggle('sim-mode-off', !mode);
+
+  if (mode) {
+    title.textContent = 'Modo: SIMULACION activa';
+    title.style.color = '#22c55e';
+    desc.textContent = 'El sistema usa variables simuladas desde un DataFrame (simulacion.py). Los Tags del KEPserver NO se utilizan como entrada.';
+    labelOn.style.color = '#22c55e';
+    labelOff.style.color = '#64748b';
+  } else {
+    title.textContent = 'Modo: TAGS REALES (KEPserver)';
+    title.style.color = '#ef4444';
+    desc.textContent = 'El sistema lee datos de entrada directamente desde los Tags del KEPserver via OPC-UA. Las variables simuladas estan desactivadas.';
+    labelOn.style.color = '#64748b';
+    labelOff.style.color = '#ef4444';
+  }
+}
+
+async function toggleSimulationMode(checked) {
+  try {
+    const r = await fetch('/api/tags/simulation', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({simulation_mode: checked})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      _updateSimToggleUI(d.simulation_mode);
+      _updateSystemControlUI();
+      _setTagsMsg(d.simulation_mode ? 'Modo simulacion activado.' : 'Modo tags reales activado.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 3000);
+    }
+  } catch (e) {
+    _setTagsMsg('Error al cambiar modo: ' + e.message, '#ef4444');
+  }
+}
+
+let _systemRunning = false;
+
+function _updateSystemControlUI() {
+  const title = document.getElementById('system-status-title');
+  const desc = document.getElementById('system-status-desc');
+  const indicator = document.getElementById('system-indicator');
+  const startBtn = document.getElementById('btn-system-start');
+  const stopBtn = document.getElementById('btn-system-stop');
+  const box = document.getElementById('system-control-box');
+
+  if (_simulationMode) {
+    title.textContent = 'Sistema en modo Simulacion';
+    title.style.color = '#94a3b8';
+    desc.textContent = 'El SE usa variables simuladas del DataFrame. No requiere iniciar el sistema manualmente.';
+    indicator.style.background = '#64748b';
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'none';
+    box.style.borderColor = '#334155';
+  } else if (_systemRunning) {
+    title.textContent = 'Sistema ACTIVO';
+    title.style.color = '#22c55e';
+    desc.textContent = 'El generador escribe al KEPserver y el SE lee tags en tiempo real.';
+    indicator.style.background = '#22c55e';
+    indicator.style.boxShadow = '0 0 8px rgba(34,197,94,.6)';
+    startBtn.style.display = 'none';
+    stopBtn.style.display = '';
+    box.style.borderColor = '#22c55e';
+  } else {
+    title.textContent = 'Sistema detenido';
+    title.style.color = '#f59e0b';
+    desc.textContent = 'Modo Tags Reales seleccionado. Presiona "Iniciar Sistema" para arrancar el generador y la lectura de tags.';
+    indicator.style.background = '#f59e0b';
+    indicator.style.boxShadow = 'none';
+    startBtn.style.display = '';
+    stopBtn.style.display = 'none';
+    box.style.borderColor = '#f59e0b';
+  }
+}
+
+async function startSystem() {
+  _setTagsMsg('Iniciando sistema...', '#94a3b8');
+  try {
+    await saveGeneratorConfig();
+    const r1 = await fetch('/api/tags/generator/start', {method: 'POST'});
+    const d1 = await r1.json();
+    const r2 = await fetch('/api/se/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({intervalo_s: parseFloat(document.getElementById('gen-intervalo').value) || 5})
+    });
+    const d2 = await r2.json();
+    if (d1.ok && d2.ok) {
+      _systemRunning = true;
+      _updateSystemControlUI();
+      _startGenPolling();
+      _startSEPolling();
+      _setTagsMsg('Sistema iniciado. Generador + SE activos.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 4000);
+    }
+  } catch (e) {
+    _setTagsMsg('Error iniciando sistema: ' + e.message, '#ef4444');
+  }
+}
+
+async function stopSystem() {
+  try {
+    await fetch('/api/se/stop', {method: 'POST'});
+    await fetch('/api/tags/generator/stop', {method: 'POST'});
+    _systemRunning = false;
+    _updateSystemControlUI();
+    _stopGenPolling();
+    _stopSEPolling();
+    _setTagsMsg('Sistema detenido.', '#f59e0b');
+    setTimeout(() => _setTagsMsg(''), 3000);
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+let _sePolling = null;
+
+function _startSEPolling() {
+  _stopSEPolling();
+  _sePolling = setInterval(_fetchSEStatus, 3000);
+  _fetchSEStatus();
+}
+
+function _stopSEPolling() {
+  if (_sePolling) { clearInterval(_sePolling); _sePolling = null; }
+}
+
+async function _fetchSEStatus() {
+  try {
+    const r = await fetch('/api/se/status');
+    const d = await r.json();
+    _renderSEStatus(d);
+  } catch(e) { /* ignore */ }
+}
+
+function _renderSEStatus(status) {
+  const el = document.getElementById('se-live-panel');
+  if (!el) return;
+  if (!status.running) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = '';
+
+  const spHtml = Object.entries(status.setpoints || {}).map(([k, v]) =>
+    '<div style="text-align:center"><div style="font-size:1.1rem;font-weight:700;color:#38bdf8">' + v + '</div><div style="font-size:.65rem;color:#94a3b8;text-transform:uppercase">' + k + '</div></div>'
+  ).join('');
+  document.getElementById('se-sp-values').innerHTML = spHtml;
+  document.getElementById('se-tick-display').textContent = 'Tick: ' + status.tick + ' | t=' + status.t_s + 's';
+
+  const evEl = document.getElementById('se-events-display');
+  if (status.last_events && status.last_events.length > 0) {
+    evEl.innerHTML = status.last_events.map(ev =>
+      '<div style="font-size:.78rem;padding:3px 0;border-bottom:1px solid #334155">'
+      + '<span style="color:#a78bfa;margin-right:8px">' + ev.regla_id + '</span>'
+      + '<span style="color:#22c55e;margin-right:8px;font-size:.7rem">' + ev.bloque + '</span>'
+      + '<span style="color:#fb923c">' + (ev.acciones||[]).join(', ') + '</span>'
+      + ' <span style="color:#64748b">(b=' + ev.belief + ')</span></div>'
+    ).join('');
+  } else {
+    evEl.innerHTML = '<span style="color:#64748b;font-size:.78rem">Sin eventos en este tick</span>';
+  }
+
+  if (status.last_error) {
+    document.getElementById('se-error-display').textContent = status.last_error;
+    document.getElementById('se-error-display').style.display = '';
+  } else {
+    document.getElementById('se-error-display').style.display = 'none';
+  }
+}
+
+function _getStatusInfo(tag) {
+  if (!tag.enabled) return {cls: 'badge-suspended', label: 'Suspendido', dotCls: 'dot-suspended'};
+  if (tag.connected && tag.exists) return {cls: 'badge-connected', label: 'Conectado', dotCls: 'dot-connected'};
+  if (tag.connected && !tag.exists) return {cls: 'badge-not-found', label: 'No existe', dotCls: 'dot-not-found'};
+  if (!tag.connected && tag.quality === 'Unknown') return {cls: 'badge-unknown', label: 'Sin info', dotCls: 'dot-unknown'};
+  return {cls: 'badge-disconnected', label: 'Desconectado', dotCls: 'dot-disconnected'};
+}
+
+function _getTagGroup(name) {
+  if (name.startsWith('RETO.PV.')) return {key: 'pv', label: 'Variables de Proceso (PV)', color: '#a855f7'};
+  if (name.startsWith('RETO.CRUDA.')) return {key: 'cruda', label: 'Sensores Crudos', color: '#0891b2'};
+  if (name.startsWith('RETO.LIM.')) return {key: 'lim', label: 'Limites Fuzzy (lmin / lmax)', color: '#6366f1'};
+  if (name.startsWith('RETO.SP.')) return {key: 'sp', label: 'Setpoints', color: '#22c55e'};
+  if (name.startsWith('RETO.IN.')) return {key: 'in', label: 'Entradas Originales (legacy)', color: '#f59e0b'};
+  return {key: 'other', label: 'Otros Tags', color: '#64748b'};
+}
+
+function _renderTags() {
+  const body = document.getElementById('tags-body');
+  if (!body) return;
+  if (_tagsData.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:24px">No hay tags configurados. Agrega uno usando el formulario superior.</td></tr>';
+    return;
+  }
+
+  // Group tags
+  const groupOrder = ['pv', 'cruda', 'lim', 'sp', 'in', 'other'];
+  const groups = {};
+  for (const tag of _tagsData) {
+    const g = _getTagGroup(tag.name);
+    if (!groups[g.key]) groups[g.key] = {info: g, tags: []};
+    groups[g.key].tags.push(tag);
+  }
+
+  body.innerHTML = '';
+  for (const gKey of groupOrder) {
+    const group = groups[gKey];
+    if (!group || group.tags.length === 0) continue;
+    // Group header row
+    const headerTr = document.createElement('tr');
+    headerTr.innerHTML = '<td colspan="7"><div class="tag-group-header"><span class="group-dot" style="background:' + group.info.color + '"></span>' + group.info.label + ' (' + group.tags.length + ')</div></td>';
+    body.appendChild(headerTr);
+
+    for (const tag of group.tags) {
+      const st = _getStatusInfo(tag);
+      const tr = document.createElement('tr');
+      if (!tag.enabled) tr.className = 'tag-row-suspended';
+
+      const valDisplay = tag.enabled
+        ? (tag.value !== null && tag.value !== undefined
+            ? '<span class="tag-value-display">' + tag.value + '</span>'
+            : '<span class="tag-value-na">N/A</span>')
+        : '<span class="tag-value-na">--</span>';
+
+      const qualityDisplay = tag.enabled ? (tag.quality || '--') : '--';
+
+      const toggleBtn = tag.enabled
+        ? '<button class="btn-sm" style="background:#f59e0b;color:#1e293b" onclick="toggleTag(' + tag.id + ',false)" title="Suspender">Suspender</button>'
+        : '<button class="btn-sm btn-success" onclick="toggleTag(' + tag.id + ',true)" title="Habilitar">Habilitar</button>';
+
+      tr.innerHTML =
+        '<td style="color:#64748b">' + tag.id + '</td>'
+        + '<td><span class="tag tag-var" style="font-size:.82rem">' + tag.name + '</span></td>'
+        + '<td><span class="tag" style="font-size:.78rem">' + tag.data_type + '</span></td>'
+        + '<td>' + valDisplay + '</td>'
+        + '<td><span class="tag-status-badge ' + st.cls + '"><span class="badge-dot ' + st.dotCls + '"></span>' + st.label + '</span></td>'
+        + '<td style="font-size:.78rem;color:#94a3b8">' + qualityDisplay + '</td>'
+        + '<td class="tags-actions">'
+        + toggleBtn
+        + ' <button class="btn-sm btn-danger" onclick="deleteTag(' + tag.id + ',\'' + tag.name.replace(/'/g, "\\'") + '\')">Eliminar</button>'
+        + '</td>';
+      body.appendChild(tr);
+    }
+  }
+}
+
+async function loadTags() {
+  try {
+    const r = await fetch('/api/tags');
+    const d = await r.json();
+    _tagsData = d.tags || [];
+    _updateSimToggleUI(d.simulation_mode !== undefined ? d.simulation_mode : true);
+    _renderTags();
+    loadGenerator().then(() => {
+      _updateSystemControlUI();
+    });
+  } catch (e) {
+    _setTagsMsg('Error cargando tags: ' + e.message, '#ef4444');
+  }
+}
+
+async function refreshTags() {
+  _setTagsMsg('Actualizando...', '#94a3b8');
+  try {
+    const r = await fetch('/api/tags/refresh', {method: 'POST'});
+    const d = await r.json();
+    _tagsData = d.tags || [];
+    _renderTags();
+    _setTagsMsg('Valores actualizados.', '#22c55e');
+    setTimeout(() => _setTagsMsg(''), 3000);
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function addTag() {
+  const nameEl = document.getElementById('tag-new-name');
+  const typeEl = document.getElementById('tag-new-type');
+  const name = (nameEl.value || '').trim();
+  if (!name) {
+    _setTagsMsg('Ingresa un nombre para el tag.', '#f59e0b');
+    nameEl.focus();
+    return;
+  }
+  try {
+    const r = await fetch('/api/tags', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, data_type: typeEl.value})
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      _setTagsMsg(d.error || 'Error al crear tag.', '#ef4444');
+      return;
+    }
+    nameEl.value = '';
+    await loadTags();
+    _setTagsMsg('Tag "' + name + '" agregado.', '#22c55e');
+    setTimeout(() => _setTagsMsg(''), 3000);
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function deleteTag(id, name) {
+  if (!confirm('Eliminar el tag "' + name + '"?')) return;
+  try {
+    const r = await fetch('/api/tags/' + id, {method: 'DELETE'});
+    const d = await r.json();
+    if (!r.ok) {
+      _setTagsMsg(d.error || 'Error al eliminar.', '#ef4444');
+      return;
+    }
+    await loadTags();
+    _setTagsMsg('Tag "' + name + '" eliminado.', '#22c55e');
+    setTimeout(() => _setTagsMsg(''), 3000);
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function toggleTag(id, enable) {
+  try {
+    const r = await fetch('/api/tags/' + id, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: enable})
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      _setTagsMsg(d.error || 'Error al actualizar.', '#ef4444');
+      return;
+    }
+    await loadTags();
+    _setTagsMsg(enable ? 'Tag habilitado.' : 'Tag suspendido.', '#22c55e');
+    setTimeout(() => _setTagsMsg(''), 3000);
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+// ============================================================
+// Generador de datos KEPserver
+// ============================================================
+
+let _genPolling = null;
+
+function _renderGenRanges(status) {
+  const body = document.getElementById('gen-ranges-body');
+  if (!body) return;
+  const ranges = status.ranges || {};
+  const lastVals = status.last_values || {};
+  body.innerHTML = '';
+
+  const sorted = Object.keys(ranges).sort();
+  for (const tag of sorted) {
+    const cfg = ranges[tag];
+    const val = lastVals[tag];
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><span class="tag tag-var" style="font-size:.78rem">' + tag + '</span></td>'
+      + '<td><input data-gen-tag="' + tag + '" data-gen-k="min" type="number" step="0.1" value="' + cfg.min + '" style="width:80px"></td>'
+      + '<td><input data-gen-tag="' + tag + '" data-gen-k="max" type="number" step="0.1" value="' + cfg.max + '" style="width:80px"></td>'
+      + '<td><input data-gen-tag="' + tag + '" data-gen-k="noise" type="number" step="0.1" value="' + (cfg.noise || 0) + '" style="width:70px"></td>'
+      + '<td class="tag-value-display">' + (val !== undefined && val !== null ? val.toFixed(2) : '--') + '</td>';
+    body.appendChild(tr);
+  }
+}
+
+function _updateGenUI(status) {
+  const badge = document.getElementById('gen-status-badge');
+  const startBtn = document.getElementById('gen-start-btn');
+  const stopBtn = document.getElementById('gen-stop-btn');
+  const tickEl = document.getElementById('gen-tick');
+  const errEl = document.getElementById('gen-error');
+  const intervaloEl = document.getElementById('gen-intervalo');
+  const cicloEl = document.getElementById('gen-n-ciclo');
+
+  if (status.running) {
+    badge.textContent = 'ACTIVO (' + status.tick + '/' + status.n_ciclo + ')';
+    badge.style.background = 'rgba(34,197,94,.2)';
+    badge.style.color = '#22c55e';
+    startBtn.style.display = 'none';
+    stopBtn.style.display = '';
+  } else {
+    badge.textContent = 'DETENIDO';
+    badge.style.background = 'rgba(100,116,139,.2)';
+    badge.style.color = '#94a3b8';
+    startBtn.style.display = '';
+    stopBtn.style.display = 'none';
+  }
+  if (tickEl) tickEl.textContent = status.tick || 0;
+  if (errEl) errEl.textContent = status.last_error || '';
+  if (intervaloEl && !status.running) intervaloEl.value = status.intervalo_s;
+  if (cicloEl && !status.running) cicloEl.value = status.n_ciclo;
+
+  _renderGenRanges(status);
+}
+
+async function loadGenerator() {
+  try {
+    const r = await fetch('/api/tags/generator');
+    const d = await r.json();
+    _updateGenUI(d);
+    _systemRunning = d.running;
+  } catch (e) { /* ignore */ }
+}
+
+async function saveGeneratorConfig() {
+  const intervalo = parseFloat(document.getElementById('gen-intervalo').value) || 5;
+  const nCiclo = parseInt(document.getElementById('gen-n-ciclo').value) || 60;
+
+  const ranges = {};
+  for (const inp of document.querySelectorAll('[data-gen-tag]')) {
+    const tag = inp.dataset.genTag;
+    const k = inp.dataset.genK;
+    if (!ranges[tag]) ranges[tag] = {};
+    ranges[tag][k] = parseFloat(inp.value) || 0;
+  }
+
+  try {
+    const r = await fetch('/api/tags/generator', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({intervalo_s: intervalo, n_ciclo: nCiclo, ranges: ranges})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      _updateGenUI(d);
+      _setTagsMsg('Configuracion del generador guardada.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 3000);
+    }
+  } catch (e) {
+    _setTagsMsg('Error guardando config: ' + e.message, '#ef4444');
+  }
+}
+
+async function startGenerator() {
+  await saveGeneratorConfig();
+  try {
+    const r = await fetch('/api/tags/generator/start', {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      _setTagsMsg('Generador iniciado.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 3000);
+      _startGenPolling();
+      loadGenerator();
+    }
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function stopGenerator() {
+  try {
+    const r = await fetch('/api/tags/generator/stop', {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      _setTagsMsg('Generador detenido.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 3000);
+      _stopGenPolling();
+      loadGenerator();
+    }
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+function _startGenPolling() {
+  _stopGenPolling();
+  _genPolling = setInterval(async () => {
+    try {
+      const r = await fetch('/api/tags/generator');
+      const d = await r.json();
+      _updateGenUI(d);
+    } catch (e) { /* ignore */ }
+  }, 3000);
+}
+
+function _stopGenPolling() {
+  if (_genPolling) { clearInterval(_genPolling); _genPolling = null; }
+}
+
 _onHash();
 </script>
 </main>
@@ -2587,6 +3948,7 @@ button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.
 .btn-success{background:#22c55e;color:#fff}.btn-success:hover{background:#16a34a}
 .btn-danger{background:#ef4444;color:#fff}.btn-danger:hover{background:#dc2626}
 .btn-primary{background:#3b82f6;color:#fff}.btn-primary:hover{background:#2563eb}
+.btn-sm{padding:4px 10px;font-size:.75rem}
 .controls{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
 .controls label{font-size:.8rem;color:#94a3b8}
 .controls select,.controls input{background:#1e293b;border:1px solid #475569;color:#e2e8f0;border-radius:6px;padding:4px 8px;font-size:.8rem}
@@ -2608,16 +3970,42 @@ button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.
 .ev-item .b{color:#22c55e;min-width:80px;font-size:.7rem;text-transform:uppercase}
 .ev-item .a{color:#fb923c;flex:1}
 @media(max-width:900px){.charts-grid{grid-template-columns:1fr}}
+
+/* Tabs */
+.tab-bar{display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #1e293b}
+.tab-btn{padding:10px 20px;font-size:.85rem;font-weight:600;color:#64748b;background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;transition:.15s}
+.tab-btn:hover{color:#e2e8f0}
+.tab-btn.active{color:#38bdf8;border-bottom-color:#38bdf8}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* Custom chart builder */
+.var-picker{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;max-height:200px;overflow-y:auto;padding:12px;background:#1e293b;border-radius:8px;border:1px solid #334155}
+.var-chip{padding:4px 10px;border-radius:14px;font-size:.75rem;cursor:pointer;border:1px solid #475569;color:#94a3b8;transition:.15s;user-select:none}
+.var-chip:hover{border-color:#38bdf8;color:#e2e8f0}
+.var-chip.selected{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.custom-chart-wrap{background:#1e293b;border-radius:10px;padding:16px;min-height:300px}
+.custom-chart-wrap canvas{width:100%!important;height:350px!important}
 </style>
 </head>
 <body>
 <nav>
   <a href="/">Reglas</a>
   <a href="/graficos" class="active">Graficos en Vivo</a>
+  <a href="/diagrama">Diagrama de Flujo</a>
 </nav>
 <h1>Espesador -- Graficos en Tiempo Real</h1>
-<h2>Cada tick muestra los nuevos puntos. Las reglas activas se listan en la columna de eventos.</h2>
+<h2>Monitoreo en vivo de variables de proceso, tags KEPserver y simulacion del sistema experto.</h2>
 
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('sim')">Simulacion SE</button>
+  <button class="tab-btn" onclick="switchTab('tags')">Tags en Vivo</button>
+  <button class="tab-btn" onclick="switchTab('custom')">Grafico Personalizado</button>
+</div>
+
+<!-- TAB 1: Simulacion (original) -->
+<div class="tab-panel active" id="tab-sim">
 <div class="controls">
   <button class="btn-success" id="btn-start" onclick="startStream()">&#9654; Iniciar Simulacion</button>
   <button class="btn-danger"  id="btn-stop"  onclick="stopStream()" disabled>&#9632; Detener</button>
@@ -2649,6 +4037,49 @@ button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.
   <h3>Eventos en Vivo</h3>
   <div id="ev-list"><span style="color:#64748b;font-size:.8rem">Sin eventos aun...</span></div>
 </div>
+</div>
+
+<!-- TAB 2: Tags en Vivo (KEPserver real-time) -->
+<div class="tab-panel" id="tab-tags">
+<div class="controls">
+  <button class="btn-success" id="btn-tags-start" onclick="startTagsPolling()">&#9654; Iniciar Monitoreo</button>
+  <button class="btn-danger" id="btn-tags-stop" onclick="stopTagsPolling()" disabled>&#9632; Detener</button>
+  <label>Intervalo:
+    <select id="sel-tags-interval" onchange="changeTagsInterval()">
+      <option value="1000">1s</option>
+      <option value="2000" selected>2s</option>
+      <option value="5000">5s</option>
+      <option value="10000">10s</option>
+    </select>
+  </label>
+  <span id="tags-live-status" style="font-size:.8rem;color:#94a3b8">Detenido</span>
+</div>
+<div class="charts-grid" id="tags-charts-grid"></div>
+<div style="margin-top:8px;font-size:.78rem;color:#64748b">
+  Muestra los tags RETO.PV.* del KEPserver en tiempo real. Si el generador esta activo, veras los valores moverse.
+</div>
+</div>
+
+<!-- TAB 3: Grafico Personalizado -->
+<div class="tab-panel" id="tab-custom">
+<p style="font-size:.85rem;color:#94a3b8;margin-bottom:12px">Selecciona los tags o variables que quieres graficar juntos. Haz clic para agregar/quitar.</p>
+<div class="controls">
+  <button class="btn-success" id="btn-custom-start" onclick="startCustomPolling()">&#9654; Iniciar</button>
+  <button class="btn-danger" id="btn-custom-stop" onclick="stopCustomPolling()" disabled>&#9632; Detener</button>
+  <label>Intervalo:
+    <select id="sel-custom-interval">
+      <option value="1000">1s</option>
+      <option value="2000" selected>2s</option>
+      <option value="5000">5s</option>
+    </select>
+  </label>
+  <button class="btn-primary btn-sm" onclick="clearCustomChart()">Limpiar grafico</button>
+</div>
+<div class="var-picker" id="var-picker"></div>
+<div class="custom-chart-wrap">
+  <canvas id="custom-chart"></canvas>
+</div>
+</div>
 
 <script>
 const CHART_VARS = CHART_VARS_JSON;
@@ -2659,7 +4090,21 @@ let totalEventos = 0;
 const charts = {};
 let spChart = null;
 
-// Construye stat cards dinamicas para los SP.
+// ============================================================
+// Tab switching
+// ============================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'tags' && !_tagsChartsBuilt) buildTagsCharts();
+  if (name === 'custom' && !_customChartBuilt) buildCustomChart();
+}
+
+// ============================================================
+// TAB 1: Simulacion (original logic preserved)
+// ============================================================
 (function buildStatBar() {
   const bar = document.getElementById('status-bar');
   const base = [
@@ -2677,7 +4122,6 @@ let spChart = null;
   ).join('');
 })();
 
-// Construye un chart por variable de proceso.
 (function buildCharts() {
   const grid = document.getElementById('charts-grid');
   for (const cv of CHART_VARS) {
@@ -2695,7 +4139,6 @@ let spChart = null;
         plugins:{legend:{display:false}}}
     });
   }
-  // Setpoints (una grafica con N datasets).
   const card = document.createElement('div');
   card.className = 'chart-card';
   card.innerHTML = `<h3>Setpoints</h3><canvas id="ch-sp"></canvas>`;
@@ -2850,6 +4293,204 @@ async function fetchNext() {
     console.error(e);
   }
 }
+
+// ============================================================
+// TAB 2: Tags en Vivo (KEPserver polling)
+// ============================================================
+let _tagsChartsBuilt = false;
+let _tagsTimer = null;
+const _tagsCharts = {};
+const TAGS_PV = [
+  {key:'RETO.PV.torque',             label:'Torque (%)',           color:'#38bdf8'},
+  {key:'RETO.PV.bed_mass',           label:'Bed Mass',            color:'#a78bfa'},
+  {key:'RETO.PV.bed_level',          label:'Bed Level (m)',       color:'#22c55e'},
+  {key:'RETO.PV.densidad',           label:'Densidad (%)',        color:'#fb923c'},
+  {key:'RETO.PV.torque_bomba',       label:'Torque Bomba (%)',    color:'#f472b6'},
+  {key:'RETO.PV.potencia_bomba',     label:'Potencia Bomba (kW)', color:'#facc15'},
+  {key:'RETO.PV.presion_descarga',   label:'Presion Descarga',    color:'#34d399'},
+  {key:'RETO.PV.presion_diferencial',label:'Presion Diferencial', color:'#f87171'},
+  {key:'RETO.PV.nivel_rastra',       label:'Nivel Rastra (%)',    color:'#c084fc'},
+];
+
+function buildTagsCharts() {
+  const grid = document.getElementById('tags-charts-grid');
+  grid.innerHTML = '';
+  for (const tv of TAGS_PV) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `<h3>${tv.label}</h3><canvas id="tch-${tv.key.replace(/\./g,'_')}"></canvas>`;
+    grid.appendChild(card);
+    _tagsCharts[tv.key] = new Chart(document.getElementById('tch-' + tv.key.replace(/\./g,'_')), {
+      type:'line',
+      data:{labels:[], datasets:[{label:tv.label, data:[], borderColor:tv.color,
+            backgroundColor:tv.color+'22', borderWidth:2, pointRadius:1, fill:true, tension:.3}]},
+      options:{animation:false, responsive:true, maintainAspectRatio:false,
+        scales:{x:{ticks:{color:'#64748b',font:{size:9},maxTicksLimit:8},grid:{color:'#1e293b'}},
+                y:{ticks:{color:'#64748b',font:{size:9}},grid:{color:'#334155'}}},
+        plugins:{legend:{display:false}}}
+    });
+  }
+  _tagsChartsBuilt = true;
+}
+
+async function _fetchTagsLive() {
+  try {
+    const r = await fetch('/api/tags');
+    const d = await r.json();
+    const now = new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    for (const tv of TAGS_PV) {
+      const tag = d.tags.find(t => t.name === tv.key);
+      const ch = _tagsCharts[tv.key];
+      if (!ch) continue;
+      const val = tag && tag.value !== null ? tag.value : null;
+      ch.data.labels.push(now);
+      ch.data.datasets[0].data.push(val);
+      if (ch.data.labels.length > MAX_PTS) {
+        ch.data.labels.shift();
+        ch.data.datasets[0].data.shift();
+      }
+      ch.update();
+    }
+  } catch(e) { console.error(e); }
+}
+
+function startTagsPolling() {
+  if (_tagsTimer) return;
+  const interval = parseInt(document.getElementById('sel-tags-interval').value) || 2000;
+  _tagsTimer = setInterval(_fetchTagsLive, interval);
+  _fetchTagsLive();
+  document.getElementById('btn-tags-start').disabled = true;
+  document.getElementById('btn-tags-stop').disabled = false;
+  document.getElementById('tags-live-status').textContent = 'Monitoreando...';
+  document.getElementById('tags-live-status').style.color = '#22c55e';
+}
+
+function stopTagsPolling() {
+  if (_tagsTimer) { clearInterval(_tagsTimer); _tagsTimer = null; }
+  document.getElementById('btn-tags-start').disabled = false;
+  document.getElementById('btn-tags-stop').disabled = true;
+  document.getElementById('tags-live-status').textContent = 'Detenido';
+  document.getElementById('tags-live-status').style.color = '#94a3b8';
+}
+
+function changeTagsInterval() {
+  if (!_tagsTimer) return;
+  stopTagsPolling();
+  startTagsPolling();
+}
+
+// ============================================================
+// TAB 3: Grafico Personalizado
+// ============================================================
+let _customChartBuilt = false;
+let _customChart = null;
+let _customTimer = null;
+let _selectedVars = [];
+const PALETTE = ['#38bdf8','#a78bfa','#22c55e','#fb923c','#f472b6','#facc15','#34d399','#f87171','#c084fc','#67e8f9','#fca5a5','#a3e635','#e879f9','#fcd34d','#6ee7b7'];
+
+const ALL_AVAILABLE_TAGS = [
+  'RETO.PV.torque','RETO.PV.bed_mass','RETO.PV.bed_level','RETO.PV.densidad',
+  'RETO.PV.torque_bomba','RETO.PV.potencia_bomba','RETO.PV.presion_descarga',
+  'RETO.PV.presion_diferencial','RETO.PV.nivel_rastra',
+  'RETO.CRUDA.tonelaje_sag_1','RETO.CRUDA.tonelaje_sag_2','RETO.CRUDA.tonelaje_relave',
+  'RETO.CRUDA.presion_bomba_1','RETO.CRUDA.presion_bomba_2','RETO.CRUDA.turbiedad_agua',
+  'RETO.SP.sp_tonelaje','RETO.SP.sp_floculante','RETO.SP.sp_vel_bomba',
+  'RETO.IN.Potencia_SAG','RETO.IN.Potencia_Bolas','RETO.IN.Nivel_Molino'
+];
+
+function buildCustomChart() {
+  const picker = document.getElementById('var-picker');
+  picker.innerHTML = '';
+  for (const tag of ALL_AVAILABLE_TAGS) {
+    const chip = document.createElement('span');
+    chip.className = 'var-chip';
+    chip.textContent = tag.replace('RETO.','');
+    chip.dataset.tag = tag;
+    chip.onclick = function() { toggleVarSelection(this); };
+    picker.appendChild(chip);
+  }
+
+  _customChart = new Chart(document.getElementById('custom-chart'), {
+    type:'line',
+    data:{labels:[], datasets:[]},
+    options:{animation:false, responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      scales:{x:{ticks:{color:'#64748b',font:{size:9},maxTicksLimit:10},grid:{color:'#1e293b'}},
+              y:{ticks:{color:'#64748b',font:{size:9}},grid:{color:'#334155'}}},
+      plugins:{legend:{display:true,labels:{color:'#94a3b8',font:{size:10}}}}}
+  });
+  _customChartBuilt = true;
+}
+
+function toggleVarSelection(chip) {
+  const tag = chip.dataset.tag;
+  const idx = _selectedVars.indexOf(tag);
+  if (idx >= 0) {
+    _selectedVars.splice(idx, 1);
+    chip.classList.remove('selected');
+    _rebuildCustomDatasets();
+  } else {
+    if (_selectedVars.length >= 8) return;
+    _selectedVars.push(tag);
+    chip.classList.add('selected');
+    _rebuildCustomDatasets();
+  }
+}
+
+function _rebuildCustomDatasets() {
+  if (!_customChart) return;
+  const existingLabels = _customChart.data.labels;
+  _customChart.data.datasets = _selectedVars.map((tag, i) => ({
+    label: tag.replace('RETO.',''),
+    data: new Array(existingLabels.length).fill(null),
+    borderColor: PALETTE[i % PALETTE.length],
+    borderWidth: 2, pointRadius: 1, tension: .3
+  }));
+  _customChart.update();
+}
+
+async function _fetchCustomLive() {
+  if (_selectedVars.length === 0) return;
+  try {
+    const r = await fetch('/api/tags');
+    const d = await r.json();
+    const now = new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    _customChart.data.labels.push(now);
+    if (_customChart.data.labels.length > MAX_PTS) _customChart.data.labels.shift();
+
+    for (let i = 0; i < _selectedVars.length; i++) {
+      const tag = d.tags.find(t => t.name === _selectedVars[i]);
+      const val = tag && tag.value !== null ? tag.value : null;
+      _customChart.data.datasets[i].data.push(val);
+      if (_customChart.data.datasets[i].data.length > MAX_PTS)
+        _customChart.data.datasets[i].data.shift();
+    }
+    _customChart.update();
+  } catch(e) { console.error(e); }
+}
+
+function startCustomPolling() {
+  if (_customTimer) return;
+  if (_selectedVars.length === 0) { alert('Selecciona al menos un tag para graficar.'); return; }
+  const interval = parseInt(document.getElementById('sel-custom-interval').value) || 2000;
+  _customTimer = setInterval(_fetchCustomLive, interval);
+  _fetchCustomLive();
+  document.getElementById('btn-custom-start').disabled = true;
+  document.getElementById('btn-custom-stop').disabled = false;
+}
+
+function stopCustomPolling() {
+  if (_customTimer) { clearInterval(_customTimer); _customTimer = null; }
+  document.getElementById('btn-custom-start').disabled = false;
+  document.getElementById('btn-custom-stop').disabled = true;
+}
+
+function clearCustomChart() {
+  if (!_customChart) return;
+  _customChart.data.labels = [];
+  _customChart.data.datasets.forEach(ds => ds.data = []);
+  _customChart.update();
+}
 </script>
 </body>
 </html>"""
@@ -2864,6 +4505,454 @@ def graficos():
 
 
 # ============================================================
+# UI -- Diagrama de flujo del sistema experto
+# ============================================================
+
+DIAGRAM_PAGE = r"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Espesador -- Diagrama de Flujo del Sistema Experto</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{background:#0b1322;border-bottom:1px solid #1e293b;padding:12px 24px;display:flex;gap:16px;align-items:center}
+nav a{color:#94a3b8;text-decoration:none;font-size:.85rem;padding:6px 12px;border-radius:6px;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:24px}
+h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
+.subtitle{color:#94a3b8;font-size:.95rem;margin-bottom:28px}
+
+.flow-wrapper{position:relative;overflow-x:auto;padding:20px 0}
+
+/* Pipeline vertical */
+.pipeline{display:flex;flex-direction:column;align-items:center;gap:0;min-width:700px}
+
+/* Nodo principal */
+.node{position:relative;border-radius:12px;padding:18px 24px;min-width:520px;max-width:700px;text-align:left;cursor:pointer;transition:all .2s;border:2px solid transparent}
+.node:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.node.expanded .node-details{display:block}
+.node-header{display:flex;align-items:center;gap:12px}
+.node-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;font-weight:700}
+.node-title{font-weight:700;font-size:1rem}
+.node-desc{font-size:.82rem;color:#94a3b8;margin-top:2px}
+.node-details{display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);font-size:.82rem;line-height:1.7;color:#cbd5e1}
+.node-details code{background:#0f172a;padding:2px 6px;border-radius:4px;font-size:.78rem;color:#38bdf8}
+.node-details .detail-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-top:8px}
+.node-details .detail-label{color:#64748b;font-weight:600;text-transform:uppercase;font-size:.7rem;letter-spacing:.03em}
+.node-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600;margin:2px}
+
+/* Flecha conector */
+.arrow{display:flex;flex-direction:column;align-items:center;padding:0;height:40px;position:relative}
+.arrow-line{width:3px;flex:1;background:linear-gradient(180deg,var(--arrow-from,#334155),var(--arrow-to,#334155))}
+.arrow-head{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:10px solid var(--arrow-to,#334155)}
+.arrow-label{position:absolute;right:calc(50% + 20px);top:50%;transform:translateY(-50%);font-size:.7rem;color:#64748b;white-space:nowrap;background:#0f172a;padding:2px 6px;border-radius:4px}
+.arrow-label-left{left:calc(50% + 20px);right:auto}
+
+/* Colores por etapa */
+.stage-input{background:linear-gradient(135deg,#1e3a5f,#1a2744);border-color:#2563eb}
+.stage-input .node-icon{background:#1d4ed8;color:#fff}
+
+.stage-calc{background:linear-gradient(135deg,#1e3348,#1a2744);border-color:#0891b2}
+.stage-calc .node-icon{background:#0e7490;color:#fff}
+
+.stage-filter{background:linear-gradient(135deg,#1e2e44,#1a2744);border-color:#6366f1}
+.stage-filter .node-icon{background:#4f46e5;color:#fff}
+
+.stage-fuzzy{background:linear-gradient(135deg,#2d1f48,#1a2744);border-color:#a855f7}
+.stage-fuzzy .node-icon{background:#7c3aed;color:#fff}
+
+.stage-perm{background:linear-gradient(135deg,#1e3340,#1a2744);border-color:#14b8a6}
+.stage-perm .node-icon{background:#0d9488;color:#fff}
+
+.stage-motor{background:linear-gradient(135deg,#3a2a1a,#2a2030);border-color:#f59e0b}
+.stage-motor .node-icon{background:#d97706;color:#fff}
+
+.stage-defuzzy{background:linear-gradient(135deg,#1a3329,#1a2744);border-color:#22c55e}
+.stage-defuzzy .node-icon{background:#16a34a;color:#fff}
+
+.stage-output{background:linear-gradient(135deg,#3a1a1a,#2a1a30);border-color:#ef4444}
+.stage-output .node-icon{background:#dc2626;color:#fff}
+
+.stage-loop{background:linear-gradient(135deg,#2a2a1a,#2a2030);border-color:#facc15}
+.stage-loop .node-icon{background:#ca8a04;color:#fff}
+
+/* Branch fork */
+.branch{display:flex;gap:20px;justify-content:center;align-items:flex-start;min-width:700px;flex-wrap:wrap}
+.branch .node{min-width:220px;max-width:320px;flex:1}
+
+/* Iteración visual */
+.loop-indicator{display:flex;align-items:center;gap:10px;padding:10px 20px;background:#1e293b;border:2px dashed #facc15;border-radius:10px;color:#facc15;font-size:.85rem;font-weight:600;margin-top:8px}
+.loop-indicator .icon{font-size:1.3rem}
+
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px;padding:16px 20px;background:#1e293b;border-radius:10px;border:1px solid #334155}
+.legend-title{width:100%;font-size:.8rem;color:#64748b;text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:#cbd5e1}
+.legend-dot{width:14px;height:14px;border-radius:4px;flex-shrink:0}
+
+/* Future tag */
+.future-tag{display:inline-flex;align-items:center;gap:4px;background:rgba(250,204,21,.12);color:#facc15;border:1px solid rgba(250,204,21,.3);padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600}
+
+/* Click hint */
+.click-hint{text-align:center;color:#475569;font-size:.78rem;margin-bottom:16px;font-style:italic}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Reglas</a>
+  <a href="/graficos">Graficos en Vivo</a>
+  <a href="/diagrama" class="active">Diagrama de Flujo</a>
+</nav>
+<div class="container">
+<h1>Diagrama de Flujo del Sistema Experto</h1>
+<p class="subtitle">Pipeline completo de procesamiento por cada tick temporal. Haz clic en cada etapa para ver detalles tecnicos.</p>
+<p class="click-hint">Haz clic en cualquier nodo para expandir/contraer los detalles</p>
+
+<div class="flow-wrapper">
+<div class="pipeline">
+
+<!-- STAGE 1: Data input -->
+<div class="node stage-input" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">1</div>
+    <div>
+      <div class="node-title">Entrada de Datos</div>
+      <div class="node-desc">DataFrame con variables de proceso, sensores y limites fuzzy</div>
+    </div>
+    <span class="future-tag">Futuro: Tags KEPserver</span>
+  </div>
+  <div class="node-details">
+    <p>Actualmente se generan datos sinteticos con <code>simulacion.py</code> en 3 fases: estable, alerta y recuperacion.
+       A futuro, esta etapa sera reemplazada por lecturas OPC-UA del KEPserver (Tags reales).</p>
+    <div class="detail-grid">
+      <span class="detail-label">Variables PV (9)</span>
+      <span><code>torque</code>, <code>bed_mass</code>, <code>bed_level</code>, <code>densidad</code>, <code>torque_bomba</code>, <code>potencia_bomba</code>, <code>presion_descarga</code>, <code>presion_diferencial</code>, <code>nivel_rastra</code></span>
+      <span class="detail-label">Sensores crudos</span>
+      <span><code>tonelaje_sag_1/2</code>, <code>tonelaje_relave</code>, <code>presion_bomba_1/2</code>, <code>turbiedad_agua</code></span>
+      <span class="detail-label">Setpoints (3)</span>
+      <span><code>sp_tonelaje</code>, <code>sp_floculante</code>, <code>sp_vel_bomba</code></span>
+      <span class="detail-label">Limites fuzzy</span>
+      <span><code>{var}_lmin</code>, <code>{var}_lmax</code> por cada PV</span>
+      <span class="detail-label">Fuente actual</span>
+      <span><code>generar_datos_proceso(n=240, dt=60s, seed=42)</code> — 4 horas simuladas</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#2563eb;--arrow-to:#0891b2">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">DataFrame completo</div>
+</div>
+
+<!-- STAGE 2: Calculated variables -->
+<div class="node stage-calc" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">2</div>
+    <div>
+      <div class="node-title">Variables Calculadas</div>
+      <div class="node-desc">Derivacion de variables a partir de sensores crudos</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Se calculan 5 variables derivadas a partir de los sensores crudos usando <code>calcular_variables_df()</code>.
+       Estas no pasan por fuzzificacion directa, pero los permisivos las consultan.</p>
+    <div class="detail-grid">
+      <span class="detail-label">tonelaje_sag_total</span>
+      <span><code>tonelaje_sag_1 + tonelaje_sag_2</code></span>
+      <span class="detail-label">tonelaje_sag_delta_30min</span>
+      <span>Delta rolling en ventana de 30 min</span>
+      <span class="detail-label">tonelaje_sag_desv_est_30min</span>
+      <span>Desviacion estandar rolling 30 min</span>
+      <span class="detail-label">diferencial_ton_sag_relave</span>
+      <span><code>tonelaje_sag_total - tonelaje_relave</code></span>
+      <span class="detail-label">diferencial_presion_bbas</span>
+      <span><code>presion_bomba_1 - presion_bomba_2</code></span>
+    </div>
+    <p style="margin-top:8px;color:#64748b">Funcion: <code>fun_calc_variables.calcular_variables_df(df, dt_s, definiciones)</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#0891b2;--arrow-to:#0891b2">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">DF + columnas derivadas</div>
+</div>
+
+<!-- STAGE 3: Extract row -->
+<div class="node stage-calc" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">3</div>
+    <div>
+      <div class="node-title">Extraccion por Fila</div>
+      <div class="node-desc">Se extrae un dict {variable: valor} de la fila actual del DataFrame</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Para cada fila (tick temporal), <code>extraer_inputs_desde_row()</code> extrae las 9 variables de proceso
+       como un diccionario <code>{nombre: float}</code>. Este es el <b>dato crudo</b> antes de filtrar.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Entrada</span>
+      <span>Una fila del DataFrame (un instante t_s)</span>
+      <span class="detail-label">Salida</span>
+      <span><code>inputs_raw = {torque: 45.2, bed_level: 3.1, ...}</code> (9 valores)</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#0891b2;--arrow-to:#6366f1">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">inputs_raw (9 floats)</div>
+</div>
+
+<!-- STAGE 4: Filter -->
+<div class="node stage-filter" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">4</div>
+    <div>
+      <div class="node-title">Filtro Exp-Q</div>
+      <div class="node-desc">Suavizado exponencial cuadratico para reducir ruido</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Cada variable de proceso pasa por un filtro de media ponderada exponencial:
+       <code>y = &sum; w<sub>i</sub> &middot; x<sub>k-i</sub> / &sum; w<sub>i</sub></code> donde
+       <code>w<sub>i</sub> = exp(-q &middot; i&sup2;)</code>.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Parametros</span>
+      <span><code>q</code> (peso decaimiento) y <code>window_size</code> (muestras) por variable</span>
+      <span class="detail-label">Ejemplo</span>
+      <span>torque: q=0.15, ws=10 | bed_level: q=0.20, ws=8</span>
+      <span class="detail-label">Efecto</span>
+      <span>Reduce ruido manteniendo tendencia; q alto = mas filtrado</span>
+      <span class="detail-label">Estado</span>
+      <span>Mantiene buffer <code>deque</code> entre ticks (memoria temporal)</span>
+    </div>
+    <p style="margin-top:8px;color:#64748b">Clase: <code>ExpQFilter.actualizar(inputs_raw) -> inputs</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#6366f1;--arrow-to:#a855f7">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">inputs (9 floats filtrados)</div>
+</div>
+
+<!-- STAGE 5: Fuzzification -->
+<div class="node stage-fuzzy" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">5</div>
+    <div>
+      <div class="node-title">Fuzzificacion</div>
+      <div class="node-desc">Conversion de valores numericos a etiquetas linguisticas con grado de pertenencia</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Cada variable se evalua contra sus funciones de membresia (modelos tipo <code>high</code>, <code>low</code>, <code>norm</code>)
+       para obtener grados de pertenencia &mu; a etiquetas linguisticas.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Etiquetas base</span>
+      <span><span class="node-badge" style="background:#22c55e30;color:#22c55e">LOW</span>
+            <span class="node-badge" style="background:#3b82f630;color:#3b82f6">OK</span>
+            <span class="node-badge" style="background:#ef444430;color:#ef4444">HIGH</span></span>
+      <span class="detail-label">Pendientes</span>
+      <span><span class="node-badge" style="background:#ef444430;color:#ef4444">DEC</span>
+            <span class="node-badge" style="background:#64748b30;color:#94a3b8">STABLE</span>
+            <span class="node-badge" style="background:#22c55e30;color:#22c55e">INC</span>
+            (regresion lineal en ventana de 60s)</span>
+      <span class="detail-label">Compuestas</span>
+      <span><span class="node-badge" style="background:#f59e0b30;color:#f59e0b">NO-HIGH</span>
+            <span class="node-badge" style="background:#f59e0b30;color:#f59e0b">NO-LOW</span>
+            <span class="node-badge" style="background:#a855f730;color:#a855f7">CERCA_ALTO</span>
+            <span class="node-badge" style="background:#a855f730;color:#a855f7">CERCA_BAJO</span></span>
+      <span class="detail-label">Formula NO-*</span>
+      <span><code>&mu;(NO-X) = 1 - &mu;(X)</code></span>
+      <span class="detail-label">Formula CERCA</span>
+      <span><code>CERCA_ALTO = min(&mu;(OK), &mu;(HIGH))</code></span>
+    </div>
+    <p style="margin-top:8px"><b>Salida:</b> <code>fuzzy_out = {torque: {dom: "HIGH", val: 0.85, pert: {HIGH: 0.85, OK: 0.15, LOW: 0.0, ...}}, pend_torque: {...}, ...}</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#a855f7;--arrow-to:#14b8a6">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">fuzzy_out (etiquetas + &mu;)</div>
+</div>
+
+<!-- STAGE 6: Permisivos -->
+<div class="node stage-perm" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">6</div>
+    <div>
+      <div class="node-title">Evaluacion de Permisivos</div>
+      <div class="node-desc">Condiciones logicas que habilitan/bloquean acciones del motor</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Los permisivos son condiciones booleanas complejas (AND/OR/NOT) que verifican el estado del proceso.
+       Se inyectan en <code>fuzzy_out</code> como pseudo-variables <code>__PERM_*</code> con etiquetas ON/OFF (&mu;=1 o 0).</p>
+    <div class="detail-grid">
+      <span class="detail-label">PERMITIR_FRENAR_DESCARGA</span>
+      <span>ON cuando NO hay alertas criticas en SAG/tonelaje/tendencias</span>
+      <span class="detail-label">PERMITIR_SOLTAR_DESCARGA</span>
+      <span>ON cuando NO hay alertas en presiones/torque de bombas</span>
+      <span class="detail-label">OPTIMIZAR_SUBIR_DENSIDAD</span>
+      <span>ON cuando condiciones favorecen subir objetivo de densidad</span>
+      <span class="detail-label">OPTIMIZAR_BAJAR_DENSIDAD</span>
+      <span>ON cuando condiciones favorecen bajar objetivo</span>
+    </div>
+    <p style="margin-top:8px"><b>Mecanismo:</b> Las reglas refieren a <code>__PERM_*</code> en su <code>if</code>. Si el permisivo esta OFF, la regla que requiere ON no dispara.</p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#14b8a6;--arrow-to:#f59e0b">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">fuzzy_out + __PERM_* inyectados</div>
+</div>
+
+<!-- STAGE 7: Motor de reglas -->
+<div class="node stage-motor" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">7</div>
+    <div>
+      <div class="node-title">Motor de Reglas</div>
+      <div class="node-desc">Evaluacion jerarquica de reglas con bloques, prioridades y cooldowns</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>El motor evalua todas las reglas contra <code>fuzzy_out</code> usando logica AND/OR/NOT. Las reglas se agrupan en bloques jerarquicos.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Belief</span>
+      <span><code>belief = weight &times; min(&mu;(condiciones))</code> — umbral minimo 0.05</span>
+      <span class="detail-label">Bloque critico</span>
+      <span>Nivel 1 — si dispara, <b>bloquea</b> estabilidad</span>
+      <span class="detail-label">Bloque estabilidad</span>
+      <span>Nivel 2 — bloqueado si critico disparo</span>
+      <span class="detail-label">Bloque optimizacion</span>
+      <span>Independiente — siempre se evalua</span>
+      <span class="detail-label">Cooldown</span>
+      <span>vel_bomba: 900s | floculante: 1800s | tonelaje: 2700s — por familia de SP</span>
+    </div>
+    <p style="margin-top:8px"><b>Salida:</b> Lista de eventos con <code>{regla_id, bloque, acciones, belief}</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#f59e0b;--arrow-to:#22c55e">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">eventos fired [{accion, belief}, ...]</div>
+</div>
+
+<!-- STAGE 8: Defuzzification -->
+<div class="node stage-defuzzy" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">8</div>
+    <div>
+      <div class="node-title">Defuzzificacion (Sugeno)</div>
+      <div class="node-desc">Conversion de acciones fuzzy a cambios numericos en setpoints</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Cada accion disparada se traduce a un delta numerico sobre el setpoint correspondiente,
+       interpolando en tablas de Sugeno segun el <code>belief</code>.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Acciones</span>
+      <span><code>AUMENTAR|DISMINUIR</code> + <code>VEL_BOMBA|TONELAJE|FLOCULANTE</code> + <code>FUERTE|SUAVE|</code>(normal)</span>
+      <span class="detail-label">Interpolacion</span>
+      <span><code>step = np.interp(belief, belief_axis, steps)</code></span>
+      <span class="detail-label">Aplicacion</span>
+      <span><code>SP[familia] += step</code>, luego clamp a limites [LL, HL]</span>
+      <span class="detail-label">Acumulativo</span>
+      <span>Multiples reglas en un tick aplican secuencialmente sobre el mismo SP</span>
+    </div>
+    <p style="margin-top:8px"><b>Ejemplo:</b> <code>DISMINUIR_VEL_BOMBA_FUERTE</code> @ belief=0.8 → step=-0.4 → <code>sp_vel_bomba -= 0.4</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#22c55e;--arrow-to:#ef4444">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">setpoints actualizados</div>
+</div>
+
+<!-- STAGE 9: Output -->
+<div class="node stage-output" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">9</div>
+    <div>
+      <div class="node-title">Salida: Setpoints Actualizados</div>
+      <div class="node-desc">Nuevos valores de consigna para el proceso del Espesador</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Los 3 setpoints se actualizan en cada tick y se acumulan a lo largo de la simulacion.
+       Estos valores son las <b>consignas de control</b> del espesador.</p>
+    <div class="detail-grid">
+      <span class="detail-label">sp_vel_bomba</span>
+      <span>Velocidad de la bomba de descarga</span>
+      <span class="detail-label">sp_tonelaje</span>
+      <span>Tonelaje objetivo de alimentacion</span>
+      <span class="detail-label">sp_floculante</span>
+      <span>Dosificacion de floculante</span>
+      <span class="detail-label">Persistencia</span>
+      <span>Los SPs se arrastran al siguiente tick como estado mutable</span>
+    </div>
+  </div>
+</div>
+
+<!-- Loop indicator -->
+<div class="arrow" style="--arrow-from:#ef4444;--arrow-to:#facc15">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+</div>
+
+<div class="loop-indicator">
+  <span class="icon">&#x21bb;</span>
+  <span>Se repite para cada fila del DataFrame (cada tick de t_s). El estado (filtros, hist, cooldowns, SPs) se arrastra entre iteraciones.</span>
+</div>
+
+</div><!-- /pipeline -->
+</div><!-- /flow-wrapper -->
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-title">Leyenda de etapas</div>
+  <span class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Entrada de datos</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#0891b2"></span> Calculo / Extraccion</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#6366f1"></span> Filtrado Exp-Q</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#a855f7"></span> Fuzzificacion</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#14b8a6"></span> Permisivos</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Motor de reglas</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> Defuzzificacion</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Salida (Setpoints)</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#facc15"></span> Iteracion / Loop</span>
+</div>
+
+<div style="margin-top:20px;padding:16px 20px;background:#1e293b;border-radius:10px;border:1px solid #334155;font-size:.82rem;color:#94a3b8;line-height:1.7">
+  <p><b style="color:#e2e8f0">Estado persistente entre ticks:</b></p>
+  <p>&bull; <code style="color:#6366f1">ExpQFilter</code> — buffers de muestras anteriores para el filtrado</p>
+  <p>&bull; <code style="color:#a855f7">hist</code> — puntos recientes para calculo de pendientes (regresion lineal)</p>
+  <p>&bull; <code style="color:#f59e0b">last_action_time</code> — timestamp de ultima accion por familia SP (cooldown)</p>
+  <p>&bull; <code style="color:#22c55e">setpoints_actuales</code> — valores acumulados de los 3 setpoints</p>
+</div>
+
+</div><!-- /container -->
+</body>
+</html>"""
+
+
+@app.route("/diagrama")
+def diagrama():
+    return Response(DIAGRAM_PAGE, mimetype="text/html")
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -2871,6 +4960,8 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  Sistema Experto Espesador (v2) -- Editor de Reglas")
     print("  http://127.0.0.1:5000")
+    print("  http://127.0.0.1:5000/#tags     (editor Tags KEPserver)")
     print("  http://127.0.0.1:5000/graficos  (graficos en tiempo real)")
+    print("  http://127.0.0.1:5000/diagrama  (diagrama de flujo SE)")
     print("=" * 60)
     app.run(debug=True, host="127.0.0.1", port=5000)
