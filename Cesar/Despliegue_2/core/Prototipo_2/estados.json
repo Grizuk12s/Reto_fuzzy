@@ -1,0 +1,294 @@
+{
+  "BED_LEVEL_BAJO": {
+    "nombre": "BED_LEVEL_BAJO",
+    "tipo": "subestado",
+    "condicion": [
+      "bed_level",
+      "LOW"
+    ]
+  },
+  "BED_LEVEL_NO_BAJO": {
+    "nombre": "BED_LEVEL_NO_BAJO",
+    "tipo": "subestado",
+    "condicion": [
+      "bed_level",
+      "NO-LOW"
+    ]
+  },
+  "TORQUE_ALTO": {
+    "nombre": "TORQUE_ALTO",
+    "tipo": "subestado",
+    "condicion": [
+      "torque",
+      "HIGH"
+    ]
+  },
+  "TORQUE_NO_ALTO": {
+    "nombre": "TORQUE_NO_ALTO",
+    "tipo": "subestado",
+    "condicion": [
+      "torque",
+      "NO-HIGH"
+    ]
+  },
+  "DENSIDAD_OK": {
+    "nombre": "DENSIDAD_OK",
+    "tipo": "subestado",
+    "condicion": [
+      "densidad",
+      "OK"
+    ]
+  },
+  "DENSIDAD_SUBIENDO": {
+    "nombre": "DENSIDAD_SUBIENDO",
+    "tipo": "subestado",
+    "condicion": [
+      "pend_densidad",
+      "INC"
+    ]
+  },
+  "DENSIDAD_BAJANDO": {
+    "nombre": "DENSIDAD_BAJANDO",
+    "tipo": "subestado",
+    "condicion": [
+      "pend_densidad",
+      "DEC"
+    ]
+  },
+  "ESTADO_1_BASE": {
+    "nombre": "ESTADO_1_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "presion_diferencial",
+          "LOW"
+        ],
+        [
+          "pend_presion_diferencial",
+          "NO-INC"
+        ],
+        [
+          "torque_bomba",
+          "HIGH"
+        ],
+        [
+          "pend_torque_bomba",
+          "NO-DEC"
+        ],
+        [
+          "potencia_bomba",
+          "HIGH"
+        ],
+        [
+          "pend_potencia_bomba",
+          "NO-DEC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_2_BASE": {
+    "nombre": "ESTADO_2_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "presion_descarga",
+          "HIGH"
+        ],
+        [
+          "pend_presion_descarga",
+          "NO-DEC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_3_BASE": {
+    "nombre": "ESTADO_3_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "nivel_rastra",
+          "HIGH"
+        ],
+        [
+          "pend_nivel_rastra",
+          "NO-DEC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_4_BASE": {
+    "nombre": "ESTADO_4_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "torque",
+          "HIGH"
+        ],
+        [
+          "pend_torque",
+          "NO-DEC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_5_BASE": {
+    "nombre": "ESTADO_5_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "bed_mass",
+          "HIGH"
+        ],
+        [
+          "pend_bed_mass",
+          "NO-DEC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_6_BASE": {
+    "nombre": "ESTADO_6_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "presion_diferencial",
+          "CERCA_BAJO"
+        ],
+        [
+          "pend_presion_diferencial",
+          "DEC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_7_BASE": {
+    "nombre": "ESTADO_7_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "presion_descarga",
+          "CERCA_ALTO"
+        ],
+        [
+          "pend_presion_descarga",
+          "INC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_8_BASE": {
+    "nombre": "ESTADO_8_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "torque",
+          "CERCA_ALTO"
+        ],
+        [
+          "pend_torque",
+          "INC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_9_BASE": {
+    "nombre": "ESTADO_9_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "bed_mass",
+          "CERCA_ALTO"
+        ],
+        [
+          "pend_bed_mass",
+          "INC"
+        ]
+      ]
+    }
+  },
+  "ESTADO_10A_BASE": {
+    "nombre": "ESTADO_10A_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "densidad",
+          "HIGH"
+        ],
+        [
+          "__PERM_PERMITIR_SOLTAR_DESCARGA",
+          "OFF"
+        ]
+      ]
+    }
+  },
+  "ESTADO_10B_BASE": {
+    "nombre": "ESTADO_10B_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "densidad",
+          "LOW"
+        ],
+        [
+          "__PERM_PERMITIR_FRENAR_DESCARGA",
+          "OFF"
+        ]
+      ]
+    }
+  },
+  "ESTADO_11_BASE": {
+    "nombre": "ESTADO_11_BASE",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "bed_level",
+          "LOW"
+        ],
+        [
+          "__PERM_PERMITIR_SOLTAR_DESCARGA",
+          "OFF"
+        ],
+        [
+          "densidad",
+          "OK"
+        ]
+      ]
+    }
+  },
+  "AAAAA": {
+    "nombre": "AAAAA",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "torque",
+          "LOW"
+        ]
+      ]
+    }
+  },
+  "BBBBBB": {
+    "nombre": "BBBBBB",
+    "tipo": "subestado",
+    "condicion": {
+      "AND": [
+        [
+          "presion_descarga",
+          "LOW"
+        ]
+      ]
+    }
+  }
+}

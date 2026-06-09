@@ -45,13 +45,11 @@ Estos archivos dependen del nucleo, pero el script ya sabe transformarlos para m
 | `fuzzys_models_1A.py` | `core/fuzzys_models_1A.py` | Reescribir imports relativos a imports locales |
 | `runner.py` | `core/runner.py` | Preservar soporte de `reglas.json`, `cargar_reglas_json()` y `usar_reglas_json` |
 
-### Archivo que sigue bajo revision manual
+### Reglas del experto
 
-Este archivo puede copiarse como fallback, pero requiere revisar la divergencia funcional con las reglas activas del prototipo.
-
-| Archivo en `Prototipo_2/` | Base en `core/` | Revision requerida |
+| Archivo en `Prototipo_2/` | Base en `core/` | Notas |
 |---|---|---|
-| `reglas_estrategia_correcta.py` | `core/reglas_estrategia_correcta.py` | Sincronizar como fallback, pero revisar en paralelo la migracion de `reglas.json` |
+| `reglas_espesador.py` | `core/reglas_espesador.py` | Auto-adaptado; reglas activas del experto con estados definidos en `estados_espesador.py` |
 
 ## Flujo de actualizacion recomendado
 
@@ -90,10 +88,9 @@ Aplicar despues la sincronizacion con adaptadores y revisar solo los casos que s
   - el script conserva el parametro `usar_reglas_json`
   - validar el adaptador si el runner del nucleo cambia su firma o la carga de reglas
 
-- `reglas_estrategia_correcta.py`
-  - actualizar solo como fallback
-  - comparar despues contra `reglas.json`
-  - no asumir que sobreescribir el fallback actualiza el comportamiento real del prototipo
+- `reglas_espesador.py`
+  - fuente activa de reglas del core
+  - comparar contra `reglas.json` si se desea alinear el prototipo
 
 ### Paso 4. Revisar la capa propia de `Prototipo_2`
 
@@ -189,8 +186,7 @@ Comportamiento del watcher:
 
 - Monitorea en `core/` los archivos auto-sync y auto-adaptados.
 - Ejecuta `sync_core_to_prototipo.py --apply` cuando detecta cambios.
-- Puede incluir `reglas_estrategia_correcta.py` en modo alerta con `--include-manual-review`.
-- Si cambia `reglas_estrategia_correcta.py`, genera un reporte Markdown de revision manual en `.sync_reports/`.
+- Las reglas activas viven en `reglas_espesador.py` (auto-adaptado); los estados en `estados_espesador.py`.
 - Si el cambio detectado es solo manual-review, no ejecuta `--apply` automaticamente.
 - Puede dejarse corriendo en una terminal o lanzarse desde la tarea de VS Code.
 
@@ -211,13 +207,7 @@ Automatizar con adaptadores controlados estos archivos:
 - `fuzzys_models_1A.py`
 - `runner.py`
 
-### Capa 3. Revision manual focalizada
-
-Mantener una revision humana obligatoria para:
-
-- `reglas_estrategia_correcta.py`
-
-### Capa 4. Proteccion de la capa standalone
+### Capa 3. Proteccion de la capa standalone
 
 No sobrescribir automaticamente:
 

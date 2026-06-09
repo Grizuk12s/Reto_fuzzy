@@ -21,7 +21,7 @@
 |---|---|---|
 | Tipo de proyecto | Paquete Python reusable | Proyecto standalone |
 | Estilo de imports | Relativos: `from .modulo import ...` | Directos: `from modulo import ...` |
-| Fuente activa de reglas | `reglas_estrategia_correcta.py` | `reglas.json` en ejecucion normal; `reglas_estrategia_correcta.py` queda como fallback |
+| Fuente activa de reglas | `reglas_espesador.py` (estados en `estados_espesador.py`) | `reglas.json` en ejecucion normal |
 | Parametros operacionales | Se inyectan desde fuera | Se fijan dentro de `simulacion.py` |
 | Interfaz web | No tiene | `app.py` expone API REST y UI |
 | Dependencias declaradas | No hay archivo de dependencias local | `requirements.txt` agrega `flask` ademas de `numpy` y `pandas` |
@@ -38,7 +38,7 @@ La siguiente tabla describe la dependencia de mantenimiento entre archivos homol
 | `fuzzys_templates.py` | `core/fuzzys_templates.py` | Espejo directo | Consumido por `fuzzys_models_1A.py` |
 | `motor.py` | `core/motor.py` | Espejo directo | Consumido por `runner.py` |
 | `fuzzys_models_1A.py` | `core/fuzzys_models_1A.py` | Auto-adaptado | El sync reescribe imports relativos a imports locales |
-| `reglas_estrategia_correcta.py` | `core/reglas_estrategia_correcta.py` | Espejo directo hoy | Solo fallback; no es la fuente activa de reglas del prototipo |
+| `reglas_espesador.py` | `core/reglas_espesador.py` | Auto-adaptado | Reglas activas del experto; estados definidos en `estados_espesador.py` |
 | `runner.py` | `core/runner.py` | Auto-adaptado | El sync preserva `reglas.json`, `cargar_reglas_json()` y `usar_reglas_json` |
 
 ## Dependencias internas de `Prototipo_2`
@@ -46,7 +46,7 @@ La siguiente tabla describe la dependencia de mantenimiento entre archivos homol
 | Archivo | Depende de | Motivo |
 |---|---|---|
 | `fuzzys_models_1A.py` | `fuzzys_templates.py` | Define los modelos fuzzy concretos a partir de las fabricas del nucleo |
-| `runner.py` | `config.py`, `motor.py`, `defuzzy_actions.py`, `fuzzys_eval.py`, `fuzzys_models_1A.py`, `reglas_estrategia_correcta.py`, `reglas.json` | Orquesta la evaluacion completa y resuelve reglas activas |
+| `runner.py` | `config.py`, `motor.py`, `defuzzy_actions.py`, `fuzzys_eval.py`, `fuzzys_models_1A.py`, `reglas_espesador.py`, `reglas.json` | Orquesta la evaluacion completa y resuelve reglas activas |
 | `simulacion.py` | `runner.py` | Genera datos sinteticos y provee setpoints, limites y meta flags |
 | `app.py` | `config.py`, `defuzzy_actions.py`, `runner.py`, `simulacion.py`, `reglas.json` | Expone UI/API, valida reglas con metadatos compartidos y ejecuta simulaciones en vivo |
 
@@ -95,16 +95,9 @@ Ahora las importa desde `config.py` y `defuzzy_actions.py`, y usa esa misma fuen
 
 Eso es intencional: `core` no fija esos valores. Si cambia el contrato de entrada del nucleo, hay que revisar manualmente la simulacion.
 
-### 5. Las reglas activas del prototipo ya divergen del fallback Python
+### 5. Fuente unica de reglas
 
-Hallazgos actuales:
-
-- `core/reglas_estrategia_correcta.py`: 28 reglas.
-- `Prototipo_2/reglas_estrategia_correcta.py`: 28 reglas.
-- `Prototipo_2/reglas.json`: 29 reglas.
-- `reglas.json` contiene una regla extra con id `111`.
-
-Conclusion: el comportamiento real de `Prototipo_2` ya no debe asumirse como una copia exacta del fallback Python.
+La fuente de reglas del core es `reglas_espesador.py`, que importa estados desde `estados_espesador.py`. El archivo legacy `reglas_estrategia_correcta.py` fue eliminado.
 
 ## Lectura recomendada para mantenimiento
 
@@ -116,6 +109,5 @@ Conclusion: el comportamiento real de `Prototipo_2` ya no debe asumirse como una
 
 - `watch_core_to_prototipo.py` monitorea los archivos sincronizables dentro de `core/`.
 - Cuando detecta cambios en archivos auto-sync o auto-adaptados, ejecuta `sync_core_to_prototipo.py --apply` hacia `Prototipo_2/`.
-- Si detecta cambios en `core/reglas_estrategia_correcta.py` con `--include-manual-review`, emite una alerta y genera un reporte Markdown en `.sync_reports/`.
 - El watcher no sobrescribe `app.py`, `simulacion.py` ni `reglas.json`.
-- `reglas_estrategia_correcta.py` puede vigilarse en modo alerta, pero sigue siendo una decision manual respecto a `reglas.json`.
+- Las reglas del core viven en `reglas_espesador.py` (auto-adaptado) con estados en `estados_espesador.py`.

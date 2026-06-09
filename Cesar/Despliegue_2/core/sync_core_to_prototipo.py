@@ -36,11 +36,10 @@ AUTO_SYNC_RULES: tuple[tuple[str, str], ...] = (
     ("fuzzys_eval.py", "Evaluacion fuzzy y etiquetas compuestas."),
     ("fuzzys_templates.py", "Fabricas Low/High/Norm/Pendiente."),
     ("permisivos.py", "Permisivos operacionales (OR/AND/NOT)."),
-    ("reglas_espesador.py", "Reglas del experto Espesador (default)."),
-    ("reglas_estrategia_correcta.py", "Reglas v1 legacy mantenidas para referencia."),
 )
 
 AUTO_ADAPT_RULES: tuple[tuple[str, str], ...] = (
+    ("reglas_espesador.py", "Reglas del experto Espesador; imports planos."),
     ("fun_calc_variables.py", "Funciones de calculo de variables derivadas; imports planos."),
     ("variables_calculadas.py", "Shim de compatibilidad; imports planos."),
     ("fuzzys_models_espesador.py", "Modelos fuzzy del Espesador; imports planos."),

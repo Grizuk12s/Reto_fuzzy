@@ -7,47 +7,48 @@
 #     - Bloques no independientes -> orden por `level`, el primero que
 #       dispara reglas bloquea a los siguientes en este tick.
 #     - Bloques independientes (ej. "optimizacion") siempre evaluan.
-# - Cooldown por FAMILIA de SP (decision D), tomado de config global.
-#   Ya NO se acepta cooldown_s a nivel de regla.
+# - Waits declarativos por accion/regla.
 # - Soporte de reglas con multiples acciones en `then`.
 # ============================================================
 
 from __future__ import annotations
 
-from .config import BLOQUES, COOLDOWN_FAMILIA_S
+from .config import BLOQUES
+from .waits import normalizar_accion_regla
 
 
 # ============================================================
-# Mapeo accion -> familia de SP
+# Helpers de waits
 # ============================================================
-def accion_a_sp(accion: str) -> str | None:
-    a = str(accion).upper().strip()
-
-    if a.startswith("DISMINUIR_TONELAJE") or a.startswith("AUMENTAR_TONELAJE"):
-        return "sp_tonelaje"
-    if a.startswith("DISMINUIR_FLOCULANTE") or a.startswith("AUMENTAR_FLOCULANTE"):
-        return "sp_floculante"
-    if a.startswith("DISMINUIR_VEL_BOMBA") or a.startswith("AUMENTAR_VEL_BOMBA"):
-        return "sp_vel_bomba"
-    # Acciones de la capa de optimizacion (TODO definir cuando se implemente)
-    if a.startswith("SUBIR_OBJETIVO_DENSIDAD") or a.startswith("BAJAR_OBJETIVO_DENSIDAD"):
-        return "objetivo_densidad"
-    return None
+def _wait_esta_activo(wait_spec: dict, estado_waits: dict, t_s: float) -> bool:
+    estado = estado_waits.get(str(wait_spec["wait_id"]))
+    if not estado:
+        return False
+    duracion = float(estado.get("duracion_s", 0.0))
+    t_inicio = float(estado.get("t_ultima_activacion_s", -1e18))
+    return (float(t_s) - t_inicio) < duracion
 
 
-def cooldown_family(accion: str) -> str:
-    sp = accion_a_sp(accion)
-    return str(sp) if sp is not None else str(accion)
+def _activar_waits(wait_specs: list[dict], estado_waits: dict, t_s: float, regla_id: str) -> None:
+    for wait in wait_specs:
+        estado_waits[str(wait["wait_id"])] = {
+            "wait_id": str(wait["wait_id"]),
+            "tipo": str(wait.get("tipo", "")),
+            "accion": str(wait.get("accion", "")),
+            "accion_referencia": wait.get("accion_referencia"),
+            "variable_controlada": wait.get("variable_controlada"),
+            "descripcion": str(wait.get("descripcion", "")),
+            "duracion_s": float(wait.get("duracion_s", 0.0)),
+            "t_ultima_activacion_s": float(t_s),
+            "regla_id": str(regla_id),
+        }
 
 
-def cooldown_segundos_para_accion(accion: str) -> float:
-    """Cooldown por familia, leido de COOLDOWN_FAMILIA_S (global).
-
-    Si la familia no esta en el dict, cooldown=0 (la accion puede repetirse
-    en cada tick). El usuario decide el valor en config.py, no en cada regla.
-    """
-    familia = cooldown_family(accion)
-    return float(COOLDOWN_FAMILIA_S.get(familia, 0.0))
+def _deduplicar_waits(wait_specs: list[dict]) -> list[dict]:
+    unicos: dict[str, dict] = {}
+    for wait in wait_specs:
+        unicos[str(wait["wait_id"])] = dict(wait)
+    return list(unicos.values())
 
 
 # ============================================================
@@ -66,7 +67,19 @@ def mu_condicion(fuzzy_out: dict, var: str, label: str) -> float:
     return float(pert.get(str(label).upper(), 0.0))
 
 
+def _resolver_condicion_declarativa(condicion):
+    if (
+        isinstance(condicion, dict)
+        and "condicion" in condicion
+        and condicion.get("tipo") in {"estado", "subestado", "fuerza"}
+    ):
+        return condicion["condicion"]
+    return condicion
+
+
 def evaluar_condicion(condicion, fuzzy_out: dict) -> float:
+    condicion = _resolver_condicion_declarativa(condicion)
+
     # tupla simple
     if isinstance(condicion, tuple):
         if len(condicion) != 2:
@@ -98,21 +111,38 @@ def evaluar_condicion(condicion, fuzzy_out: dict) -> float:
     raise ValueError(f"Condicion no reconocida: {condicion!r}")
 
 
-def fuerza_regla(fuzzy_out: dict, condiciones) -> float:
+def fuerza_activacion(fuzzy_out: dict, condiciones) -> float:
+    if condiciones is None:
+        return 1.0
     if not condiciones:
-        return 0.0
+        return 1.0
     # top-level AND
     return float(min(evaluar_condicion(c, fuzzy_out) for c in condiciones))
+
+
+def fuerza_regla(fuzzy_out: dict, fuerza, fallback: float) -> float:
+    if fuerza is None:
+        return float(fallback)
+
+    fuerza = _resolver_condicion_declarativa(fuerza)
+
+    # La lista top-level de `fuerza` usa OR por defecto.
+    if isinstance(fuerza, list):
+        if not fuerza:
+            return float(fallback)
+        return float(max(evaluar_condicion(c, fuzzy_out) for c in fuerza))
+
+    return float(evaluar_condicion(fuerza, fuzzy_out))
 
 
 # ============================================================
 # Acciones de una regla
 # ============================================================
-def _normalizar_acciones(regla: dict) -> list[str]:
+def _normalizar_acciones(regla: dict) -> list[dict]:
     acciones = (regla or {}).get("then", [])
     if isinstance(acciones, str):
-        return [acciones]
-    return [str(a) for a in acciones]
+        acciones = [acciones]
+    return [normalizar_accion_regla(a, regla_id=str((regla or {}).get("id", ""))) for a in acciones]
 
 
 # ============================================================
@@ -122,57 +152,78 @@ def _evaluar_set_reglas(
     reglas: list[dict],
     fuzzy_out: dict,
     t_s: float,
-    last_action_time: dict,
+    estado_waits: dict,
     min_belief: float,
 ) -> list[dict]:
     """Evalua reglas ordenadas por prioridad descendente; retorna disparadas.
 
-    Aplica cooldown por familia de SP (estado en `last_action_time`).
-    Muta `last_action_time` para registrar nuevas activaciones.
+    Aplica waits declarativos por accion. Muta `estado_waits` para registrar
+    nuevas activaciones y reinicios de waits.
     """
     fired = []
     reglas_ordenadas = sorted(reglas, key=lambda r: float(r.get("priority", 0.0)), reverse=True)
 
     for regla in reglas_ordenadas:
         acciones = _normalizar_acciones(regla)
-        belief = float(regla.get("weight", 1.0)) * fuerza_regla(fuzzy_out, regla.get("if", []))
+        mu_activacion = fuerza_activacion(fuzzy_out, regla.get("if", []))
+        if mu_activacion <= 0.0:
+            continue
+
+        mu_fuerza = fuerza_regla(
+            fuzzy_out,
+            regla.get("fuerza"),
+            fallback=mu_activacion,
+        )
+        belief = float(regla.get("weight", 1.0)) * mu_fuerza
         if belief < float(min_belief):
             continue
 
-        familias = []
-        cooldown_por_accion = {}
+        acciones_nombres = [str(a["accion"]) for a in acciones]
+        waits_bloqueantes = []
+        waits_reinicio = []
         bloqueada = False
 
-        for accion in acciones:
-            familia = cooldown_family(accion)
-            cooldown_s = cooldown_segundos_para_accion(accion)
-            familias.append(familia)
-            cooldown_por_accion[accion] = float(cooldown_s)
-            t_last = float(last_action_time.get(familia, -1e18))
-            if (float(t_s) - t_last) < float(cooldown_s):
-                bloqueada = True
+        for accion_spec in acciones:
+            for wait in accion_spec.get("waits", []):
+                waits_bloqueantes.append(wait)
+                if _wait_esta_activo(wait, estado_waits, t_s):
+                    bloqueada = True
+                    break
+            if bloqueada:
                 break
+            waits_reinicio.extend(accion_spec.get("reiniciar_waits", []))
 
         if bloqueada:
             continue
+
+        waits_bloqueantes = _deduplicar_waits(waits_bloqueantes)
+        waits_reinicio = _deduplicar_waits(waits_reinicio)
+        waits_activados = _deduplicar_waits(waits_bloqueantes + waits_reinicio)
 
         fired.append({
             "t_s": float(t_s),
             "id": str(regla["id"]),
             "bloque": str(regla.get("bloque", "estabilidad")),
-            "acciones": list(acciones),
-            "accion": " | ".join(acciones),
+            "acciones": list(acciones_nombres),
+            "accion": " | ".join(acciones_nombres),
+            "acciones_detalle": list(acciones),
             "belief": belief,
+            "mu_activacion": mu_activacion,
+            "mu_fuerza": mu_fuerza,
             "priority": float(regla.get("priority", 0.0)),
             "conds": list(regla.get("if", [])),
-            "cooldown_por_accion": dict(cooldown_por_accion),
-            "familias_cooldown": list(familias),
-            "familia_cooldown": " | ".join(familias),
+            "fuerza": regla.get("fuerza"),
+            "waits_bloqueantes": [str(w["wait_id"]) for w in waits_bloqueantes],
+            "waits_reiniciados": [str(w["wait_id"]) for w in waits_reinicio],
+            "waits_activados": [str(w["wait_id"]) for w in waits_activados],
+            "variables_controladas": sorted({
+                str(w["variable_controlada"])
+                for w in waits_activados
+                if w.get("variable_controlada") is not None
+            }),
         })
 
-        for accion in acciones:
-            familia = cooldown_family(accion)
-            last_action_time[familia] = float(t_s)
+        _activar_waits(waits_activados, estado_waits, t_s, str(regla["id"]))
 
     return fired
 
@@ -184,6 +235,7 @@ def evaluar_reglas(
     reglas: list[dict],
     fuzzy_out: dict,
     t_s: float,
+    estado_waits: dict | None = None,
     last_action_time: dict | None = None,
     min_belief: float = 0.05,
 ) -> dict:
@@ -197,8 +249,8 @@ def evaluar_reglas(
     Bloques independientes:
       - siempre se evaluan, sin importar quien mas haya disparado.
     """
-    if last_action_time is None:
-        last_action_time = {}
+    if estado_waits is None:
+        estado_waits = {} if last_action_time is None else last_action_time
 
     # Agrupar por bloque
     bloques_a_reglas: dict[str, list[dict]] = {}
@@ -226,7 +278,7 @@ def evaluar_reglas(
         if not reglas_bloque:
             continue
         fired = _evaluar_set_reglas(
-            reglas_bloque, fuzzy_out, t_s, last_action_time, min_belief
+            reglas_bloque, fuzzy_out, t_s, estado_waits, min_belief
         )
         if fired:
             bloque_jerarquico_disparo = True
@@ -237,7 +289,7 @@ def evaluar_reglas(
         if not reglas_bloque:
             continue
         fired = _evaluar_set_reglas(
-            reglas_bloque, fuzzy_out, t_s, last_action_time, min_belief
+            reglas_bloque, fuzzy_out, t_s, estado_waits, min_belief
         )
         all_fired.extend(fired)
 
@@ -249,7 +301,8 @@ def evaluar_reglas(
     return {
         "fired": all_fired,
         "belief_accion": belief_accion,
-        "last_action_time": last_action_time,
+        "estado_waits": estado_waits,
+        "last_action_time": estado_waits,
     }
 
 
@@ -257,6 +310,7 @@ def motor_reglas(
     reglas: list[dict],
     fuzzy_out: dict,
     t_s: float,
+    estado_waits: dict | None = None,
     last_action_time: dict | None = None,
     min_belief: float = 0.05,
 ) -> dict:
@@ -265,6 +319,7 @@ def motor_reglas(
         reglas=reglas,
         fuzzy_out=fuzzy_out,
         t_s=t_s,
+        estado_waits=estado_waits,
         last_action_time=last_action_time,
         min_belief=min_belief,
     )

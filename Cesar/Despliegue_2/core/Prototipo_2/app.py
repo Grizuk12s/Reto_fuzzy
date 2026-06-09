@@ -47,6 +47,7 @@ import os
 import threading
 import time
 import traceback
+from collections import deque
 
 from flask import Flask, Response, jsonify, request
 
@@ -57,12 +58,94 @@ from config import (
     VARIABLES_PROCESO,
 )
 from defuzzy_actions import DEFUZZY_POR_FAMILIA
+from estados_espesador import ESTADOS_ESPESADOR
 from exp_q_filter import CONFIG_FILTRO_ESPESADOR_DEFAULT
 from fuzzys_models_espesador import FUZZY_MODELOS
 from calculos_variables import DEFINICIONES_CALCULADAS, VARIABLES_CRUDAS
 from permisivos import PERMISIVOS, nombre_variable_permisivo
+from waits_catalogo import (
+    WAIT_FLOCULANTE_CRITICO,
+    WAIT_FLOCULANTE_ESTABILIDAD,
+    WAIT_TONELAJE_CRITICO,
+    WAIT_TONELAJE_ESTABILIDAD,
+    WAIT_VEL_BOMBA_CRITICO,
+    WAIT_VEL_BOMBA_ESTABILIDAD,
+    WAIT_VEL_PRESION_CAMA,
+    WAIT_VEL_SOLIDOS,
+)
 
 app = Flask(__name__)
+
+
+# ============================================================
+# Sistema de alertas centralizadas
+# ============================================================
+
+class AlertCollector:
+    """Collects and deduplicates system alerts from multiple sources."""
+
+    CATEGORIES = {
+        "import":    {"label": "Error de Import",       "color": "#ef4444", "icon": "!"},
+        "kep":       {"label": "Conexion KEPserver",    "color": "#f97316", "icon": "K"},
+        "reglas":    {"label": "Reglas / Motor",        "color": "#f59e0b", "icon": "R"},
+        "se_engine": {"label": "Motor SE",              "color": "#a855f7", "icon": "S"},
+        "generator": {"label": "Generador de Datos",    "color": "#6366f1", "icon": "G"},
+        "config":    {"label": "Configuracion / JSON",  "color": "#ec4899", "icon": "C"},
+        "general":   {"label": "Error General",         "color": "#64748b", "icon": "?"},
+    }
+
+    def __init__(self):
+        self._alerts: list[dict] = []
+        self._lock = threading.Lock()
+        self._next_id = 1
+
+    def add(self, category: str, message: str, detail: str = ""):
+        with self._lock:
+            for a in self._alerts:
+                if a["category"] == category and a["message"] == message and not a["resolved"]:
+                    a["count"] += 1
+                    a["last_seen"] = time.time()
+                    return
+            self._alerts.append({
+                "id": self._next_id,
+                "category": category,
+                "message": message,
+                "detail": detail,
+                "count": 1,
+                "first_seen": time.time(),
+                "last_seen": time.time(),
+                "resolved": False,
+            })
+            self._next_id += 1
+
+    def resolve(self, alert_id: int):
+        with self._lock:
+            for a in self._alerts:
+                if a["id"] == alert_id:
+                    a["resolved"] = True
+                    return True
+            return False
+
+    def resolve_category(self, category: str):
+        with self._lock:
+            for a in self._alerts:
+                if a["category"] == category and not a["resolved"]:
+                    a["resolved"] = True
+
+    def get_active(self) -> list[dict]:
+        with self._lock:
+            return [dict(a) for a in self._alerts if not a["resolved"]]
+
+    def get_all(self) -> list[dict]:
+        with self._lock:
+            return [dict(a) for a in self._alerts]
+
+    def clear_resolved(self):
+        with self._lock:
+            self._alerts = [a for a in self._alerts if not a["resolved"]]
+
+
+_alerts = AlertCollector()
 
 REGLAS_JSON     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reglas.json")
 FILTROS_JSON    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filtros.json")
@@ -131,6 +214,34 @@ ACCIONES_VALIDAS = set(ACCIONES_DISPONIBLES)
 BLOQUES_VALIDOS = set(BLOQUES_DISPONIBLES)
 
 
+def _build_estados_serializable() -> dict:
+    """Serializa ESTADOS_ESPESADOR para enviar al frontend."""
+    from estados_builder import _resolver_condicion
+    result = {}
+    for nombre, estado in ESTADOS_ESPESADOR.items():
+        condicion = estado.get("condicion")
+        result[nombre] = {
+            "nombre": nombre,
+            "tipo": estado.get("tipo", "estado"),
+            "condicion": _resolver_condicion(condicion) if condicion else [],
+        }
+    return result
+
+
+ESTADOS_SERIALIZADOS = _build_estados_serializable()
+
+WAITS_CATALOGO_DISPONIBLES = [
+    WAIT_VEL_BOMBA_CRITICO,
+    WAIT_VEL_BOMBA_ESTABILIDAD,
+    WAIT_TONELAJE_CRITICO,
+    WAIT_TONELAJE_ESTABILIDAD,
+    WAIT_FLOCULANTE_CRITICO,
+    WAIT_FLOCULANTE_ESTABILIDAD,
+    WAIT_VEL_SOLIDOS,
+    WAIT_VEL_PRESION_CAMA,
+]
+
+
 # ============================================================
 # Helpers para reglas.json
 # ============================================================
@@ -177,22 +288,52 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
         return None, f"Bloque invalido: '{bloque}'. Validos: {sorted(BLOQUES_VALIDOS)}."
     regla["bloque"] = bloque
 
+    # Fuerza (opcional): leaf [v,l] o {OR: [[v,l],...]}
+    fuerza = regla.get("fuerza")
+    if fuerza is not None:
+        def _val_fuerza_leaf(leaf, ctx="Fuerza"):
+            if not isinstance(leaf, (list, tuple)) or len(leaf) != 2:
+                return None, f"{ctx}: formato invalido."
+            v = str(leaf[0]).strip()
+            l = str(leaf[1]).strip().upper()
+            if v not in VARIABLES_VALIDAS:
+                return None, f"{ctx}: variable invalida '{v}'."
+            if l not in ETIQUETAS_VALIDAS:
+                return None, f"{ctx}: etiqueta invalida '{l}'."
+            return [v, l], None
+
+        if isinstance(fuerza, dict) and "OR" in fuerza:
+            items = fuerza.get("OR", [])
+            norm_items = []
+            for i, leaf in enumerate(items, 1):
+                n, err = _val_fuerza_leaf(leaf, f"Fuerza OR #{i}")
+                if err:
+                    return None, err
+                norm_items.append(n)
+            regla["fuerza"] = {"OR": norm_items} if len(norm_items) > 1 else (norm_items[0] if norm_items else None)
+        elif isinstance(fuerza, (list, tuple)) and len(fuerza) == 2 and isinstance(fuerza[0], str):
+            n, err = _val_fuerza_leaf(fuerza)
+            if err:
+                return None, err
+            regla["fuerza"] = n
+        else:
+            regla["fuerza"] = None
+
     condiciones = regla.get("if")
     if not isinstance(condiciones, list) or not condiciones:
         return None, "Campo 'if' debe ser una lista no vacia."
 
-    # Aceptamos dos formatos en el payload entrante:
-    #   (a) Plano:   [<item>, ...]                  -> se envuelve en AND.
-    #   (b) Canon:   [{"AND": [<item>, ...]}]       -> se valida tal cual.
-    # donde <item> es:
+    # Formato nuevo: lista top-level de items donde cada item es:
     #   - hoja: [variable, etiqueta]
-    #   - grupo OR: {"OR": [[v,l], [v,l], ...]}  (>= 2 hojas)
-    # Persistimos siempre como (b) para evaluar como AND a top-level en el motor.
+    #   - grupo OR: {"OR": [[v,l], ...]}
+    #   - grupo AND (estado): {"AND": [...]}
+    # Formato legacy (single AND wrapper): [{"AND": [...]}] con solo hojas/OR dentro
     items = condiciones
     if (len(condiciones) == 1
             and isinstance(condiciones[0], dict)
             and "AND" in condiciones[0]
-            and isinstance(condiciones[0]["AND"], list)):
+            and isinstance(condiciones[0]["AND"], list)
+            and not any(isinstance(x, dict) and "AND" in x for x in condiciones[0]["AND"])):
         items = condiciones[0]["AND"]
 
     def _norm_leaf(leaf, ctx: str):
@@ -206,8 +347,28 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
             return None, f"{ctx}: etiqueta invalida '{etiqueta}'."
         return [variable, etiqueta], None
 
+    def _norm_and_group(group, ctx: str):
+        sub_items = group.get("AND", [])
+        if not isinstance(sub_items, list):
+            return None, f"{ctx}: AND debe ser una lista."
+        norm = []
+        for si, leaf in enumerate(sub_items, start=1):
+            leaf_norm, err = _norm_leaf(leaf, f"{ctx} AND hoja #{si}")
+            if err is not None:
+                return None, err
+            norm.append(leaf_norm)
+        return {"AND": norm}, None
+
     condiciones_norm = []
     for idx, item in enumerate(items, start=1):
+        # Grupo AND (estado/subestado)
+        if isinstance(item, dict) and "AND" in item:
+            and_norm, err = _norm_and_group(item, f"Condicion #{idx}")
+            if err is not None:
+                return None, err
+            condiciones_norm.append(and_norm)
+            continue
+
         # Grupo OR
         if isinstance(item, dict) and "OR" in item:
             sub_items = item.get("OR")
@@ -228,7 +389,7 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
             return None, err
         condiciones_norm.append(leaf_norm)
 
-    regla["if"] = [{"AND": condiciones_norm}]
+    regla["if"] = condiciones_norm
 
     acciones = regla.get("then")
     if not isinstance(acciones, list) or not acciones:
@@ -236,10 +397,17 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
 
     acciones_norm = []
     for idx, accion in enumerate(acciones, start=1):
-        accion_norm = str(accion).strip().upper()
-        if accion_norm not in ACCIONES_VALIDAS:
-            return None, f"Accion invalida en then #{idx}: '{accion_norm}'."
-        acciones_norm.append(accion_norm)
+        if isinstance(accion, dict) and "accion" in accion:
+            accion_nombre = str(accion["accion"]).strip().upper()
+            if accion_nombre not in ACCIONES_VALIDAS:
+                return None, f"Accion invalida en then #{idx}: '{accion_nombre}'."
+            accion["accion"] = accion_nombre
+            acciones_norm.append(accion)
+        else:
+            accion_norm = str(accion).strip().upper()
+            if accion_norm not in ACCIONES_VALIDAS:
+                return None, f"Accion invalida en then #{idx}: '{accion_norm}'."
+            acciones_norm.append(accion_norm)
     regla["then"] = acciones_norm
 
     for key in ("weight", "priority"):
@@ -1044,6 +1212,192 @@ def api_reset_permisivos():
 
 
 # ============================================================
+# API REST -- Estados y Subestados
+# ============================================================
+
+ESTADOS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estados.json")
+
+
+def _defaults_estados() -> dict:
+    return dict(ESTADOS_SERIALIZADOS)
+
+
+def _load_estados() -> dict:
+    if not os.path.exists(ESTADOS_JSON_PATH):
+        cfg = _defaults_estados()
+        _save_estados(cfg)
+        return cfg
+    try:
+        with open(ESTADOS_JSON_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return _defaults_estados()
+
+
+def _save_estados(data: dict) -> None:
+    with open(ESTADOS_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+@app.route("/api/estados", methods=["GET"])
+def api_get_estados():
+    return jsonify(_load_estados())
+
+
+@app.route("/api/estados/<nombre>", methods=["GET"])
+def api_get_estado(nombre: str):
+    estados = _load_estados()
+    est = estados.get(nombre)
+    if est is None:
+        return jsonify({"error": f"Estado '{nombre}' no encontrado"}), 404
+    return jsonify(est)
+
+
+@app.route("/api/estados", methods=["POST"])
+def api_create_estado():
+    data = request.get_json(force=True)
+    nombre = str(data.get("nombre", "")).strip()
+    if not nombre:
+        return jsonify({"error": "Campo 'nombre' requerido"}), 400
+    estados = _load_estados()
+    if nombre in estados:
+        return jsonify({"error": f"Estado '{nombre}' ya existe"}), 409
+    estados[nombre] = {
+        "nombre": nombre,
+        "tipo": str(data.get("tipo", "estado")),
+        "condicion": data.get("condicion", {"AND": []}),
+    }
+    _save_estados(estados)
+    return jsonify({"ok": True, "estado": estados[nombre]}), 201
+
+
+@app.route("/api/estados/<nombre>", methods=["PUT"])
+def api_update_estado(nombre: str):
+    estados = _load_estados()
+    if nombre not in estados:
+        return jsonify({"error": f"Estado '{nombre}' no encontrado"}), 404
+    data = request.get_json(force=True)
+    estados[nombre] = {
+        "nombre": nombre,
+        "tipo": str(data.get("tipo", estados[nombre].get("tipo", "estado"))),
+        "condicion": data.get("condicion", estados[nombre].get("condicion")),
+    }
+    _save_estados(estados)
+    return jsonify({"ok": True, "estado": estados[nombre]})
+
+
+@app.route("/api/estados/<nombre>", methods=["DELETE"])
+def api_delete_estado(nombre: str):
+    estados = _load_estados()
+    if nombre not in estados:
+        return jsonify({"error": f"Estado '{nombre}' no encontrado"}), 404
+    del estados[nombre]
+    _save_estados(estados)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/estados/reset", methods=["POST"])
+def api_reset_estados():
+    cfg = _defaults_estados()
+    _save_estados(cfg)
+    return jsonify({"ok": True})
+
+
+# ============================================================
+# API REST -- Waits Catalogo
+# ============================================================
+
+WAITS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "waits.json")
+
+
+def _defaults_waits() -> list[dict]:
+    return list(WAITS_CATALOGO_DISPONIBLES)
+
+
+def _load_waits() -> list[dict]:
+    if not os.path.exists(WAITS_JSON_PATH):
+        cfg = _defaults_waits()
+        _save_waits(cfg)
+        return cfg
+    try:
+        with open(WAITS_JSON_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return _defaults_waits()
+
+
+def _save_waits(data: list[dict]) -> None:
+    with open(WAITS_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+@app.route("/api/waits", methods=["GET"])
+def api_get_waits():
+    return jsonify(_load_waits())
+
+
+@app.route("/api/waits/<path:wait_id>", methods=["GET"])
+def api_get_wait(wait_id: str):
+    waits = _load_waits()
+    for w in waits:
+        if w.get("wait_id") == wait_id:
+            return jsonify(w)
+    return jsonify({"error": f"Wait '{wait_id}' no encontrado"}), 404
+
+
+@app.route("/api/waits", methods=["POST"])
+def api_create_wait():
+    data = request.get_json(force=True)
+    nombre = str(data.get("nombre", "")).strip()
+    if not nombre:
+        return jsonify({"error": "Campo 'nombre' requerido"}), 400
+    from waits_catalogo import crear_wait
+    new_wait = crear_wait(
+        nombre,
+        variable_controlada=data.get("variable_controlada"),
+        descripcion=data.get("descripcion", ""),
+    )
+    waits = _load_waits()
+    for w in waits:
+        if w["wait_id"] == new_wait["wait_id"]:
+            return jsonify({"error": f"Wait '{new_wait['wait_id']}' ya existe"}), 409
+    waits.append(new_wait)
+    _save_waits(waits)
+    return jsonify({"ok": True, "wait": new_wait}), 201
+
+
+@app.route("/api/waits/<path:wait_id>", methods=["PUT"])
+def api_update_wait(wait_id: str):
+    waits = _load_waits()
+    idx = next((i for i, w in enumerate(waits) if w.get("wait_id") == wait_id), None)
+    if idx is None:
+        return jsonify({"error": f"Wait '{wait_id}' no encontrado"}), 404
+    data = request.get_json(force=True)
+    waits[idx]["variable_controlada"] = data.get("variable_controlada", waits[idx].get("variable_controlada"))
+    waits[idx]["descripcion"] = data.get("descripcion", waits[idx].get("descripcion", ""))
+    _save_waits(waits)
+    return jsonify({"ok": True, "wait": waits[idx]})
+
+
+@app.route("/api/waits/<path:wait_id>", methods=["DELETE"])
+def api_delete_wait(wait_id: str):
+    waits = _load_waits()
+    idx = next((i for i, w in enumerate(waits) if w.get("wait_id") == wait_id), None)
+    if idx is None:
+        return jsonify({"error": f"Wait '{wait_id}' no encontrado"}), 404
+    removed = waits.pop(idx)
+    _save_waits(waits)
+    return jsonify({"ok": True, "eliminado": removed})
+
+
+@app.route("/api/waits/reset", methods=["POST"])
+def api_reset_waits():
+    cfg = _defaults_waits()
+    _save_waits(cfg)
+    return jsonify({"ok": True})
+
+
+# ============================================================
 # Tags KEPserver
 # ============================================================
 
@@ -1263,7 +1617,52 @@ GENERATOR_DEFAULTS_CRUDA = {
     "RETO.CRUDA.turbiedad_agua":   {"min": 5.0,    "max": 50.0,   "noise": 3.0},
 }
 
-GENERATOR_DEFAULTS = {**GENERATOR_DEFAULTS_PV, **GENERATOR_DEFAULTS_CRUDA}
+GENERATOR_DEFAULTS_LIM = {
+    "RETO.LIM.torque_lmin":               {"min": 40.0,  "max": 40.0,  "noise": 0.0},
+    "RETO.LIM.torque_lmax":               {"min": 90.0,  "max": 90.0,  "noise": 0.0},
+    "RETO.LIM.bed_mass_lmin":             {"min": 200.0, "max": 200.0, "noise": 0.0},
+    "RETO.LIM.bed_mass_lmax":             {"min": 900.0, "max": 900.0, "noise": 0.0},
+    "RETO.LIM.bed_level_lmin":            {"min": 0.8,   "max": 0.8,   "noise": 0.0},
+    "RETO.LIM.bed_level_lmax":            {"min": 4.0,   "max": 4.0,   "noise": 0.0},
+    "RETO.LIM.densidad_lmin":             {"min": 55.0,  "max": 55.0,  "noise": 0.0},
+    "RETO.LIM.densidad_lmax":             {"min": 78.0,  "max": 78.0,  "noise": 0.0},
+    "RETO.LIM.torque_bomba_lmin":         {"min": 30.0,  "max": 30.0,  "noise": 0.0},
+    "RETO.LIM.torque_bomba_lmax":         {"min": 90.0,  "max": 90.0,  "noise": 0.0},
+    "RETO.LIM.potencia_bomba_lmin":       {"min": 150.0, "max": 150.0, "noise": 0.0},
+    "RETO.LIM.potencia_bomba_lmax":       {"min": 750.0, "max": 750.0, "noise": 0.0},
+    "RETO.LIM.presion_descarga_lmin":     {"min": 5.0,   "max": 5.0,   "noise": 0.0},
+    "RETO.LIM.presion_descarga_lmax":     {"min": 22.0,  "max": 22.0,  "noise": 0.0},
+    "RETO.LIM.presion_diferencial_lmin":  {"min": 1.0,   "max": 1.0,   "noise": 0.0},
+    "RETO.LIM.presion_diferencial_lmax":  {"min": 12.0,  "max": 12.0,  "noise": 0.0},
+    "RETO.LIM.nivel_rastra_lmin":         {"min": 0.0,   "max": 0.0,   "noise": 0.0},
+    "RETO.LIM.nivel_rastra_lmax":         {"min": 20.0,  "max": 20.0,  "noise": 0.0},
+}
+
+GENERATOR_DEFAULTS = {**GENERATOR_DEFAULTS_PV, **GENERATOR_DEFAULTS_CRUDA, **GENERATOR_DEFAULTS_LIM}
+
+
+# ============================================================
+# Tag history buffer (circular, last N values per tag)
+# ============================================================
+
+_TAG_HISTORY_SIZE = 50
+_tag_history: dict[str, deque[dict]] = {}
+_tag_history_lock = threading.Lock()
+
+
+def _record_tag_values(tag_values: dict[str, float]):
+    """Append current values to the per-tag history ring buffer."""
+    ts = time.time()
+    with _tag_history_lock:
+        for tag_name, val in tag_values.items():
+            if tag_name not in _tag_history:
+                _tag_history[tag_name] = deque(maxlen=_TAG_HISTORY_SIZE)
+            _tag_history[tag_name].append({"t": ts, "v": val})
+
+
+def _get_tag_history() -> dict[str, list]:
+    with _tag_history_lock:
+        return {k: list(v) for k, v in _tag_history.items()}
 
 
 def _tres_fases_valor(tick: int, n_ciclo: int, vmin: float, vmax: float, noise: float) -> float:
@@ -1323,6 +1722,7 @@ class TagGenerator:
                 self._tick += 1
             except Exception as e:
                 self._last_error = str(e)
+                _alerts.add("generator", str(e), traceback.format_exc())
             self._stop_event.wait(self._intervalo_s)
 
     def _write_tick(self):
@@ -1334,6 +1734,8 @@ class TagGenerator:
             )
             tags_to_write[tag_name] = val
             self._last_values[tag_name] = val
+
+        _record_tag_values(tags_to_write)
 
         try:
             from opcua import Client, ua  # type: ignore
@@ -1351,8 +1753,10 @@ class TagGenerator:
             finally:
                 client.disconnect()
             self._last_error = None
+            _alerts.resolve_category("generator")
         except Exception as e:
             self._last_error = f"OPC-UA: {e}"
+            _alerts.add("kep", f"Generador: {e}", traceback.format_exc())
 
     def start(self):
         if self._running:
@@ -1505,6 +1909,8 @@ class SEEngine:
 
     def _write_setpoints(self):
         """Write current setpoints to KEPserver."""
+        sp_vals = {tag: float(self._setpoints.get(sp_key, 0.0)) for sp_key, tag in SP_TO_TAG.items()}
+        _record_tag_values(sp_vals)
         try:
             from opcua import Client, ua  # type: ignore
             client = Client(KEPSERVER_URL)
@@ -1521,6 +1927,7 @@ class SEEngine:
                 client.disconnect()
         except Exception as e:
             self._last_error = f"Write SP: {e}"
+            _alerts.add("kep", f"SE Write SP: {e}", traceback.format_exc())
 
     def _run_tick(self):
         """Execute one tick of the SE pipeline."""
@@ -1534,6 +1941,7 @@ class SEEngine:
         data = self._read_tags()
         if data is None:
             self._last_error = "No se pudieron leer todos los PV tags del KEPserver."
+            _alerts.add("kep", "No se pudieron leer los PV tags del KEPserver.")
             return
 
         inputs_raw, crudas, limites = data
@@ -1592,6 +2000,8 @@ class SEEngine:
 
         self._write_setpoints()
         self._last_error = None
+        _alerts.resolve_category("se_engine")
+        _alerts.resolve_category("kep")
 
     def _worker(self):
         while not self._stop_event.is_set():
@@ -1600,6 +2010,7 @@ class SEEngine:
                 self._tick += 1
             except Exception as e:
                 self._last_error = str(e)
+                _alerts.add("se_engine", str(e), traceback.format_exc())
             self._stop_event.wait(self._intervalo_s)
 
     def start(self, intervalo_s: float = 5.0):
@@ -1633,6 +2044,81 @@ class SEEngine:
 
 
 _se_engine = SEEngine()
+
+
+# ============================================================
+# Startup health checks → populate alerts
+# ============================================================
+
+def _startup_checks():
+    # 1. Check KEPserver connectivity
+    try:
+        from opcua import Client  # type: ignore
+        c = Client(KEPSERVER_URL)
+        c.connect()
+        c.disconnect()
+    except ImportError:
+        _alerts.add("import", "Modulo 'opcua' no instalado.", "pip install opcua")
+    except Exception as e:
+        _alerts.add("kep", f"KEPserver no accesible en {KEPSERVER_URL}", str(e))
+
+    # 2. Check JSON configs exist and parse
+    for name, path in [
+        ("reglas.json", REGLAS_JSON), ("filtros.json", FILTROS_JSON),
+        ("defuzzy.json", DEFUZZY_JSON), ("fuzzy.json", FUZZY_JSON),
+        ("variables.json", VARIABLES_JSON), ("permisivos.json", PERMISIVOS_JSON),
+        ("tags.json", TAGS_JSON),
+    ]:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                json.load(f)
+        except Exception as e:
+            _alerts.add("config", f"Error parseando {name}", str(e))
+
+    # 3. Check reglas load
+    try:
+        from runner import cargar_reglas_json
+        reglas = cargar_reglas_json()
+        if not reglas:
+            _alerts.add("reglas", "No hay reglas cargadas.", "reglas.json esta vacio o falta.")
+    except Exception as e:
+        _alerts.add("reglas", f"Error cargando reglas: {e}", traceback.format_exc())
+
+    # 4. Check critical imports
+    for mod_name in ["runner", "motor", "defuzzy_actions", "fuzzys_models_espesador", "exp_q_filter", "simulacion"]:
+        try:
+            __import__(mod_name)
+        except Exception as e:
+            _alerts.add("import", f"Error importando {mod_name}", str(e))
+
+
+_startup_checks()
+
+
+# ============================================================
+# API — Alerts
+# ============================================================
+
+@app.route("/api/alerts", methods=["GET"])
+def api_alerts():
+    show = request.args.get("show", "active")
+    if show == "all":
+        return jsonify({"alerts": _alerts.get_all(), "categories": AlertCollector.CATEGORIES})
+    return jsonify({"alerts": _alerts.get_active(), "categories": AlertCollector.CATEGORIES})
+
+
+@app.route("/api/alerts/<int:alert_id>/resolve", methods=["POST"])
+def api_resolve_alert(alert_id: int):
+    ok = _alerts.resolve(alert_id)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/alerts/clear", methods=["POST"])
+def api_clear_alerts():
+    _alerts.clear_resolved()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/se/status", methods=["GET"])
@@ -1680,6 +2166,55 @@ def api_start_generator():
 def api_stop_generator():
     _tag_generator.stop()
     return jsonify({"ok": True, "running": False})
+
+
+# ============================================================
+# API — Entrada de Datos (all tags + history)
+# ============================================================
+
+@app.route("/api/entrada", methods=["GET"])
+def api_entrada():
+    """Return all configured tags with current values and history."""
+    store = _load_tags()
+    tags = store.get("tags", [])
+    enabled_tags = [t for t in tags if t.get("enabled", True)]
+    tag_names = [t["name"] for t in enabled_tags]
+
+    live = _read_kepserver_tags_batch(tag_names) if tag_names else {}
+    hist = _get_tag_history()
+
+    result = []
+    for t in enabled_tags:
+        name = t["name"]
+        info = live.get(name, {})
+        direction = "output" if name.startswith("RETO.SP.") else "input"
+        group = "pv"
+        if name.startswith("RETO.PV."):
+            group = "pv"
+        elif name.startswith("RETO.CRUDA."):
+            group = "cruda"
+        elif name.startswith("RETO.LIM."):
+            group = "lim"
+        elif name.startswith("RETO.SP."):
+            group = "sp"
+        else:
+            group = "other"
+
+        result.append({
+            "name": name,
+            "value": info.get("value"),
+            "exists": info.get("exists", False),
+            "direction": direction,
+            "group": group,
+            "history": hist.get(name, []),
+        })
+    return jsonify(result)
+
+
+@app.route("/api/entrada/history", methods=["GET"])
+def api_entrada_history():
+    """Return only history buffers (lighter payload for polling)."""
+    return jsonify(_get_tag_history())
 
 
 # ============================================================
@@ -1930,7 +2465,47 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 .sidebar a:hover{background:#1e293b;color:#e2e8f0}
 .sidebar a.active{background:#1e293b;color:#38bdf8;border-left-color:#38bdf8;font-weight:600}
 .sidebar a.external{color:#64748b;font-size:.78rem;margin-top:4px}
+.sidebar .step-num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:.65rem;font-weight:700;margin-right:6px;flex-shrink:0}
+.sidebar .step-num.s1{background:rgba(37,99,235,.2);color:#3b82f6}
+.sidebar .step-num.s2{background:rgba(8,145,178,.2);color:#06b6d4}
+.sidebar .step-num.s4{background:rgba(99,102,241,.2);color:#6366f1}
+.sidebar .step-num.s5{background:rgba(168,85,247,.2);color:#a855f7}
+.sidebar .step-num.s6{background:rgba(20,184,166,.2);color:#14b8a6}
+.sidebar .step-num.s7{background:rgba(245,158,11,.2);color:#f59e0b}
+.sidebar .step-num.s8{background:rgba(34,197,94,.2);color:#22c55e}
+.sidebar .section-label{display:block;color:#475569;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:4px 10px;margin-top:6px}
 .sidebar hr.sep{border:none;border-top:1px solid #1e293b;margin:12px 4px}
+
+/* Alert rail (right edge) */
+.alert-rail{width:10px;flex-shrink:0;background:#0b1322;border-left:1px solid #1e293b;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:3px;padding:6px 1px;cursor:pointer;transition:width .25s;overflow:hidden;z-index:100}
+.alert-rail:hover{width:14px;background:#111827}
+.alert-rail.expanded{width:340px;padding:12px;cursor:default;overflow-y:auto}
+.alert-rail .rail-dots{display:flex;flex-direction:column;gap:3px;align-items:center;padding-top:4px}
+.alert-rail.expanded .rail-dots{display:none}
+.rail-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;animation:pulse-dot 2s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
+.rail-ok{width:8px;height:8px;border-radius:50%;background:#22c55e40;border:1px solid #22c55e30;margin-top:4px}
+
+/* Expanded alert panel */
+.alert-panel{display:none}
+.alert-rail.expanded .alert-panel{display:block}
+.alert-panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.alert-panel-header h4{color:#e2e8f0;font-size:.85rem;display:flex;align-items:center;gap:6px}
+.alert-panel-header .close-btn{background:none;border:none;color:#64748b;font-size:1.1rem;cursor:pointer;padding:2px 6px;border-radius:4px}
+.alert-panel-header .close-btn:hover{color:#e2e8f0;background:#1e293b}
+.alert-count-badge{background:#ef4444;color:#fff;font-size:.65rem;padding:1px 6px;border-radius:8px;font-weight:700}
+.alert-count-badge.ok{background:#22c55e}
+.alert-card{background:#1e293b;border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:3px solid #64748b;cursor:pointer;transition:.15s}
+.alert-card:hover{background:#243044}
+.alert-card .alert-cat{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}
+.alert-card .alert-msg{font-size:.78rem;color:#cbd5e1;line-height:1.4}
+.alert-card .alert-meta{font-size:.68rem;color:#475569;margin-top:4px;display:flex;justify-content:space-between}
+.alert-card .alert-detail{display:none;margin-top:8px;padding:8px;background:#0f172a;border-radius:6px;font-size:.72rem;color:#94a3b8;font-family:monospace;white-space:pre-wrap;max-height:150px;overflow-y:auto}
+.alert-card.open .alert-detail{display:block}
+.alert-card .resolve-btn{background:none;border:1px solid #334155;color:#64748b;font-size:.68rem;padding:2px 8px;border-radius:4px;cursor:pointer;margin-top:6px}
+.alert-card .resolve-btn:hover{border-color:#22c55e;color:#22c55e}
+.alert-ok-msg{color:#22c55e;font-size:.82rem;text-align:center;padding:30px 10px;line-height:1.6}
+
 .main{flex:1;padding:20px;overflow-x:auto}
 .seccion{display:none}
 .seccion.active{display:block}
@@ -1966,6 +2541,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
 .cond-row{display:flex;gap:6px;align-items:center;margin-bottom:4px}
 .cond-row select{flex:1}
 .cond-row button{flex-shrink:0}
+.action-row select{max-width:260px}
+.action-row input[type=number]{background:#0f172a;border:1px solid #475569;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:.8rem}
 #sim-results{background:#1e293b;border-radius:8px;padding:16px;margin-top:20px;display:none}
 #sim-results h3{color:#22c55e;margin-bottom:12px}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
@@ -2021,15 +2598,21 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
 <body>
 <aside class="sidebar">
   <div class="brand">Espesador v2</div>
-  <a href="#reglas"     data-sec="reglas">Reglas</a>
-  <a href="#filtros"    data-sec="filtros">Filtros Exp-Q</a>
-  <a href="#defuzzy"    data-sec="defuzzy">Defuzzy</a>
-  <a href="#fuzzy"      data-sec="fuzzy">Fuzzy</a>
-  <a href="#variables"  data-sec="variables">Variables calc.</a>
-  <a href="#permisivos" data-sec="permisivos">Permisivos</a>
+  <span class="section-label">Pipeline SE</span>
+  <a href="/entrada" class="external" style="color:#38bdf8;font-weight:600"><span class="step-num s1">1</span>Entrada de Datos →</a>
+  <a href="#variables"  data-sec="variables"><span class="step-num s2">2</span>Variables calc.</a>
+  <a href="#filtros"    data-sec="filtros"><span class="step-num s4">4</span>Filtros Exp-Q</a>
+  <a href="#fuzzy"      data-sec="fuzzy"><span class="step-num s5">5</span>Fuzzificacion</a>
+  <a href="#estados"    data-sec="estados"><span class="step-num s5">5b</span>Estados</a>
+  <a href="#waits"      data-sec="waits"><span class="step-num s5">5c</span>Waits</a>
+  <a href="#permisivos" data-sec="permisivos"><span class="step-num s6">6</span>Permisivos</a>
+  <a href="#reglas"     data-sec="reglas"><span class="step-num s7">7</span>Motor de Reglas</a>
+  <a href="#defuzzy"    data-sec="defuzzy"><span class="step-num s8">8</span>Defuzzificacion</a>
   <hr class="sep">
+  <span class="section-label">Conexion</span>
   <a href="#tags" data-sec="tags">Tags KEPserver</a>
   <hr class="sep">
+  <span class="section-label">Visualizacion</span>
   <a href="/graficos" class="external">Graficos en Vivo →</a>
   <a href="/diagrama" class="external">Diagrama de Flujo →</a>
 </aside>
@@ -2044,13 +2627,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
   <div style="display:flex;gap:8px">
     <button class="btn-primary" onclick="openModal()">+ Nueva Regla</button>
     <button class="btn-success" onclick="runSim()">&#9654; Ejecutar Simulacion</button>
+    <span style="font-size:.7rem;color:#64748b;margin-left:12px">Tiempos en <b>segundos</b> (separados por punto decimal, ej: 900.0 = 15 min)</span>
   </div>
 </div>
 
 <table id="rules-table">
 <thead><tr>
-  <th>ID</th><th>Bloque</th><th>Prioridad</th>
-  <th>Condiciones (IF -- AND de items; cada item: hoja o grupo OR)</th><th>Acciones (THEN)</th>
+  <th>ID</th><th>Bloque</th><th>Prioridad</th><th>Fuerza</th>
+  <th>Activacion (IF)</th><th>Acciones (THEN)</th><th>Waits</th><th>Reiniciar Waits</th>
   <th>Weight</th><th style="width:110px">Opciones</th>
 </tr></thead>
 <tbody id="rules-body"></tbody>
@@ -2166,6 +2750,48 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
     <button class="btn-sm btn-success" onclick="addDefinicion('rolling_std')">+ Rolling std</button>
   </div>
   <div style="overflow-x:auto"><table id="definiciones-table"></table></div>
+</section>
+
+<section class="seccion" id="seccion-estados">
+  <div class="top-bar">
+    <div>
+      <h1>Estados y Subestados</h1>
+      <h2>Conjuntos reutilizables de condiciones para construir reglas. Cada estado agrupa multiples condiciones (AND).
+          Los subestados son condiciones simples con nombre. Tiempos en <b>segundos</b> (decimal con punto).</h2>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" onclick="openEstadoModal()">+ Nuevo Estado</button>
+      <button class="btn-danger" onclick="resetEstados()">Restaurar default</button>
+    </div>
+  </div>
+  <div id="estados-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+  <table id="estados-table">
+    <thead><tr>
+      <th>Nombre</th><th>Tipo</th><th>Condiciones (AND)</th><th style="width:100px">Opciones</th>
+    </tr></thead>
+    <tbody id="estados-body"></tbody>
+  </table>
+</section>
+
+<section class="seccion" id="seccion-waits">
+  <div class="top-bar">
+    <div>
+      <h1>Waits (Catalogo)</h1>
+      <h2>Waits reutilizables que bloquean acciones del motor. Se definen sin duracion fija; la regla asigna la duracion.
+          Cada wait esta asociado a una variable controlada (setpoint). Tiempos en <b>segundos</b> (decimal con punto).</h2>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" onclick="openWaitModal()">+ Nuevo Wait</button>
+      <button class="btn-danger" onclick="resetWaits()">Restaurar default</button>
+    </div>
+  </div>
+  <div id="waits-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+  <table id="waits-table">
+    <thead><tr>
+      <th>Nombre</th><th>Wait ID</th><th>Variable Controlada</th><th>Descripcion</th><th style="width:100px">Opciones</th>
+    </tr></thead>
+    <tbody id="waits-body"></tbody>
+  </table>
 </section>
 
 <section class="seccion" id="seccion-permisivos">
@@ -2368,10 +2994,10 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
 
 <!-- Modal edicion -->
 <div class="modal-overlay" id="modal-overlay">
-<div class="modal">
+<div class="modal" style="width:900px">
   <h3 id="modal-title">Nueva Regla</h3>
   <div class="form-grid">
-    <div class="form-group"><label>ID</label><input id="f-id" placeholder="ej: CRIT.01 o EST.10"></div>
+    <div class="form-group"><label>ID</label><input id="f-id" placeholder="ej: E1.S1 o E6.S2"></div>
     <div class="form-group"><label>Bloque</label>
       <select id="f-bloque"></select>
       <span class="hint">critico bloquea estabilidad; optimizacion corre independiente.</span>
@@ -2379,17 +3005,27 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
     <div class="form-group"><label>Prioridad</label><input id="f-priority" type="number" step="1" value="50"></div>
     <div class="form-group"><label>Weight</label><input id="f-weight" type="number" step="0.1" value="1.0"></div>
     <div class="form-group full">
-      <label>Condiciones (IF) -- items en AND; cada item puede ser una hoja o un grupo OR</label>
+      <label>Fuerza (condiciones OR que aportan el belief)</label>
+      <div id="fuerza-container"></div>
+      <button class="btn-sm" style="background:#06b6d4;color:#fff;margin-top:4px" onclick="addFuerzaRow()">+ Condicion de fuerza</button>
+      <span class="hint">Multiples filas se evaluan como OR. Si no se define, se usa el min de la activacion. Tiempos en <b>segundos</b> (ej: 900.0 = 15 min).</span>
+    </div>
+    <div class="form-group full">
+      <label>Activacion (IF) -- Estados/Subestados + condiciones hoja</label>
+      <div id="estados-container" style="margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="btn-sm" style="background:#8b5cf6;color:#fff" onclick="addEstado()">+ Estado/Subestado</button>
+      </div>
       <div id="conds-container"></div>
       <div style="display:flex;gap:6px;margin-top:4px">
-        <button class="btn-primary btn-sm" onclick="addCond()">+ Condicion</button>
+        <button class="btn-primary btn-sm" onclick="addCond()">+ Condicion hoja</button>
         <button class="btn-sm" style="background:#facc15;color:#1e293b" onclick="addOrGroup()">+ Grupo OR</button>
       </div>
     </div>
     <div class="form-group full">
-      <label>Acciones (THEN)</label>
+      <label>Acciones (THEN) con Waits</label>
       <div id="actions-container"></div>
-      <button class="btn-primary btn-sm" onclick="addAction()" style="margin-top:4px">+ Accion</button>
+      <button class="btn-primary btn-sm" onclick="addActionRow()" style="margin-top:4px">+ Accion</button>
     </div>
   </div>
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px">
@@ -2404,6 +3040,9 @@ const VARS    = VARIABLES_JSON;
 const LABELS  = LABELS_JSON;
 const ACTIONS = ACTIONS_JSON;
 const BLOCKS  = BLOCKS_JSON;
+const SETPOINTS = SETPOINTS_JSON;
+let ESTADOS = ESTADOS_JSON;
+let WAITS   = WAITS_JSON;
 
 let editingId = null;
 
@@ -2418,8 +3057,10 @@ function _isOrGroup(x) {
   return x && typeof x === 'object' && !Array.isArray(x)
       && Array.isArray(x.OR) && x.OR.length >= 2 && x.OR.every(_isLeaf);
 }
+function _isAndGroup(x) {
+  return x && typeof x === 'object' && !Array.isArray(x) && Array.isArray(x.AND);
+}
 function _condsToItems(ifList) {
-  // Desempaqueta el wrapper AND y devuelve los items top-level.
   if (!Array.isArray(ifList)) return [];
   if (ifList.length === 1 && ifList[0] && Array.isArray(ifList[0].AND)) {
     return ifList[0].AND;
@@ -2429,7 +3070,7 @@ function _condsToItems(ifList) {
 function _isComplexIf(ifList) {
   const items = _condsToItems(ifList);
   if (!items.length) return false;
-  return !items.every(it => _isLeaf(it) || _isOrGroup(it));
+  return !items.every(it => _isLeaf(it) || _isOrGroup(it) || _isAndGroup(it));
 }
 function _renderItemHTML(it) {
   if (_isLeaf(it)) {
@@ -2441,6 +3082,13 @@ function _renderItemHTML(it) {
     ).join(' <b style="color:#facc15">OR</b> ');
     return `<span style="color:#94a3b8">(</span> ${inner} <span style="color:#94a3b8">)</span>`;
   }
+  if (_isAndGroup(it)) {
+    const inner = it.AND.map(leaf => {
+      if (_isLeaf(leaf)) return `<span class="tag tag-var">${leaf[0]}</span> <span class="tag tag-label">${leaf[1]}</span>`;
+      return _renderItemHTML(leaf);
+    }).join(' <b style="color:#22c55e">&</b> ');
+    return `<span style="color:#64748b;font-size:.7rem">[Estado]</span> ${inner}`;
+  }
   return `<span class="tag" style="border-left:3px solid #f87171">?</span>`;
 }
 
@@ -2450,13 +3098,141 @@ function _populateBlockSelect() {
 }
 _populateBlockSelect();
 
+function addFuerzaRow(v, l) {
+  if (!v) v = VARS[0];
+  if (!l) l = 'LOW';
+  const c = document.getElementById('fuerza-container');
+  const row = document.createElement('div');
+  row.className = 'cond-row fuerza-row';
+  row.style.cssText = 'border-left:3px solid #06b6d4;padding-left:6px';
+  row.innerHTML = `
+    <span style="color:#06b6d4;font-size:.7rem;width:22px">OR</span>
+    <select class="cfv">${VARS.map(x=>`<option ${x===v?'selected':''}>${x}</option>`).join('')}</select>
+    <select class="cfl">${LABELS.map(x=>`<option ${x===l?'selected':''}>${x}</option>`).join('')}</select>
+    <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
+  c.appendChild(row);
+}
+
+function _getEstadoNames() { return Object.keys(ESTADOS); }
+function _selEstado(selected) {
+  const names = _getEstadoNames();
+  return `<select class="ce">${names.map(e => `<option value="${e}" ${e===selected?'selected':''}>${e}</option>`).join('')}</select>`;
+}
+
+function addEstado(nombre) {
+  const names = _getEstadoNames();
+  if (!nombre) nombre = names[0] || '';
+  const c = document.getElementById('estados-container');
+  const row = document.createElement('div');
+  row.className = 'cond-row';
+  row.dataset.kind = 'estado';
+  row.style.cssText = 'border-left:3px solid #8b5cf6;padding-left:6px';
+  row.innerHTML = `
+    <span style="color:#8b5cf6;font-size:.7rem;width:60px">ESTADO</span>
+    ${_selEstado(nombre)}
+    <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
+  c.appendChild(row);
+}
+
+function _selWait(selected) {
+  const opts = WAITS.map(w => `<option value="${w.wait_id}" ${w.wait_id===selected?'selected':''}>${w.nombre} (${w.variable_controlada})</option>`);
+  return `<select class="cw"><option value="">(ninguno)</option>${opts.join('')}</select>`;
+}
+
+function addActionRow(accion, waitId, duracionS, reiniciarList) {
+  if (!accion) accion = ACTIONS[0];
+  if (!waitId) waitId = '';
+  if (!duracionS) duracionS = 900;
+  if (!reiniciarList) reiniciarList = [];
+  const c = document.getElementById('actions-container');
+  const row = document.createElement('div');
+  row.className = 'action-row';
+  row.style.cssText = 'border:1px solid #334155;border-radius:6px;padding:8px;margin-bottom:6px;background:#1a2436';
+
+  const reiniciarCheckboxes = WAITS.map(w => {
+    const match = reiniciarList.find(r => r.id === w.wait_id);
+    const checked = match ? 'checked' : '';
+    const dur = match ? match.duracion : duracionS;
+    return `<label style="font-size:.75rem;display:flex;align-items:center;gap:4px;color:#94a3b8">
+      <input type="checkbox" class="cr" value="${w.wait_id}" ${checked}>
+      ${w.nombre}
+      <input type="number" class="crd" data-wait="${w.wait_id}" value="${dur}" min="0" step="60" style="width:65px;font-size:.75rem" title="duracion (s)">
+      <span style="font-size:.65rem;color:#64748b">s</span></label>`;
+  }).join('');
+
+  row.innerHTML = `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <span style="color:#22c55e;font-size:.7rem;width:50px">ACCION</span>
+      <select class="ca">${ACTIONS.map(x=>`<option ${x===accion?'selected':''}>${x}</option>`).join('')}</select>
+      <button class="btn-danger btn-sm" onclick="this.closest('.action-row').remove()">x</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+      <span style="color:#38bdf8;font-size:.7rem;width:50px">WAIT</span>
+      ${_selWait(waitId)}
+      <input type="number" class="cd" value="${duracionS}" min="0" step="60" style="width:80px" placeholder="seg">
+      <span style="font-size:.7rem;color:#64748b">s</span>
+    </div>
+    <div style="margin-top:4px">
+      <span style="color:#fb923c;font-size:.7rem">REINICIAR WAITS (marcar + duracion en segundos):</span>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">${reiniciarCheckboxes}</div>
+    </div>`;
+  c.appendChild(row);
+}
+
+function addAction(a) { addActionRow(a); }
+
+function _renderFuerza(fuerza) {
+  if (!fuerza) return '<span style="color:#64748b">-</span>';
+  if (Array.isArray(fuerza) && fuerza.length === 2 && typeof fuerza[0] === 'string' && typeof fuerza[1] === 'string') {
+    return `<span class="tag">${fuerza[0]} = ${fuerza[1]}</span>`;
+  }
+  if (fuerza.OR && Array.isArray(fuerza.OR)) {
+    return fuerza.OR.map(f => `<span class="tag">${f[0]} = ${f[1]}</span>`).join(' <b style="color:#facc15;font-size:.7rem">OR</b> ');
+  }
+  return `<span class="tag">${JSON.stringify(fuerza)}</span>`;
+}
+
+function _renderThenActions(then_list) {
+  if (!then_list || then_list.length === 0) return '-';
+  return then_list.map(item => {
+    if (typeof item === 'string') return `<span class="tag tag-action">${item}</span>`;
+    if (typeof item === 'object' && item.accion) return `<span class="tag tag-action">${item.accion}</span>`;
+    return `<span class="tag tag-action">${JSON.stringify(item)}</span>`;
+  }).join('<br>');
+}
+
+function _renderWaits(then_list) {
+  if (!then_list || then_list.length === 0) return '-';
+  const parts = [];
+  for (const item of then_list) {
+    if (typeof item !== 'object' || !item.waits) continue;
+    for (const w of item.waits) {
+      parts.push(`<span class="tag" style="border-left:3px solid #38bdf8">${w.nombre || w.wait_id} (${w.duracion_s}s)</span>`);
+    }
+  }
+  return parts.length > 0 ? parts.join('<br>') : '-';
+}
+
+function _renderReiniciarWaits(then_list) {
+  if (!then_list || then_list.length === 0) return '-';
+  const parts = [];
+  for (const item of then_list) {
+    if (typeof item !== 'object' || !item.reiniciar_waits) continue;
+    for (const w of item.reiniciar_waits) {
+      const dur = w.duracion_s != null ? w.duracion_s + 's' : '';
+      parts.push(`<span class="tag" style="border-left:3px solid #fb923c">${w.nombre || w.wait_id} (${dur})</span>`);
+    }
+  }
+  return parts.length > 0 ? parts.join('<br>') : '-';
+}
+
 async function loadRules() {
   const res = await fetch('/api/reglas');
   const rules = await res.json();
   const tbody = document.getElementById('rules-body');
   tbody.innerHTML = '';
   if (!rules || rules.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#64748b;padding:24px">
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:#64748b;padding:24px">
       reglas.json vacio. Se aplicaran las reglas por defecto del experto.</td></tr>`;
     return;
   }
@@ -2468,11 +3244,16 @@ async function loadRules() {
     const conds = complex
       ? `<span class="tag" style="border-left:3px solid #f87171">expresion compleja (no editable desde UI)</span>`
       : items.map(_renderItemHTML).join('<br><b style="color:#22c55e">AND</b><br>');
-    const acts  = (r['then']||[]).map(a => `<span class="tag tag-action">${a}</span>`).join('<br>');
+    const fuerza = _renderFuerza(r.fuerza);
+    const acts = _renderThenActions(r['then']);
+    const waits = _renderWaits(r['then']);
+    const reiniciar = _renderReiniciarWaits(r['then']);
     tr.innerHTML = `<td><b>${r.id}</b></td>
       <td><span class="tag tag-block">${r.bloque||'-'}</span></td>
       <td>${r.priority ?? '-'}</td>
+      <td>${fuerza}</td>
       <td>${conds}</td><td>${acts}</td>
+      <td>${waits}</td><td>${reiniciar}</td>
       <td>${r.weight ?? 1.0}</td>
       <td>
         <button class="btn-primary btn-sm" onclick="editRule('${r.id}')" ${complex?'disabled title=\"No editable desde UI\"':''}>Editar</button>
@@ -2534,17 +3315,14 @@ function addOrGroup(leaves) {
   for (const [v,l] of initial) _addOrLeafToGroup(inner, v, l);
 }
 
-function addAction(a=ACTIONS[0]) {
-  const c = document.getElementById('actions-container');
-  const row = document.createElement('div');
-  row.className = 'cond-row';
-  row.innerHTML = `
-    <select class="ca">${ACTIONS.map(x=>`<option ${x===a?'selected':''}>${x}</option>`).join('')}</select>
-    <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
-  c.appendChild(row);
-}
 
-function openModal(rule=null) {
+async function openModal(rule=null) {
+  // Refresh estados and waits to pick up any newly created ones
+  try {
+    const [re, rw] = await Promise.all([fetch('/api/estados'), fetch('/api/waits')]);
+    if (re.ok) ESTADOS = await re.json();
+    if (rw.ok) WAITS = await rw.json();
+  } catch(e) {}
   editingId = null;
   document.getElementById('modal-title').textContent = 'Nueva Regla';
   document.getElementById('f-id').value = '';
@@ -2552,6 +3330,8 @@ function openModal(rule=null) {
   document.getElementById('f-priority').value = '50';
   document.getElementById('f-weight').value = '1.0';
   document.getElementById('f-bloque').value = BLOCKS[1] || BLOCKS[0];
+  document.getElementById('fuerza-container').innerHTML = '';
+  document.getElementById('estados-container').innerHTML = '';
   document.getElementById('conds-container').innerHTML = '';
   document.getElementById('actions-container').innerHTML = '';
   if (rule) {
@@ -2562,15 +3342,56 @@ function openModal(rule=null) {
     document.getElementById('f-priority').value = rule.priority ?? 50;
     document.getElementById('f-weight').value   = rule.weight ?? 1.0;
     document.getElementById('f-bloque').value   = rule.bloque || BLOCKS[1] || BLOCKS[0];
-    for (const it of _condsToItems(rule['if'])) {
-      if (_isOrGroup(it))      addOrGroup(it.OR);
-      else if (_isLeaf(it))    addCond(it[0], it[1]);
+
+    // Fuerza (single leaf [v,l], OR {OR:[[v,l]...]}, or list [[v,l]...])
+    if (rule.fuerza) {
+      const f = rule.fuerza;
+      if (Array.isArray(f) && f.length === 2 && typeof f[0] === 'string' && typeof f[1] === 'string') {
+        addFuerzaRow(f[0], f[1]);
+      } else if (Array.isArray(f)) {
+        for (const item of f) { if (Array.isArray(item) && item.length===2) addFuerzaRow(item[0], item[1]); }
+      } else if (f.OR && Array.isArray(f.OR)) {
+        for (const item of f.OR) { if (Array.isArray(item) && item.length===2) addFuerzaRow(item[0], item[1]); }
+      }
     }
-    for (const a of (rule['then']||[])) addAction(a);
+
+    // Condiciones: separar estados/subestados (AND groups) de hojas
+    for (const it of _condsToItems(rule['if'])) {
+      if (_isAndGroup(it)) {
+        // Try to match to a known estado
+        const matched = _matchEstado(it);
+        if (matched) { addEstado(matched); }
+        else {
+          // Add each leaf from AND group as individual conditions
+          for (const leaf of it.AND) { if (_isLeaf(leaf)) addCond(leaf[0], leaf[1]); }
+        }
+      } else if (_isOrGroup(it)) { addOrGroup(it.OR); }
+      else if (_isLeaf(it)) { addCond(it[0], it[1]); }
+    }
+
+    // Acciones con waits
+    for (const a of (rule['then']||[])) {
+      if (typeof a === 'string') {
+        addActionRow(a, '', 900, []);
+      } else if (typeof a === 'object' && a.accion) {
+        const waitId = (a.waits && a.waits[0]) ? a.waits[0].wait_id : '';
+        const duracion = (a.waits && a.waits[0]) ? a.waits[0].duracion_s : 900;
+        const reiniciar = (a.reiniciar_waits || []).map(w => ({id: w.wait_id, duracion: w.duracion_s || 900}));
+        addActionRow(a.accion, waitId, duracion, reiniciar);
+      }
+    }
   } else {
-    addCond(); addAction();
+    addCond(); addActionRow();
   }
   document.getElementById('modal-overlay').classList.add('active');
+}
+
+function _matchEstado(andGroup) {
+  const json_and = JSON.stringify(andGroup.AND);
+  for (const [name, est] of Object.entries(ESTADOS)) {
+    if (est.condicion && est.condicion.AND && JSON.stringify(est.condicion.AND) === json_and) return name;
+  }
+  return null;
 }
 
 function closeModal() { document.getElementById('modal-overlay').classList.remove('active'); }
@@ -2592,29 +3413,75 @@ async function saveRule() {
   const id = document.getElementById('f-id').value.trim();
   if (!id) return alert('ID requerido');
 
-  // Recolecta items top-level en el orden visual del contenedor.
+  // Fuerza (OR de condiciones)
+  const fuerzaRows = [...document.querySelectorAll('#fuerza-container .fuerza-row')];
+  const fuerzaItems = fuerzaRows.map(r => [r.querySelector('.cfv').value, r.querySelector('.cfl').value]);
+  let fuerza = null;
+  if (fuerzaItems.length === 1) fuerza = fuerzaItems[0];
+  else if (fuerzaItems.length > 1) fuerza = {OR: fuerzaItems};
+
+  // Recolecta estados del contenedor de estados
+  const estadosContainer = document.getElementById('estados-container');
+  const ifItems = [];
+  for (const child of estadosContainer.children) {
+    if (child.dataset.kind === 'estado') {
+      const nombre = child.querySelector('.ce').value;
+      const est = ESTADOS[nombre];
+      if (est && est.condicion) {
+        ifItems.push(est.condicion);
+      }
+    }
+  }
+
+  // Recolecta condiciones hoja y grupos OR
   const container = document.getElementById('conds-container');
-  const items = [];
   for (const child of container.children) {
     if (child.dataset.kind === 'leaf') {
-      items.push([child.querySelector('.cv').value, child.querySelector('.cl').value]);
+      ifItems.push([child.querySelector('.cv').value, child.querySelector('.cl').value]);
     } else if (child.dataset.kind === 'or') {
       const leaves = [...child.querySelectorAll('.or-leaves .or-leaf')].map(r => [
         r.querySelector('.cv').value, r.querySelector('.cl').value
       ]);
       if (leaves.length < 2) return alert('Cada grupo OR debe tener al menos 2 hojas.');
-      items.push({OR: leaves});
+      ifItems.push({OR: leaves});
     }
   }
-  if (items.length === 0) return alert('Agrega al menos una condicion.');
+  if (ifItems.length === 0) return alert('Agrega al menos una condicion o estado.');
 
-  const acts = [...document.querySelectorAll('#actions-container .cond-row')]
-                  .map(r => r.querySelector('.ca').value);
+  // Acciones con waits
+  const acts = [];
+  for (const row of document.querySelectorAll('#actions-container .action-row')) {
+    const accion = row.querySelector('.ca').value;
+    const waitId = row.querySelector('.cw').value;
+    const duracion = parseFloat(row.querySelector('.cd').value) || 900;
+    const reiniciarChecked = [...row.querySelectorAll('.cr:checked')];
+
+    const waits = [];
+    if (waitId) {
+      const waitDef = WAITS.find(w => w.wait_id === waitId);
+      if (waitDef) {
+        waits.push({...waitDef, duracion_s: duracion, accion: accion});
+      }
+    }
+    const reiniciar_waits = [];
+    for (const cb of reiniciarChecked) {
+      const rId = cb.value;
+      const rDef = WAITS.find(w => w.wait_id === rId);
+      const rDurInput = row.querySelector(`.crd[data-wait="${rId}"]`);
+      const rDur = rDurInput ? parseFloat(rDurInput.value) || 900 : 900;
+      if (rDef) {
+        reiniciar_waits.push({...rDef, duracion_s: rDur, accion: accion});
+      }
+    }
+    acts.push({accion, waits, reiniciar_waits});
+  }
+  if (acts.length === 0) return alert('Agrega al menos una accion.');
 
   const rule = {
     id:       id,
     bloque:   document.getElementById('f-bloque').value,
-    'if':     items,
+    fuerza:   fuerza,
+    'if':     ifItems,
     'then':   acts,
     weight:   parseFloat(document.getElementById('f-weight').value)   || 1.0,
     priority: parseFloat(document.getElementById('f-priority').value) || 0,
@@ -2674,8 +3541,8 @@ async function runSim() {
 // ============================================================
 // Router del sidebar (hash -> seccion)
 // ============================================================
-const SECCIONES = ['reglas','filtros','defuzzy','fuzzy','variables','permisivos','tags'];
-const _seccionLoaded = {reglas: false, filtros: false, defuzzy: false, fuzzy: false, variables: false, permisivos: false, tags: false};
+const SECCIONES = ['reglas','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags'];
+const _seccionLoaded = {reglas: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false};
 
 function _activarSeccion(name) {
   if (!SECCIONES.includes(name)) name = 'reglas';
@@ -2706,6 +3573,14 @@ function _activarSeccion(name) {
     loadVariables();
     _seccionLoaded.variables = true;
   }
+  if (name === 'estados' && !_seccionLoaded.estados) {
+    loadEstadosTab();
+    _seccionLoaded.estados = true;
+  }
+  if (name === 'waits' && !_seccionLoaded.waits) {
+    loadWaitsTab();
+    _seccionLoaded.waits = true;
+  }
   if (name === 'permisivos' && !_seccionLoaded.permisivos) {
     loadPermisivos();
     _seccionLoaded.permisivos = true;
@@ -2714,6 +3589,198 @@ function _activarSeccion(name) {
     loadTags();
     _seccionLoaded.tags = true;
   }
+}
+
+// ============================================================
+// Estados CRUD
+// ============================================================
+let _estadosData = {};
+
+async function loadEstadosTab() {
+  const res = await fetch('/api/estados');
+  _estadosData = await res.json();
+  ESTADOS = _estadosData;
+  _renderEstadosTable();
+}
+
+function _renderEstadosTable() {
+  const tbody = document.getElementById('estados-body');
+  tbody.innerHTML = '';
+  for (const [nombre, est] of Object.entries(_estadosData)) {
+    const tr = document.createElement('tr');
+    const conds = est.condicion && est.condicion.AND
+      ? est.condicion.AND.map(c => `<span class="tag tag-var">${c[0]}</span> <span class="tag tag-label">${c[1]}</span>`).join('<br>')
+      : JSON.stringify(est.condicion || []);
+    tr.innerHTML = `<td><b>${nombre}</b></td>
+      <td><span class="tag tag-block">${est.tipo}</span></td>
+      <td>${conds}</td>
+      <td>
+        <button class="btn-primary btn-sm" onclick="editEstadoTab('${nombre}')">Editar</button>
+        <button class="btn-danger btn-sm" onclick="deleteEstadoTab('${nombre}')">Borrar</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function openEstadoModal(est=null) {
+  const nombre = est ? est.nombre : '';
+  const tipo = est ? est.tipo : 'estado';
+  const condiciones = est && est.condicion && est.condicion.AND ? est.condicion.AND : [];
+  const condsHtml = condiciones.map(c =>
+    `<div class="cond-row" style="margin-bottom:2px"><select class="esv">${VARS.map(v=>`<option ${v===c[0]?'selected':''}>${v}</option>`).join('')}</select>` +
+    `<select class="esl">${LABELS.map(l=>`<option ${l===c[1]?'selected':''}>${l}</option>`).join('')}</select>` +
+    `<button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button></div>`
+  ).join('');
+
+  const html = `<div class="modal-overlay active" id="estado-modal-overlay">
+    <div class="modal" style="width:600px" onclick="event.stopPropagation()">
+      <h3>${est ? 'Editar' : 'Nuevo'} Estado</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Nombre</label><input id="es-nombre" value="${nombre}" ${est?'disabled':''}></div>
+        <div class="form-group"><label>Tipo</label>
+          <select id="es-tipo"><option ${tipo==='estado'?'selected':''}>estado</option><option ${tipo==='subestado'?'selected':''}>subestado</option></select>
+        </div>
+        <div class="form-group full">
+          <label>Condiciones (AND)</label>
+          <div id="es-conds">${condsHtml}</div>
+          <button class="btn-primary btn-sm" onclick="document.getElementById('es-conds').insertAdjacentHTML('beforeend',
+            '<div class=\\'cond-row\\' style=\\'margin-bottom:2px\\'><select class=\\'esv\\'>${VARS.map(v=>'<option>'+v+'</option>').join('')}</select><select class=\\'esl\\'>${LABELS.map(l=>'<option>'+l+'</option>').join('')}</select><button class=\\'btn-danger btn-sm\\' onclick=\\'this.parentElement.remove()\\'>x</button></div>'
+          )" style="margin-top:4px">+ Condicion</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button class="btn-danger" onclick="document.getElementById('estado-modal-overlay').remove()">Cancelar</button>
+        <button class="btn-success" onclick="saveEstadoTab(${est?'true':'false'})">Guardar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function editEstadoTab(nombre) {
+  const res = await fetch('/api/estados/' + encodeURIComponent(nombre));
+  if (!res.ok) return alert('Error');
+  const est = await res.json();
+  openEstadoModal(est);
+}
+
+async function deleteEstadoTab(nombre) {
+  if (!confirm('Eliminar estado ' + nombre + '?')) return;
+  const res = await fetch('/api/estados/' + encodeURIComponent(nombre), {method:'DELETE'});
+  if (res.ok) loadEstadosTab();
+  else alert('Error eliminando');
+}
+
+async function saveEstadoTab(isEdit) {
+  const nombre = document.getElementById('es-nombre').value.trim();
+  if (!nombre) return alert('Nombre requerido');
+  const tipo = document.getElementById('es-tipo').value;
+  const rows = [...document.querySelectorAll('#es-conds .cond-row')];
+  const conds = rows.map(r => [r.querySelector('.esv').value, r.querySelector('.esl').value]);
+  if (conds.length === 0) return alert('Al menos una condicion');
+  const payload = {nombre, tipo, condicion: {AND: conds}};
+  const method = isEdit ? 'PUT' : 'POST';
+  const url = isEdit ? '/api/estados/' + encodeURIComponent(nombre) : '/api/estados';
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  const data = await res.json();
+  if (!res.ok) return alert(data.error || 'Error');
+  document.getElementById('estado-modal-overlay').remove();
+  loadEstadosTab();
+}
+
+async function resetEstados() {
+  if (!confirm('Restaurar estados al default del core?')) return;
+  await fetch('/api/estados/reset', {method:'POST'});
+  loadEstadosTab();
+}
+
+// ============================================================
+// Waits CRUD
+// ============================================================
+let _waitsData = [];
+
+async function loadWaitsTab() {
+  const res = await fetch('/api/waits');
+  _waitsData = await res.json();
+  WAITS = _waitsData;
+  _renderWaitsTable();
+}
+
+function _renderWaitsTable() {
+  const tbody = document.getElementById('waits-body');
+  tbody.innerHTML = '';
+  for (const w of _waitsData) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><b>${w.nombre}</b></td>
+      <td><code style="font-size:.75rem">${w.wait_id}</code></td>
+      <td>${w.variable_controlada || '-'}</td>
+      <td style="font-size:.8rem">${w.descripcion || ''}</td>
+      <td>
+        <button class="btn-primary btn-sm" onclick="editWaitTab('${w.wait_id}')">Editar</button>
+        <button class="btn-danger btn-sm" onclick="deleteWaitTab('${w.wait_id}')">Borrar</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function openWaitModal(w=null) {
+  const nombre = w ? w.nombre : '';
+  const varCtrl = w ? (w.variable_controlada || '') : '';
+  const desc = w ? (w.descripcion || '') : '';
+  const spVars = SETPOINTS;
+
+  const html = `<div class="modal-overlay active" id="wait-modal-overlay">
+    <div class="modal" style="width:550px" onclick="event.stopPropagation()">
+      <h3>${w ? 'Editar' : 'Nuevo'} Wait</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Nombre</label><input id="wt-nombre" value="${nombre}" ${w?'disabled':''}></div>
+        <div class="form-group"><label>Variable controlada (setpoint)</label>
+          <select id="wt-var"><option value="">(ninguna)</option>${spVars.map(v=>`<option ${v===varCtrl?'selected':''}>${v}</option>`).join('')}</select>
+        </div>
+        <div class="form-group full"><label>Descripcion</label><input id="wt-desc" value="${desc}"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button class="btn-danger" onclick="document.getElementById('wait-modal-overlay').remove()">Cancelar</button>
+        <button class="btn-success" onclick="saveWaitTab(${w?'true':'false'})">Guardar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function editWaitTab(waitId) {
+  const res = await fetch('/api/waits/' + encodeURIComponent(waitId));
+  if (!res.ok) return alert('Error');
+  const w = await res.json();
+  openWaitModal(w);
+}
+
+async function deleteWaitTab(waitId) {
+  if (!confirm('Eliminar wait ' + waitId + '?')) return;
+  const res = await fetch('/api/waits/' + encodeURIComponent(waitId), {method:'DELETE'});
+  if (res.ok) loadWaitsTab();
+  else alert('Error eliminando');
+}
+
+async function saveWaitTab(isEdit) {
+  const nombre = document.getElementById('wt-nombre').value.trim();
+  if (!nombre) return alert('Nombre requerido');
+  const variable_controlada = document.getElementById('wt-var').value || null;
+  const descripcion = document.getElementById('wt-desc').value.trim();
+  const payload = {nombre, variable_controlada, descripcion};
+  const method = isEdit ? 'PUT' : 'POST';
+  const url = isEdit ? '/api/waits/' + encodeURIComponent('wait::' + nombre.toLowerCase().replace(/[^a-z0-9]/g,'_')) : '/api/waits';
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  const data = await res.json();
+  if (!res.ok) return alert(data.error || 'Error');
+  document.getElementById('wait-modal-overlay').remove();
+  loadWaitsTab();
+}
+
+async function resetWaits() {
+  if (!confirm('Restaurar waits al default del core?')) return;
+  await fetch('/api/waits/reset', {method:'POST'});
+  loadWaitsTab();
 }
 
 function _onHash() {
@@ -3899,8 +4966,107 @@ function _stopGenPolling() {
 }
 
 _onHash();
+
+// ============================================================
+// Alert rail
+// ============================================================
+const ALERT_CATS = ALERT_CATEGORIES_JSON;
+let _alertTimer = null;
+
+function _toggleAlertRail() {
+  const rail = document.getElementById('alertRail');
+  rail.classList.toggle('expanded');
+  if (rail.classList.contains('expanded')) _fetchAlerts();
+}
+
+function _closeAlertRail() {
+  document.getElementById('alertRail').classList.remove('expanded');
+}
+
+function _toggleAlertDetail(cardEl) {
+  cardEl.classList.toggle('open');
+}
+
+async function _fetchAlerts() {
+  try {
+    const r = await fetch('/api/alerts');
+    const data = await r.json();
+    _renderAlertDots(data.alerts);
+    _renderAlertPanel(data.alerts);
+  } catch(e) {}
+}
+
+function _renderAlertDots(alerts) {
+  const wrap = document.getElementById('alertDots');
+  wrap.innerHTML = '';
+  if (alerts.length === 0) {
+    wrap.innerHTML = '<div class="rail-ok" title="Sin alertas"></div>';
+    return;
+  }
+  alerts.forEach(a => {
+    const cat = ALERT_CATS[a.category] || ALERT_CATS.general;
+    const dot = document.createElement('div');
+    dot.className = 'rail-dot';
+    dot.style.background = cat.color;
+    dot.title = a.message;
+    wrap.appendChild(dot);
+  });
+}
+
+function _renderAlertPanel(alerts) {
+  const panel = document.getElementById('alertPanelContent');
+  const badge = document.getElementById('alertBadge');
+  badge.textContent = alerts.length;
+  badge.className = 'alert-count-badge' + (alerts.length === 0 ? ' ok' : '');
+
+  if (alerts.length === 0) {
+    panel.innerHTML = '<div class="alert-ok-msg">Sin alertas activas.<br>El sistema esta funcionando correctamente.</div>';
+    return;
+  }
+
+  panel.innerHTML = '';
+  alerts.forEach(a => {
+    const cat = ALERT_CATS[a.category] || ALERT_CATS.general;
+    const ago = Math.round((Date.now()/1000 - a.last_seen));
+    const agoStr = ago < 60 ? ago+'s' : Math.round(ago/60)+'m';
+    const card = document.createElement('div');
+    card.className = 'alert-card';
+    card.style.borderLeftColor = cat.color;
+    card.onclick = (e) => { if(!e.target.classList.contains('resolve-btn')) _toggleAlertDetail(card); };
+    card.innerHTML = `
+      <div class="alert-cat" style="color:${cat.color}">${cat.icon} ${cat.label}</div>
+      <div class="alert-msg">${a.message}</div>
+      <div class="alert-meta"><span>hace ${agoStr}${a.count>1 ? ' (x'+a.count+')' : ''}</span></div>
+      ${a.detail ? '<div class="alert-detail">'+a.detail.replace(/</g,'&lt;')+'</div>' : ''}
+      <button class="resolve-btn" onclick="event.stopPropagation();_resolveAlert(${a.id})">Marcar resuelto</button>
+    `;
+    panel.appendChild(card);
+  });
+}
+
+async function _resolveAlert(id) {
+  await fetch('/api/alerts/'+id+'/resolve', {method:'POST'});
+  _fetchAlerts();
+}
+
+_fetchAlerts();
+_alertTimer = setInterval(_fetchAlerts, 10000);
+
 </script>
 </main>
+
+<!-- Alert rail (right sidebar) -->
+<div class="alert-rail" id="alertRail" onclick="if(!this.classList.contains('expanded'))_toggleAlertRail()">
+  <div class="rail-dots" id="alertDots"></div>
+  <div class="alert-panel" onclick="event.stopPropagation()">
+    <div class="alert-panel-header">
+      <h4>Alertas <span class="alert-count-badge" id="alertBadge">0</span></h4>
+      <button class="close-btn" onclick="event.stopPropagation();_closeAlertRail()">&times;</button>
+    </div>
+    <div id="alertPanelContent"></div>
+  </div>
+</div>
+
 </body>
 </html>"""
 
@@ -3912,6 +5078,10 @@ def index():
     page = page.replace("LABELS_JSON", json.dumps(ETIQUETAS_DISPONIBLES))
     page = page.replace("ACTIONS_JSON", json.dumps(ACCIONES_DISPONIBLES))
     page = page.replace("BLOCKS_JSON", json.dumps(BLOQUES_DISPONIBLES))
+    page = page.replace("SETPOINTS_JSON", json.dumps(SETPOINT_KEYS))
+    page = page.replace("ESTADOS_JSON", json.dumps(_load_estados()))
+    page = page.replace("WAITS_JSON", json.dumps(_load_waits()))
+    page = page.replace("ALERT_CATEGORIES_JSON", json.dumps(AlertCollector.CATEGORIES))
     return Response(page, mimetype="text/html")
 
 
@@ -3990,7 +5160,8 @@ button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.
 </head>
 <body>
 <nav>
-  <a href="/">Reglas</a>
+  <a href="/">Configuracion SE</a>
+  <a href="/entrada">Entrada de Datos</a>
   <a href="/graficos" class="active">Graficos en Vivo</a>
   <a href="/diagrama">Diagrama de Flujo</a>
 </nav>
@@ -4593,8 +5764,11 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
 .legend-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:#cbd5e1}
 .legend-dot{width:14px;height:14px;border-radius:4px;flex-shrink:0}
 
-/* Future tag */
-.future-tag{display:inline-flex;align-items:center;gap:4px;background:rgba(250,204,21,.12);color:#facc15;border:1px solid rgba(250,204,21,.3);padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600}
+/* Mode tag */
+.mode-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600}
+.mode-tag.sim{background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)}
+.mode-tag.kep{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.mode-sep{color:#475569;font-size:.7rem;margin:0 2px}
 
 /* Click hint */
 .click-hint{text-align:center;color:#475569;font-size:.78rem;margin-bottom:16px;font-style:italic}
@@ -4602,7 +5776,8 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
 </head>
 <body>
 <nav>
-  <a href="/">Reglas</a>
+  <a href="/">Configuracion SE</a>
+  <a href="/entrada">Entrada de Datos</a>
   <a href="/graficos">Graficos en Vivo</a>
   <a href="/diagrama" class="active">Diagrama de Flujo</a>
 </nav>
@@ -4620,24 +5795,25 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
     <div class="node-icon">1</div>
     <div>
       <div class="node-title">Entrada de Datos</div>
-      <div class="node-desc">DataFrame con variables de proceso, sensores y limites fuzzy</div>
+      <div class="node-desc">Variables de proceso, sensores crudos y limites fuzzy</div>
     </div>
-    <span class="future-tag">Futuro: Tags KEPserver</span>
+    <span class="mode-tag sim">Simulacion</span>
+    <span class="mode-sep">/</span>
+    <span class="mode-tag kep">Tags KEPserver</span>
   </div>
   <div class="node-details">
-    <p>Actualmente se generan datos sinteticos con <code>simulacion.py</code> en 3 fases: estable, alerta y recuperacion.
-       A futuro, esta etapa sera reemplazada por lecturas OPC-UA del KEPserver (Tags reales).</p>
+    <p>El sistema soporta <b>dos modos de entrada</b>:</p>
+    <p style="margin:6px 0"><span class="mode-tag sim">Simulacion ON</span> Se generan datos sinteticos con <code>simulacion.py</code> en 3 fases (estable, alerta, recuperacion) y el generador de datos (<code>TagGenerator</code>) escribe valores dinamicos en KEPserver.</p>
+    <p style="margin:6px 0"><span class="mode-tag kep">Simulacion OFF</span> Se leen directamente los tags reales del KEPserver via OPC-UA. Los tags deben tener valores reales proporcionados por el proceso o un sistema externo.</p>
     <div class="detail-grid">
       <span class="detail-label">Variables PV (9)</span>
-      <span><code>torque</code>, <code>bed_mass</code>, <code>bed_level</code>, <code>densidad</code>, <code>torque_bomba</code>, <code>potencia_bomba</code>, <code>presion_descarga</code>, <code>presion_diferencial</code>, <code>nivel_rastra</code></span>
-      <span class="detail-label">Sensores crudos</span>
-      <span><code>tonelaje_sag_1/2</code>, <code>tonelaje_relave</code>, <code>presion_bomba_1/2</code>, <code>turbiedad_agua</code></span>
-      <span class="detail-label">Setpoints (3)</span>
-      <span><code>sp_tonelaje</code>, <code>sp_floculante</code>, <code>sp_vel_bomba</code></span>
-      <span class="detail-label">Limites fuzzy</span>
-      <span><code>{var}_lmin</code>, <code>{var}_lmax</code> por cada PV</span>
-      <span class="detail-label">Fuente actual</span>
-      <span><code>generar_datos_proceso(n=240, dt=60s, seed=42)</code> — 4 horas simuladas</span>
+      <span><code>RETO.PV.torque</code>, <code>RETO.PV.bed_mass</code>, <code>RETO.PV.bed_level</code>, <code>RETO.PV.densidad</code>, <code>RETO.PV.torque_bomba</code>, <code>RETO.PV.potencia_bomba</code>, <code>RETO.PV.presion_descarga</code>, <code>RETO.PV.presion_diferencial</code>, <code>RETO.PV.nivel_rastra</code></span>
+      <span class="detail-label">Sensores crudos (6)</span>
+      <span><code>RETO.CRUDA.tonelaje_sag_1/2</code>, <code>RETO.CRUDA.tonelaje_relave</code>, <code>RETO.CRUDA.presion_bomba_1/2</code>, <code>RETO.CRUDA.turbiedad_agua</code></span>
+      <span class="detail-label">Limites fuzzy (18)</span>
+      <span><code>RETO.LIM.{var}_lmin</code>, <code>RETO.LIM.{var}_lmax</code> por cada PV</span>
+      <span class="detail-label">Protocolo</span>
+      <span>OPC-UA (<code>opc.tcp://127.0.0.1:49320</code>) — lectura batch en una sola conexion</span>
     </div>
   </div>
 </div>
@@ -4687,16 +5863,17 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
   <div class="node-header">
     <div class="node-icon">3</div>
     <div>
-      <div class="node-title">Extraccion por Fila</div>
-      <div class="node-desc">Se extrae un dict {variable: valor} de la fila actual del DataFrame</div>
+      <div class="node-title">Extraccion de Inputs</div>
+      <div class="node-desc">Se construye un dict {variable: valor} del instante actual</div>
     </div>
   </div>
   <div class="node-details">
-    <p>Para cada fila (tick temporal), <code>extraer_inputs_desde_row()</code> extrae las 9 variables de proceso
-       como un diccionario <code>{nombre: float}</code>. Este es el <b>dato crudo</b> antes de filtrar.</p>
+    <p>En cada tick, se obtienen las 9 variables de proceso como diccionario <code>{nombre: float}</code>. Este es el <b>dato crudo</b> antes de filtrar.</p>
     <div class="detail-grid">
-      <span class="detail-label">Entrada</span>
-      <span>Una fila del DataFrame (un instante t_s)</span>
+      <span class="detail-label">Modo Simulacion</span>
+      <span><code>extraer_inputs_desde_row()</code> extrae de una fila del DataFrame</span>
+      <span class="detail-label">Modo KEPserver</span>
+      <span><code>SEEngine._read_tags()</code> lee directamente los tags PV, CRUDA y LIM via OPC-UA</span>
       <span class="detail-label">Salida</span>
       <span><code>inputs_raw = {torque: 45.2, bed_level: 3.1, ...}</code> (9 valores)</span>
     </div>
@@ -4891,17 +6068,19 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
     </div>
   </div>
   <div class="node-details">
-    <p>Los 3 setpoints se actualizan en cada tick y se acumulan a lo largo de la simulacion.
-       Estos valores son las <b>consignas de control</b> del espesador.</p>
+    <p>Los 3 setpoints se actualizan en cada tick y se acumulan entre iteraciones.
+       En modo KEPserver, los valores se <b>escriben de vuelta</b> a los tags <code>RETO.SP.*</code> via OPC-UA.</p>
     <div class="detail-grid">
       <span class="detail-label">sp_vel_bomba</span>
-      <span>Velocidad de la bomba de descarga</span>
+      <span>Velocidad de la bomba de descarga &rarr; <code>RETO.SP.sp_vel_bomba</code></span>
       <span class="detail-label">sp_tonelaje</span>
-      <span>Tonelaje objetivo de alimentacion</span>
+      <span>Tonelaje objetivo de alimentacion &rarr; <code>RETO.SP.sp_tonelaje</code></span>
       <span class="detail-label">sp_floculante</span>
-      <span>Dosificacion de floculante</span>
+      <span>Dosificacion de floculante &rarr; <code>RETO.SP.sp_floculante</code></span>
       <span class="detail-label">Persistencia</span>
       <span>Los SPs se arrastran al siguiente tick como estado mutable</span>
+      <span class="detail-label">Escritura</span>
+      <span><span class="mode-tag kep">KEPserver</span> OPC-UA write a <code>RETO.SP.*</code> &nbsp;|&nbsp; <span class="mode-tag sim">Simulacion</span> solo en memoria</span>
     </div>
   </div>
 </div>
@@ -4914,7 +6093,7 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
 
 <div class="loop-indicator">
   <span class="icon">&#x21bb;</span>
-  <span>Se repite para cada fila del DataFrame (cada tick de t_s). El estado (filtros, hist, cooldowns, SPs) se arrastra entre iteraciones.</span>
+  <span>Se repite cada 5 segundos (configurable). Lee tags &rarr; ejecuta pipeline &rarr; escribe SPs. El estado (filtros, hist, cooldowns, SPs) se arrastra entre iteraciones.</span>
 </div>
 
 </div><!-- /pipeline -->
@@ -4953,13 +6132,532 @@ def diagrama():
 
 
 # ============================================================
+# UI -- Entrada de Datos (live tags + history)
+# ============================================================
+
+ENTRADA_PAGE = """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Espesador -- Entrada de Datos</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{display:flex;gap:8px;padding:12px 20px;background:#0b1322;border-bottom:1px solid #1e293b}
+nav a{color:#94a3b8;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+h1{font-size:1.4rem;margin-bottom:4px}
+.subtitle{color:#64748b;font-size:.85rem;margin-bottom:20px}
+
+/* Filters */
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+.filter-btn{padding:5px 14px;border-radius:16px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.78rem;transition:.15s}
+.filter-btn:hover{border-color:#38bdf8;color:#e2e8f0}
+.filter-btn.active{background:#1e3a5f;border-color:#38bdf8;color:#38bdf8;font-weight:600}
+.filter-btn.dir-input.active{background:#1e3a5f;border-color:#3b82f6;color:#3b82f6}
+.filter-btn.dir-output.active{background:#0f2e1e;border-color:#22c55e;color:#22c55e}
+.search-box{padding:6px 12px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:.82rem;width:220px}
+.search-box::placeholder{color:#475569}
+
+/* Tag count */
+.tag-count{color:#64748b;font-size:.78rem;margin-bottom:8px}
+
+/* Table */
+.tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid #1e293b}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+thead{background:#0b1322;position:sticky;top:0}
+th{text-align:left;padding:10px 12px;color:#64748b;font-weight:600;border-bottom:1px solid #1e293b;white-space:nowrap}
+th.sel-col{width:36px;text-align:center}
+td{padding:8px 12px;border-bottom:1px solid #1e293b20}
+tr:hover{background:#1e293b40}
+tr.selected-row{background:#1e3a5f30}
+
+/* Checkbox */
+.tag-cb{width:16px;height:16px;accent-color:#3b82f6;cursor:pointer}
+
+/* Direction badge */
+.dir-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
+.dir-badge.input{background:rgba(59,130,246,.15);color:#3b82f6;border:1px solid rgba(59,130,246,.3)}
+.dir-badge.output{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+
+/* Group badge */
+.grp-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.68rem;font-weight:600}
+.grp-pv{background:rgba(59,130,246,.12);color:#3b82f6}
+.grp-cruda{background:rgba(245,158,11,.12);color:#f59e0b}
+.grp-lim{background:rgba(99,102,241,.12);color:#6366f1}
+.grp-sp{background:rgba(34,197,94,.12);color:#22c55e}
+.grp-other{background:rgba(100,116,139,.12);color:#94a3b8}
+
+/* Value cell */
+.val-cell{font-family:'Cascadia Code','Fira Code',monospace;font-weight:600;font-size:.85rem}
+.val-cell.no-data{color:#475569;font-style:italic;font-weight:400}
+
+/* Status dot */
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-dot.ok{background:#22c55e}
+.status-dot.missing{background:#ef4444}
+
+/* Sparkline */
+.sparkline-cell{width:140px;min-width:140px}
+.sparkline-cell canvas{display:block}
+
+/* Selected tags panel */
+.sel-panel{margin-top:24px;background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);border-radius:12px;padding:20px 24px;border:1px solid #334155;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.sel-panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.sel-panel-header h3{font-size:1rem;color:#e2e8f0;display:flex;align-items:center;gap:8px}
+.sel-panel-header h3 .count-badge{background:#3b82f6;color:#fff;font-size:.7rem;padding:2px 8px;border-radius:10px}
+.sel-tags-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.sel-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:16px;font-size:.75rem;font-weight:600;cursor:pointer;transition:.15s}
+.sel-chip.input{background:rgba(59,130,246,.12);color:#60a5fa;border:1px solid rgba(59,130,246,.25)}
+.sel-chip.output{background:rgba(34,197,94,.12);color:#4ade80;border:1px solid rgba(34,197,94,.25)}
+.sel-chip:hover{transform:scale(1.03)}
+.sel-chip .x{margin-left:4px;opacity:.4;font-size:.9rem}
+.sel-chip:hover .x{opacity:1;color:#ef4444}
+.sel-chart-wrap{background:#0b1322;border-radius:10px;padding:16px;border:1px solid #1e293b}
+.sel-chart-wrap canvas{width:100%!important;height:380px!important}
+.sel-controls{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.sel-controls button{padding:6px 14px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.78rem;transition:.15s}
+.sel-controls button:hover{border-color:#38bdf8;color:#e2e8f0;background:#1e293b}
+.sel-controls button.primary{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.sel-controls button.primary:hover{background:#2563eb}
+.sel-controls .sep{color:#334155;font-size:.75rem}
+.refresh-btn{padding:5px 12px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.75rem;transition:.15s}
+.refresh-btn:hover{border-color:#38bdf8;color:#e2e8f0}
+.refresh-btn.active{background:rgba(56,189,248,.1);border-color:#38bdf8;color:#38bdf8;font-weight:600}
+.legend-row{display:flex;gap:16px;margin-top:12px;padding:10px 12px;background:#1e293b50;border-radius:8px;font-size:.75rem;color:#94a3b8}
+.legend-row .leg-item{display:flex;align-items:center;gap:6px}
+.legend-row .leg-line{width:24px;height:2px;border-radius:1px}
+.legend-row .leg-line.solid{background:#3b82f6}
+.legend-row .leg-line.dashed{background:#22c55e;background:repeating-linear-gradient(90deg,#22c55e 0,#22c55e 5px,transparent 5px,transparent 8px)}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<nav>
+  <a href="/">Configuracion SE</a>
+  <a href="/entrada" class="active">Entrada de Datos</a>
+  <a href="/graficos">Graficos en Vivo</a>
+  <a href="/diagrama">Diagrama de Flujo</a>
+</nav>
+<div class="container">
+<h1>Entrada de Datos</h1>
+<p class="subtitle">Vista en tiempo real de todos los tags del sistema &mdash; entradas (PV, Crudas, Limites) y salidas (Setpoints). Historial de los ultimos 50 valores.</p>
+
+<!-- Filters -->
+<div class="filters">
+  <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">Todos</button>
+  <button class="filter-btn dir-input" data-filter="input" onclick="setFilter('input',this)">Entradas</button>
+  <button class="filter-btn dir-output" data-filter="output" onclick="setFilter('output',this)">Salidas</button>
+  <span style="color:#334155">|</span>
+  <button class="filter-btn" data-filter="pv" onclick="setFilter('pv',this)">PV</button>
+  <button class="filter-btn" data-filter="cruda" onclick="setFilter('cruda',this)">Crudas</button>
+  <button class="filter-btn" data-filter="lim" onclick="setFilter('lim',this)">Limites</button>
+  <button class="filter-btn" data-filter="sp" onclick="setFilter('sp',this)">Setpoints</button>
+  <input type="text" class="search-box" id="searchBox" placeholder="Buscar tag..." oninput="applyFilters()">
+</div>
+
+<div class="tag-count" id="tagCount"></div>
+
+<!-- Table -->
+<div class="tbl-wrap">
+<table>
+<thead>
+<tr>
+  <th class="sel-col"><input type="checkbox" class="tag-cb" id="cbAll" onchange="toggleAll(this)"></th>
+  <th>Tag</th>
+  <th>Grupo</th>
+  <th>Direccion</th>
+  <th>Estado</th>
+  <th>Valor</th>
+  <th class="sparkline-cell">Historial (50)</th>
+</tr>
+</thead>
+<tbody id="tagsBody"></tbody>
+</table>
+</div>
+
+<!-- Selected tags panel -->
+<div class="sel-panel" id="selPanel" style="display:none">
+<div class="sel-panel-header">
+  <h3>Comparacion en Tiempo Real <span class="count-badge" id="selCountBadge">0</span></h3>
+  <span style="color:#475569;font-size:.75rem" id="selInfo"></span>
+</div>
+<div class="sel-tags-wrap" id="selTagsWrap"></div>
+<div class="sel-controls">
+  <button class="primary" onclick="clearSelection()">Limpiar seleccion</button>
+  <span class="sep">|</span>
+  <span style="color:#64748b;font-size:.78rem">Refresco:</span>
+  <button class="refresh-btn active" data-rate="2000" onclick="setRefresh(2000,this)">2s</button>
+  <button class="refresh-btn" data-rate="5000" onclick="setRefresh(5000,this)">5s</button>
+  <button class="refresh-btn" data-rate="10000" onclick="setRefresh(10000,this)">10s</button>
+</div>
+<div class="sel-chart-wrap">
+  <canvas id="selChart"></canvas>
+</div>
+<div class="legend-row">
+  <div class="leg-item"><span class="leg-line solid"></span> Entrada (linea solida)</div>
+  <div class="leg-item"><span class="leg-line dashed"></span> Salida (linea punteada)</div>
+</div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+let allTags = [];
+let selectedTags = new Set();
+let currentFilter = 'all';
+let sparkCanvases = {};
+let selChart = null;
+let pollTimer = null;
+let pollRate = 2000;
+
+const GRP_LABELS = {pv:'PV',cruda:'Cruda',lim:'Limite',sp:'Setpoint',other:'Otro'};
+const GRP_COLORS = {pv:'#3b82f6',cruda:'#f59e0b',lim:'#6366f1',sp:'#22c55e',other:'#94a3b8'};
+const DIR_COLORS = {input:'#3b82f6', output:'#22c55e'};
+
+function setRefresh(rate, btn) {
+  pollRate = rate;
+  document.querySelectorAll('.refresh-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  startPolling();
+}
+
+async function fetchData() {
+  const res = await fetch('/api/entrada');
+  allTags = await res.json();
+  renderTable();
+  renderSparklines();
+  updateSelPanel();
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const rows = document.querySelectorAll('#tagsBody tr');
+  let visible = 0;
+  rows.forEach(row => {
+    const name = row.dataset.name.toLowerCase();
+    const dir = row.dataset.dir;
+    const grp = row.dataset.grp;
+    let show = true;
+    if (currentFilter === 'input' && dir !== 'input') show = false;
+    if (currentFilter === 'output' && dir !== 'output') show = false;
+    if (['pv','cruda','lim','sp'].includes(currentFilter) && grp !== currentFilter) show = false;
+    if (search && !name.includes(search)) show = false;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('tagCount').textContent = visible + ' de ' + allTags.length + ' tags';
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tagsBody');
+  tbody.innerHTML = '';
+  allTags.forEach((tag, i) => {
+    const tr = document.createElement('tr');
+    tr.dataset.name = tag.name;
+    tr.dataset.dir = tag.direction;
+    tr.dataset.grp = tag.group;
+    if (selectedTags.has(tag.name)) tr.classList.add('selected-row');
+
+    const valStr = tag.value !== null && tag.value !== undefined ? parseFloat(tag.value).toFixed(3) : 'Sin datos';
+    const valClass = tag.value !== null && tag.value !== undefined ? 'val-cell' : 'val-cell no-data';
+    const statusCls = tag.exists ? 'ok' : 'missing';
+    const statusTxt = tag.exists ? 'Conectado' : 'No encontrado';
+
+    tr.innerHTML = `
+      <td style="text-align:center"><input type="checkbox" class="tag-cb" data-tag="${tag.name}" ${selectedTags.has(tag.name)?'checked':''} onchange="toggleTagSel(this)"></td>
+      <td style="font-family:monospace;font-weight:600;font-size:.82rem">${tag.name}</td>
+      <td><span class="grp-badge grp-${tag.group}">${GRP_LABELS[tag.group]||tag.group}</span></td>
+      <td><span class="dir-badge ${tag.direction}">${tag.direction==='input'?'ENTRADA':'SALIDA'}</span></td>
+      <td><span class="status-dot ${statusCls}"></span>${statusTxt}</td>
+      <td class="${valClass}">${valStr}</td>
+      <td class="sparkline-cell"><canvas id="spark-${i}" width="130" height="32"></canvas></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  applyFilters();
+}
+
+function renderSparklines() {
+  allTags.forEach((tag, i) => {
+    const canvas = document.getElementById('spark-' + i);
+    if (!canvas || !tag.history || tag.history.length < 2) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const vals = tag.history.map(p => p.v);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const range = mx - mn || 1;
+    const color = tag.direction === 'output' ? '#22c55e' : GRP_COLORS[tag.group] || '#3b82f6';
+
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    vals.forEach((v, j) => {
+      const x = (j / (vals.length - 1)) * w;
+      const y = h - ((v - mn) / range) * (h - 4) - 2;
+      j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    const lastX = w;
+    const lastY = h - ((vals[vals.length-1] - mn) / range) * (h - 4) - 2;
+    ctx.arc(lastX, lastY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function toggleTagSel(cb) {
+  const name = cb.dataset.tag;
+  if (cb.checked) selectedTags.add(name); else selectedTags.delete(name);
+  cb.closest('tr').classList.toggle('selected-row', cb.checked);
+  updateSelPanel();
+}
+
+function toggleAll(cb) {
+  const rows = document.querySelectorAll('#tagsBody tr');
+  rows.forEach(row => {
+    if (row.style.display === 'none') return;
+    const checkbox = row.querySelector('.tag-cb');
+    if (!checkbox || !checkbox.dataset.tag) return;
+    checkbox.checked = cb.checked;
+    if (cb.checked) selectedTags.add(checkbox.dataset.tag);
+    else selectedTags.delete(checkbox.dataset.tag);
+    row.classList.toggle('selected-row', cb.checked);
+  });
+  updateSelPanel();
+}
+
+function clearSelection() {
+  selectedTags.clear();
+  document.querySelectorAll('#tagsBody .tag-cb').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('#tagsBody tr').forEach(tr => tr.classList.remove('selected-row'));
+  document.getElementById('cbAll').checked = false;
+  updateSelPanel();
+}
+
+function updateSelPanel() {
+  const panel = document.getElementById('selPanel');
+  if (selectedTags.size === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const wrap = document.getElementById('selTagsWrap');
+  wrap.innerHTML = '';
+  selectedTags.forEach(name => {
+    const tag = allTags.find(t => t.name === name);
+    if (!tag) return;
+    const chip = document.createElement('span');
+    chip.className = 'sel-chip ' + tag.direction;
+    chip.innerHTML = name + '<span class="x">&times;</span>';
+    chip.onclick = () => { selectedTags.delete(name); const cb = document.querySelector(`.tag-cb[data-tag="${name}"]`); if(cb){cb.checked=false;cb.closest('tr').classList.remove('selected-row');} updateSelPanel(); };
+    wrap.appendChild(chip);
+  });
+
+  const nIn = [...selectedTags].filter(n => { const t = allTags.find(x=>x.name===n); return t && t.direction==='input'; }).length;
+  const nOut = [...selectedTags].filter(n => { const t = allTags.find(x=>x.name===n); return t && t.direction==='output'; }).length;
+  document.getElementById('selInfo').textContent = nIn + ' entradas, ' + nOut + ' salidas';
+  document.getElementById('selCountBadge').textContent = selectedTags.size;
+
+  buildSelChart();
+}
+
+function _makeGradient(ctx, color) {
+  const g = ctx.createLinearGradient(0, 0, 0, 380);
+  g.addColorStop(0, color + '30');
+  g.addColorStop(1, color + '02');
+  return g;
+}
+
+function buildSelChart() {
+  const canvas = document.getElementById('selChart');
+  const ctx = canvas.getContext('2d');
+  if (selChart) selChart.destroy();
+
+  const datasets = [];
+  const palette = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6','#6366f1','#84cc16','#f97316','#06b6d4','#e11d48'];
+  let ci = 0;
+  let maxLen = 0;
+
+  selectedTags.forEach(name => {
+    const tag = allTags.find(t => t.name === name);
+    if (!tag || !tag.history || tag.history.length === 0) return;
+    if (tag.history.length > maxLen) maxLen = tag.history.length;
+    const color = palette[ci % palette.length];
+    const isOutput = tag.direction === 'output';
+    datasets.push({
+      label: name.replace('RETO.',''),
+      data: tag.history.map(p => p.v),
+      borderColor: color,
+      backgroundColor: _makeGradient(ctx, color),
+      fill: datasets.length === 0,
+      borderWidth: isOutput ? 2.5 : 1.8,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: color,
+      pointHoverBorderColor: '#fff',
+      pointHoverBorderWidth: 2,
+      tension: 0.35,
+      borderDash: isOutput ? [6, 4] : [],
+    });
+    ci++;
+  });
+
+  const labels = [];
+  if (maxLen > 0) {
+    const refTag = allTags.find(t => selectedTags.has(t.name) && t.history && t.history.length > 0);
+    if (refTag) {
+      refTag.history.forEach(p => {
+        const d = new Date(p.t * 1000);
+        labels.push(d.toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+      });
+    }
+  }
+
+  selChart = new Chart(ctx, {
+    type: 'line',
+    data: {labels, datasets},
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {duration: 300, easing: 'easeOutQuart'},
+      interaction: {mode: 'index', intersect: false},
+      scales: {
+        x: {
+          ticks: {color:'#475569', maxTicksLimit: 12, maxRotation: 0, font:{size:10}},
+          grid: {color:'#1e293b80', lineWidth: 0.5}
+        },
+        y: {
+          ticks: {color:'#475569', font:{size:10}, callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : Number(v.toFixed(2))},
+          grid: {color:'#1e293b80', lineWidth: 0.5}
+        }
+      },
+      plugins: {
+        legend: {
+          labels: {color:'#cbd5e1', boxWidth:16, boxHeight:2, font:{size:11}, padding:12, usePointStyle:false},
+          position: 'top'
+        },
+        tooltip: {
+          backgroundColor: '#0f172aee',
+          borderColor: '#334155',
+          borderWidth: 1,
+          titleColor: '#e2e8f0',
+          bodyColor: '#94a3b8',
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: true,
+          boxWidth: 10,
+          boxHeight: 2,
+          callbacks: {
+            label: item => ' ' + item.dataset.label + ': ' + Number(item.raw).toFixed(3)
+          }
+        }
+      }
+    }
+  });
+}
+
+async function pollUpdate() {
+  try {
+    const res = await fetch('/api/entrada');
+    const data = await res.json();
+    allTags = data;
+
+    // Update values & sparklines in-place
+    const rows = document.querySelectorAll('#tagsBody tr');
+    data.forEach((tag, i) => {
+      if (!rows[i]) return;
+      const valTd = rows[i].querySelector('.val-cell');
+      if (valTd) {
+        if (tag.value !== null && tag.value !== undefined) {
+          valTd.textContent = parseFloat(tag.value).toFixed(3);
+          valTd.classList.remove('no-data');
+        } else {
+          valTd.textContent = 'Sin datos';
+          valTd.classList.add('no-data');
+        }
+      }
+    });
+    renderSparklines();
+    if (selectedTags.size > 0) buildSelChart();
+  } catch(e) {}
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollUpdate, pollRate);
+}
+
+// Init
+fetchData().then(() => startPolling());
+
+// Alert indicator (floating)
+const _ACATS = ALERT_CATEGORIES_JSON;
+async function _pollAlerts() {
+  try {
+    const r = await fetch('/api/alerts');
+    const d = await r.json();
+    const el = document.getElementById('alertFloat');
+    const cnt = d.alerts.length;
+    el.querySelector('.af-count').textContent = cnt;
+    el.style.borderColor = cnt > 0 ? '#ef4444' : '#22c55e';
+    el.querySelector('.af-count').style.background = cnt > 0 ? '#ef4444' : '#22c55e';
+    const body = el.querySelector('.af-body');
+    if (cnt === 0) {
+      body.innerHTML = '<div style="color:#22c55e;font-size:.8rem;padding:8px">Sin alertas</div>';
+    } else {
+      body.innerHTML = d.alerts.map(a => {
+        const cat = _ACATS[a.category] || _ACATS.general;
+        return '<div style="padding:6px 0;border-bottom:1px solid #1e293b;font-size:.78rem"><span style="color:'+cat.color+';font-weight:600">'+cat.icon+'</span> '+a.message+'</div>';
+      }).join('');
+    }
+  } catch(e){}
+}
+_pollAlerts(); setInterval(_pollAlerts, 10000);
+</script>
+
+<!-- Floating alert badge -->
+<div id="alertFloat" style="position:fixed;bottom:16px;right:16px;background:#0b1322;border:2px solid #22c55e;border-radius:12px;z-index:200;cursor:pointer;min-width:36px;transition:.2s" onclick="this.classList.toggle('open')">
+  <div style="display:flex;align-items:center;gap:6px;padding:6px 10px">
+    <span class="af-count" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#22c55e;color:#fff;font-size:.72rem;font-weight:700">0</span>
+    <span style="color:#94a3b8;font-size:.78rem">Alertas</span>
+  </div>
+  <div class="af-body" style="display:none;padding:4px 12px 8px 12px;max-height:250px;overflow-y:auto"></div>
+</div>
+<style>
+#alertFloat.open{width:320px}
+#alertFloat.open .af-body{display:block}
+</style>
+</body>
+</html>"""
+
+
+@app.route("/entrada")
+def entrada():
+    page = ENTRADA_PAGE.replace("ALERT_CATEGORIES_JSON", json.dumps(AlertCollector.CATEGORIES))
+    return Response(page, mimetype="text/html")
+
+
+# ============================================================
 # Main
 # ============================================================
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  Sistema Experto Espesador (v2) -- Editor de Reglas")
+    print("  Sistema Experto Espesador (v2)")
     print("  http://127.0.0.1:5000")
+    print("  http://127.0.0.1:5000/entrada   (entrada de datos / tags)")
     print("  http://127.0.0.1:5000/#tags     (editor Tags KEPserver)")
     print("  http://127.0.0.1:5000/graficos  (graficos en tiempo real)")
     print("  http://127.0.0.1:5000/diagrama  (diagrama de flujo SE)")

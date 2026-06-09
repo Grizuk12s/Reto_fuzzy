@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runner del sistema experto Espesador (v2) — standalone (Prototipo_2).
+"""Runner del sistema experto Espesador (v3).
 
 Pipeline por fila:
   0. Calcular variables derivadas desde crudas (variables_calculadas.py)  <- NUEVO v2
@@ -8,7 +8,7 @@ Pipeline por fila:
   3. Fuzzificar PV filtradas + calcular pendientes
   4. Expandir etiquetas compuestas (NO-X, CERCA_ALTO, CERCA_BAJO)
   5. Evaluar permisivos -> inyectar como pseudo-variables __PERM_X (ON/OFF)
-  6. Motor de reglas con jerarquia de bloques (decision C)
+  6. Motor de reglas con jerarquia de bloques + waits declarativos (v3)
   7. Aplicar acciones disparadas sobre SPs (defuzzy Sugeno por tabla)
 
 Cambios respecto a v1
@@ -88,6 +88,8 @@ def cargar_reglas_json(path: str | None = None) -> list[dict]:
 
     for regla in datos:
         regla["if"] = [_coerce(c) for c in regla.get("if", [])]
+        if "fuerza" in regla and regla["fuerza"] is not None:
+            regla["fuerza"] = _coerce(regla["fuerza"])
     return datos
 
 
@@ -394,7 +396,7 @@ def correr_prueba_general(
     config_filtro: dict | None = None,
     permisivos_config: dict | None = None,
     min_mu_permisivo: float = 0.50,
-    # --- Nuevos parametros v2 ---
+    # --- Parametros de calculo heredados de v2 ---
     calcular_vars: bool = True,
     dt_s: float | None = None,
     definiciones_calculadas: dict | None = None,
@@ -435,7 +437,7 @@ def correr_prueba_general(
     columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada
     permisivos_config = PERMISIVOS if permisivos_config is None else permisivos_config
 
-    # ---- Paso 0 (v2): Calcular variables derivadas desde crudas ----
+    # ---- Paso 0: Calcular variables derivadas desde crudas ----
     if calcular_vars:
         col_t = _resolver_col(TIME_KEY, columnas_entrada)
         if dt_s is None:
@@ -457,7 +459,7 @@ def correr_prueba_general(
         filtro = None
 
     hist: dict = {}
-    last_action_time: dict = {}
+    estado_waits: dict = {}
     setpoints_actuales = dict(setpoints_base)
 
     rows_resultado = []
@@ -497,10 +499,10 @@ def correr_prueba_general(
             reglas=reglas,
             fuzzy_out=fuzzy_out,
             t_s=t_s,
-            last_action_time=last_action_time,
+            estado_waits=estado_waits,
             min_belief=min_belief,
         )
-        last_action_time = motor_out["last_action_time"]
+        estado_waits = motor_out["estado_waits"]
 
         fired = motor_out["fired"]
         if fired:
@@ -512,7 +514,6 @@ def correr_prueba_general(
                     setpoints=setpoints_actuales,
                     limites_sp=limites_sp,
                 )
-                familias = list(evento.get("familias_cooldown", []))
                 eventos.append(
                     {
                         "t_s": t_s,
@@ -524,8 +525,14 @@ def correr_prueba_general(
                         "n_acciones": len(acciones_belief),
                         "acciones": " | ".join(a for a, _ in acciones_belief),
                         "belief": float(evento["belief"]),
-                        "familias_cooldown": " | ".join(familias),
-                        "sp_afectados": " | ".join(SP_FAMILIA_A_KEY.get(f, "") for f in familias),
+                        "waits_bloqueantes": " | ".join(evento.get("waits_bloqueantes", [])),
+                        "waits_reiniciados": " | ".join(evento.get("waits_reiniciados", [])),
+                        "waits_activados": " | ".join(evento.get("waits_activados", [])),
+                        "variables_controladas": " | ".join(evento.get("variables_controladas", [])),
+                        "sp_afectados": " | ".join(
+                            SP_FAMILIA_A_KEY.get(f, "")
+                            for f in evento.get("variables_controladas", [])
+                        ),
                         **{f"antes_{k}": float(v) for k, v in setpoints_antes.items()},
                         **{f"despues_{k}": float(v) for k, v in setpoints_actuales.items()},
                     }
@@ -549,7 +556,10 @@ def correr_prueba_general(
                 "reglas_activadas": " | ".join(str(e["id"]) for e in fired),
                 "bloques_activados": " | ".join(str(e.get("bloque", "")) for e in fired),
                 "acciones_activadas": " | ".join(" | ".join(e.get("acciones", [])) for e in fired),
-                "familias_activadas": " | ".join(" | ".join(e.get("familias_cooldown", [])) for e in fired),
+                "variables_controladas_activadas": " | ".join(
+                    " | ".join(e.get("variables_controladas", [])) for e in fired
+                ),
+                "waits_activados": " | ".join(" | ".join(e.get("waits_activados", [])) for e in fired),
             }
         )
 
@@ -558,7 +568,7 @@ def correr_prueba_general(
 
     if verbose:
         print("=" * 110)
-        print("PRUEBA GENERAL DEL SISTEMA EXPERTO ESPESADOR  [v2 -- variables calculadas automaticamente]")
+        print("PRUEBA GENERAL DEL SISTEMA EXPERTO ESPESADOR  [v3 -- waits declarativos por accion]")
         print("=" * 110)
         if calcular_vars:
             print(f"Variables calculadas automaticamente (dt_s={dt_s_efectivo:.1f} s)")

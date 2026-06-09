@@ -315,6 +315,96 @@
         "min": 5,
         "max": 50,
         "noise": 3
+      },
+      "RETO.LIM.torque_lmin": {
+        "min": 40,
+        "max": 40,
+        "noise": 0
+      },
+      "RETO.LIM.torque_lmax": {
+        "min": 90,
+        "max": 90,
+        "noise": 0
+      },
+      "RETO.LIM.bed_mass_lmin": {
+        "min": 200,
+        "max": 200,
+        "noise": 0
+      },
+      "RETO.LIM.bed_mass_lmax": {
+        "min": 900,
+        "max": 900,
+        "noise": 0
+      },
+      "RETO.LIM.bed_level_lmin": {
+        "min": 0.8,
+        "max": 0.8,
+        "noise": 0
+      },
+      "RETO.LIM.bed_level_lmax": {
+        "min": 4,
+        "max": 4,
+        "noise": 0
+      },
+      "RETO.LIM.densidad_lmin": {
+        "min": 55,
+        "max": 55,
+        "noise": 0
+      },
+      "RETO.LIM.densidad_lmax": {
+        "min": 78,
+        "max": 78,
+        "noise": 0
+      },
+      "RETO.LIM.torque_bomba_lmin": {
+        "min": 30,
+        "max": 30,
+        "noise": 0
+      },
+      "RETO.LIM.torque_bomba_lmax": {
+        "min": 90,
+        "max": 90,
+        "noise": 0
+      },
+      "RETO.LIM.potencia_bomba_lmin": {
+        "min": 150,
+        "max": 150,
+        "noise": 0
+      },
+      "RETO.LIM.potencia_bomba_lmax": {
+        "min": 750,
+        "max": 750,
+        "noise": 0
+      },
+      "RETO.LIM.presion_descarga_lmin": {
+        "min": 5,
+        "max": 5,
+        "noise": 0
+      },
+      "RETO.LIM.presion_descarga_lmax": {
+        "min": 22,
+        "max": 22,
+        "noise": 0
+      },
+      "RETO.LIM.presion_diferencial_lmin": {
+        "min": 1,
+        "max": 1,
+        "noise": 0
+      },
+      "RETO.LIM.presion_diferencial_lmax": {
+        "min": 12,
+        "max": 12,
+        "noise": 0
+      },
+      "RETO.LIM.nivel_rastra_lmin": {
+        "min": 0,
+        "max": 0,
+        "noise": 0
+      },
+      "RETO.LIM.nivel_rastra_lmax": {
+        "min": 20,
+        "max": 20,
+        "noise": 0
       }
     }
   }

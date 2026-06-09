@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runner del sistema experto Espesador (v3).
+"""Runner del sistema experto Espesador (v2) — standalone (Prototipo_2).
 
 Pipeline por fila:
   0. Calcular variables derivadas desde crudas (variables_calculadas.py)  <- NUEVO v2
@@ -8,7 +8,7 @@ Pipeline por fila:
   3. Fuzzificar PV filtradas + calcular pendientes
   4. Expandir etiquetas compuestas (NO-X, CERCA_ALTO, CERCA_BAJO)
   5. Evaluar permisivos -> inyectar como pseudo-variables __PERM_X (ON/OFF)
-  6. Motor de reglas con jerarquia de bloques + waits declarativos (v3)
+  6. Motor de reglas con jerarquia de bloques (decision C)
   7. Aplicar acciones disparadas sobre SPs (defuzzy Sugeno por tabla)
 
 Cambios respecto a v1
@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from . import motor
-from .config import (
+import motor
+from config import (
     COLUMNAS_ENTRADA,
     LIMITES_FUZZY_POR_VARIABLE,
     SP_FAMILIA_A_KEY,
@@ -37,13 +37,275 @@ from .config import (
     TIME_KEY,
     VARIABLES_PROCESO,
 )
-from .defuzzy_actions import apply_actions
-from .exp_q_filter import ExpQFilter, CONFIG_FILTRO_ESPESADOR_DEFAULT
-from .fuzzys_eval import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas
-from .fuzzys_models_espesador import FUZZY_MODELOS, PEND_MODELOS
-from .permisivos import PERMISIVOS, evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
-from .reglas_espesador import REGLAS_ESPESADOR
-from .variables_calculadas import (
+from defuzzy_actions import apply_actions
+from exp_q_filter import ExpQFilter, CONFIG_FILTRO_ESPESADOR_DEFAULT
+from fuzzys_eval import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas
+from fuzzys_models_espesador import FUZZY_MODELOS, PEND_MODELOS
+from permisivos import PERMISIVOS, evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
+from reglas_espesador import REGLAS_ESPESADOR
+
+
+# ============================================================
+# Helper para cargar reglas desde reglas.json (modo standalone)
+# ------------------------------------------------------------
+# Permite editar las reglas en vivo desde la UI Flask sin tener
+# que reiniciar el proceso.
+# ============================================================
+import json as _json
+import os as _os
+
+REGLAS_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "reglas.json"
+)
+
+
+def cargar_reglas_json(path: str | None = None) -> list[dict]:
+    """Carga reglas desde reglas.json. Si el archivo no existe o esta vacio,
+    retorna las reglas por defecto del experto (REGLAS_ESPESADOR).
+    """
+    ruta = path or REGLAS_JSON_PATH
+    if not _os.path.exists(ruta):
+        return list(REGLAS_ESPESADOR)
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return list(REGLAS_ESPESADOR)
+    if not isinstance(datos, list) or not datos:
+        return list(REGLAS_ESPESADOR)
+
+    # JSON serializa tuplas como listas. El motor solo reconoce hojas como
+    # tuple(var,label), asi que coercemos recursivamente cualquier lista de
+    # 2 strings -> tuple, dentro de AND/OR/NOT y a top-level.
+    def _coerce(node):
+        if isinstance(node, list):
+            if len(node) == 2 and all(isinstance(x, str) for x in node):
+                return (node[0], node[1])
+            return [_coerce(x) for x in node]
+        if isinstance(node, dict):
+            return {k: _coerce(v) for k, v in node.items()}
+        return node
+
+    for regla in datos:
+        regla["if"] = [_coerce(c) for c in regla.get("if", [])]
+    return datos
+
+
+# ============================================================
+# Helper para cargar config Exp-Q desde filtros.json
+# ------------------------------------------------------------
+# Si filtros.json falta o esta vacio, se devuelven los defaults de
+# `exp_q_filter.CONFIG_FILTRO_ESPESADOR_DEFAULT`.
+# ============================================================
+FILTROS_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "filtros.json"
+)
+
+
+def cargar_filtros_json(path: str | None = None) -> dict:
+    ruta = path or FILTROS_JSON_PATH
+    if not _os.path.exists(ruta):
+        return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+    if not isinstance(datos, dict) or not datos:
+        return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+    # Sanitizar tipos: q float, window_size int.
+    out = {}
+    for var, cfg in datos.items():
+        if not isinstance(cfg, dict):
+            continue
+        try:
+            q = float(cfg.get("q", 0.0))
+            ws = int(cfg.get("window_size", 1))
+        except (TypeError, ValueError):
+            continue
+        out[str(var)] = {"q": q, "window_size": max(1, ws)}
+    return out or {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
+
+
+# ============================================================
+# Helper para cargar tablas Defuzzy desde defuzzy.json
+# ------------------------------------------------------------
+# Schema:
+#   { "<sp_familia>": {"belief_axis": [...], "steps_por_accion": {"AUMENTAR_FUERTE":[...], ...}} }
+# Si falta o esta vacio, devuelve un deepcopy de DEFUZZY_POR_FAMILIA del core.
+# ============================================================
+DEFUZZY_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "defuzzy.json"
+)
+
+
+def _defuzzy_defaults_deepcopy() -> dict:
+    from defuzzy_actions import DEFUZZY_POR_FAMILIA as _D
+    out = {}
+    for fam, tabla in _D.items():
+        out[fam] = {
+            "belief_axis": list(tabla["belief_axis"]),
+            "steps_por_accion": {k: list(v) for k, v in tabla["steps_por_accion"].items()},
+        }
+    return out
+
+
+def cargar_defuzzy_json(path: str | None = None) -> dict:
+    ruta = path or DEFUZZY_JSON_PATH
+    if not _os.path.exists(ruta):
+        return _defuzzy_defaults_deepcopy()
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return _defuzzy_defaults_deepcopy()
+    if not isinstance(datos, dict) or not datos:
+        return _defuzzy_defaults_deepcopy()
+    return datos
+
+
+# ============================================================
+# Helper para cargar membresias fuzzy desde fuzzy.json
+# ------------------------------------------------------------
+# Schema:
+#   { "<var>": {"offset": [..], "labels": {"HIGH":[..], "OK":[..], "LOW":[..]}} }
+# El tipo (high/low/norm) NO es editable: se toma del FUZZY_MODELOS del core.
+# ============================================================
+FUZZY_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "fuzzy.json"
+)
+
+
+def _fuzzy_defaults_from_modelos() -> dict:
+    out = {}
+    for var, entry in FUZZY_MODELOS.items():
+        mdl = entry["model"]
+        out[var] = {
+            "type":   entry["type"],
+            "offset": [float(x) for x in list(mdl.offset)],
+            "labels": {str(k): [float(x) for x in list(v)] for k, v in mdl.conjuntos.items()},
+        }
+    return out
+
+
+def cargar_fuzzy_json(path: str | None = None) -> dict:
+    ruta = path or FUZZY_JSON_PATH
+    defaults = _fuzzy_defaults_from_modelos()
+    if not _os.path.exists(ruta):
+        return defaults
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return defaults
+    if not isinstance(datos, dict) or not datos:
+        return defaults
+    return datos
+
+
+# ============================================================
+# Helper para cargar variables crudas y definiciones calculadas
+# ------------------------------------------------------------
+# Schema variables.json:
+#   { "crudas": {<nombre>: <descripcion>},
+#     "definiciones": [ {nombre, descripcion, tipo, ...}, ... ] }
+# ------------------------------------------------------------
+# tipos soportados:
+#   - aritmetica   : operacion + args [a, b]
+#   - rolling_delta: arg + ventana_min
+#   - rolling_std  : arg + ventana_min
+# ============================================================
+VARIABLES_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "variables.json"
+)
+
+
+def _variables_defaults_from_core() -> dict:
+    from variables_calculadas import VARIABLES_CRUDAS as _CRUDAS_CORE
+    crudas = {k: str(v) for k, v in _CRUDAS_CORE.items()}
+    definiciones = []
+    for nombre, cfg in DEFINICIONES_CALCULADAS.items():
+        item = {"nombre": nombre, "descripcion": str(cfg.get("descripcion", "")), "tipo": cfg["tipo"]}
+        if cfg["tipo"] == "aritmetica":
+            item["operacion"] = cfg["operacion"]
+            item["args"] = list(cfg["args"])
+        else:
+            item["arg"] = cfg["arg"]
+            item["ventana_min"] = float(cfg["ventana_min"])
+        definiciones.append(item)
+    return {"crudas": crudas, "definiciones": definiciones}
+
+
+def cargar_variables_json(path: str | None = None) -> dict:
+    ruta = path or VARIABLES_JSON_PATH
+    defaults = _variables_defaults_from_core()
+    if not _os.path.exists(ruta):
+        return defaults
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return defaults
+    if not isinstance(datos, dict) or "definiciones" not in datos:
+        return defaults
+    return datos
+
+
+def definiciones_lista_a_dict(definiciones_lista: list) -> dict:
+    """Convierte la lista ordenada del JSON al dict que espera el runner."""
+    out = {}
+    for item in definiciones_lista:
+        if not isinstance(item, dict) or "nombre" not in item:
+            continue
+        nombre = item["nombre"]
+        cfg = {"descripcion": item.get("descripcion", ""), "tipo": item["tipo"]}
+        if item["tipo"] == "aritmetica":
+            cfg["operacion"] = item["operacion"]
+            cfg["args"] = list(item["args"])
+        else:
+            cfg["arg"] = item["arg"]
+            cfg["ventana_min"] = float(item["ventana_min"])
+        out[nombre] = cfg
+    return out
+
+
+# ============================================================
+# Helper para cargar permisivos desde permisivos.json
+# ------------------------------------------------------------
+# Schema:
+#   { "<NOMBRE_PERMISIVO>": [ <condicion>, ... ] }
+# donde cada <condicion> puede ser:
+#   {"var": <str>, "op": <str>, "value": <num>}
+#   {"fuzzy_var": <str>, "label": <str>, "min_mu": <num>}
+#   {"OR":  [<condicion>, ...]}
+#   {"AND": [<condicion>, ...]}
+#   {"NOT": <condicion>}
+# Si falta o esta vacio, devuelve deepcopy de PERMISIVOS del core.
+# ============================================================
+PERMISIVOS_JSON_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "permisivos.json"
+)
+
+
+def _permisivos_defaults_deepcopy() -> dict:
+    import copy as _copy
+    return _copy.deepcopy(PERMISIVOS)
+
+
+def cargar_permisivos_json(path: str | None = None) -> dict:
+    ruta = path or PERMISIVOS_JSON_PATH
+    if not _os.path.exists(ruta):
+        return _permisivos_defaults_deepcopy()
+    try:
+        with open(ruta, "r", encoding="utf-8") as _f:
+            datos = _json.load(_f)
+    except (OSError, ValueError):
+        return _permisivos_defaults_deepcopy()
+    if not isinstance(datos, dict) or not datos:
+        return _permisivos_defaults_deepcopy()
+    return datos
+
+from variables_calculadas import (
     calcular_variables_df,
     detectar_dt_s,
     DEFINICIONES_CALCULADAS,
@@ -132,7 +394,7 @@ def correr_prueba_general(
     config_filtro: dict | None = None,
     permisivos_config: dict | None = None,
     min_mu_permisivo: float = 0.50,
-    # --- Parametros de calculo heredados de v2 ---
+    # --- Nuevos parametros v2 ---
     calcular_vars: bool = True,
     dt_s: float | None = None,
     definiciones_calculadas: dict | None = None,
@@ -173,7 +435,7 @@ def correr_prueba_general(
     columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada
     permisivos_config = PERMISIVOS if permisivos_config is None else permisivos_config
 
-    # ---- Paso 0: Calcular variables derivadas desde crudas ----
+    # ---- Paso 0 (v2): Calcular variables derivadas desde crudas ----
     if calcular_vars:
         col_t = _resolver_col(TIME_KEY, columnas_entrada)
         if dt_s is None:
@@ -195,7 +457,7 @@ def correr_prueba_general(
         filtro = None
 
     hist: dict = {}
-    estado_waits: dict = {}
+    last_action_time: dict = {}
     setpoints_actuales = dict(setpoints_base)
 
     rows_resultado = []
@@ -235,10 +497,10 @@ def correr_prueba_general(
             reglas=reglas,
             fuzzy_out=fuzzy_out,
             t_s=t_s,
-            estado_waits=estado_waits,
+            last_action_time=last_action_time,
             min_belief=min_belief,
         )
-        estado_waits = motor_out["estado_waits"]
+        last_action_time = motor_out["last_action_time"]
 
         fired = motor_out["fired"]
         if fired:
@@ -250,6 +512,7 @@ def correr_prueba_general(
                     setpoints=setpoints_actuales,
                     limites_sp=limites_sp,
                 )
+                familias = list(evento.get("familias_cooldown", []))
                 eventos.append(
                     {
                         "t_s": t_s,
@@ -261,14 +524,8 @@ def correr_prueba_general(
                         "n_acciones": len(acciones_belief),
                         "acciones": " | ".join(a for a, _ in acciones_belief),
                         "belief": float(evento["belief"]),
-                        "waits_bloqueantes": " | ".join(evento.get("waits_bloqueantes", [])),
-                        "waits_reiniciados": " | ".join(evento.get("waits_reiniciados", [])),
-                        "waits_activados": " | ".join(evento.get("waits_activados", [])),
-                        "variables_controladas": " | ".join(evento.get("variables_controladas", [])),
-                        "sp_afectados": " | ".join(
-                            SP_FAMILIA_A_KEY.get(f, "")
-                            for f in evento.get("variables_controladas", [])
-                        ),
+                        "familias_cooldown": " | ".join(familias),
+                        "sp_afectados": " | ".join(SP_FAMILIA_A_KEY.get(f, "") for f in familias),
                         **{f"antes_{k}": float(v) for k, v in setpoints_antes.items()},
                         **{f"despues_{k}": float(v) for k, v in setpoints_actuales.items()},
                     }
@@ -292,10 +549,7 @@ def correr_prueba_general(
                 "reglas_activadas": " | ".join(str(e["id"]) for e in fired),
                 "bloques_activados": " | ".join(str(e.get("bloque", "")) for e in fired),
                 "acciones_activadas": " | ".join(" | ".join(e.get("acciones", [])) for e in fired),
-                "variables_controladas_activadas": " | ".join(
-                    " | ".join(e.get("variables_controladas", [])) for e in fired
-                ),
-                "waits_activados": " | ".join(" | ".join(e.get("waits_activados", [])) for e in fired),
+                "familias_activadas": " | ".join(" | ".join(e.get("familias_cooldown", [])) for e in fired),
             }
         )
 
@@ -304,7 +558,7 @@ def correr_prueba_general(
 
     if verbose:
         print("=" * 110)
-        print("PRUEBA GENERAL DEL SISTEMA EXPERTO ESPESADOR  [v3 -- waits declarativos por accion]")
+        print("PRUEBA GENERAL DEL SISTEMA EXPERTO ESPESADOR  [v2 -- variables calculadas automaticamente]")
         print("=" * 110)
         if calcular_vars:
             print(f"Variables calculadas automaticamente (dt_s={dt_s_efectivo:.1f} s)")

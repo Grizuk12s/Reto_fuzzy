@@ -147,8 +147,8 @@ def write_manual_review_report(
             "",
             "## Accion recomendada",
             "",
-            "- Revisar la divergencia entre `core/reglas_estrategia_correcta.py` y `Prototipo_2/reglas.json`.",
-            "- Decidir manualmente si el fallback Python debe copiarse, migrarse o dejarse sin cambios.",
+            "- Revisar la divergencia entre `core/reglas_espesador.py` y `Prototipo_2/reglas.json`.",
+            "- Decidir manualmente si las reglas del core deben migrarse o dejarse sin cambios.",
         ]
     )
 

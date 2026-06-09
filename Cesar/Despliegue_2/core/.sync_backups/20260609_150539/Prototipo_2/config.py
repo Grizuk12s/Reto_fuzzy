@@ -7,7 +7,7 @@ Define:
 - Variables externas (calculadas por variables_calculadas.py, NO pre-calculadas aguas arriba)
 - Setpoints manipulados
 - Mapeo de roles a columnas del DataFrame
-- Waits base por variable controlada (las reglas v3 asignan los waits por accion)
+- Cooldowns por familia de SP (NO se ponen en cada regla, ver decision D)
 - Definicion de bloques jerarquicos
 """
 
@@ -112,20 +112,13 @@ ROLES_LIMITES_REQUERIDOS = [
 
 
 # ============================================================
-# WAITS BASE POR VARIABLE CONTROLADA
-# ------------------------------------------------------------
-# Se conservan estos valores como referencia base para construir los waits
-# declarativos de v3. Las reglas ya no dependen de un cooldown implicito
-# global; ahora seleccionan uno o mas waits por accion y con la duracion que
-# necesiten.
+# COOLDOWNS POR FAMILIA DE SP (decision D)
 # ============================================================
 COOLDOWN_FAMILIA_S = {
     "sp_vel_bomba":  15 * 60,   # 15 min
     "sp_tonelaje":   45 * 60,   # 45 min
     "sp_floculante": 30 * 60,   # 30 min
 }
-
-WAIT_BASE_S = dict(COOLDOWN_FAMILIA_S)
 
 SP_FAMILIA_A_KEY = {
     "sp_vel_bomba":  "sp_vel_bomba",

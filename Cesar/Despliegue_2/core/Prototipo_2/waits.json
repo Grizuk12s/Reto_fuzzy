@@ -1,0 +1,58 @@
+[
+  {
+    "wait_id": "wait::vel_bomba_critico",
+    "nombre": "vel_bomba_critico",
+    "tipo": "custom",
+    "variable_controlada": "sp_vel_bomba",
+    "descripcion": "Wait compartido para control critico de velocidad de bomba"
+  },
+  {
+    "wait_id": "wait::vel_bomba_estabilidad",
+    "nombre": "vel_bomba_estabilidad",
+    "tipo": "custom",
+    "variable_controlada": "sp_vel_bomba",
+    "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba"
+  },
+  {
+    "wait_id": "wait::tonelaje_critico",
+    "nombre": "tonelaje_critico",
+    "tipo": "custom",
+    "variable_controlada": "sp_tonelaje",
+    "descripcion": "Wait compartido para control critico de tonelaje"
+  },
+  {
+    "wait_id": "wait::tonelaje_estabilidad",
+    "nombre": "tonelaje_estabilidad",
+    "tipo": "custom",
+    "variable_controlada": "sp_tonelaje",
+    "descripcion": "Wait compartido para control de estabilidad de tonelaje"
+  },
+  {
+    "wait_id": "wait::floculante_critico",
+    "nombre": "floculante_critico",
+    "tipo": "custom",
+    "variable_controlada": "sp_floculante",
+    "descripcion": "Wait compartido para control critico de floculante"
+  },
+  {
+    "wait_id": "wait::floculante_estabilidad",
+    "nombre": "floculante_estabilidad",
+    "tipo": "custom",
+    "variable_controlada": "sp_floculante",
+    "descripcion": "Wait compartido para control de estabilidad de floculante"
+  },
+  {
+    "wait_id": "wait::velocidad_para_solidos",
+    "nombre": "velocidad_para_solidos",
+    "tipo": "custom",
+    "variable_controlada": "sp_vel_bomba",
+    "descripcion": "Wait para control de velocidad enfocado en solidos"
+  },
+  {
+    "wait_id": "wait::velocidad_para_presion_cama",
+    "nombre": "velocidad_para_presion_cama",
+    "tipo": "custom",
+    "variable_controlada": "sp_vel_bomba",
+    "descripcion": "Wait para control de velocidad enfocado en presion de cama"
+  }
+]
