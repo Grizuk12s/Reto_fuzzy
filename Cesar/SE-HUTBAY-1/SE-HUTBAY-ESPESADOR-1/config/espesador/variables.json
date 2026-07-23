@@ -1,0 +1,56 @@
+{
+  "crudas": {
+    "tonelaje_sag_1": "Tonelaje SAG Mill 1 (t/h)",
+    "tonelaje_sag_2": "Tonelaje SAG Mill 2 (t/h)",
+    "tonelaje_relave": "Tonelaje de relave (t/h)",
+    "presion_bomba_1": "Presion de impulsion bomba descarga 1 (bar)",
+    "presion_bomba_2": "Presion de impulsion bomba descarga 2 (bar)",
+    "turbiedad_agua": "Turbiedad del agua recuperada (NTU) -- sensor directo"
+  },
+  "definiciones": [
+    {
+      "nombre": "tonelaje_sag_total",
+      "descripcion": "Tonelaje total SAG (Mill 1 + Mill 2) en t/h",
+      "tipo": "aritmetica",
+      "operacion": "suma",
+      "args": [
+        "tonelaje_sag_1",
+        "tonelaje_sag_2"
+      ]
+    },
+    {
+      "nombre": "tonelaje_sag_delta_30min",
+      "descripcion": "Cambio del tonelaje SAG total en los ultimos 30 min (t/h)",
+      "tipo": "rolling_delta",
+      "arg": "tonelaje_sag_total",
+      "ventana_min": 30.0
+    },
+    {
+      "nombre": "tonelaje_sag_desv_est_30min",
+      "descripcion": "Desv. estandar del tonelaje SAG total en ventana de 30 min",
+      "tipo": "rolling_std",
+      "arg": "tonelaje_sag_total",
+      "ventana_min": 30.0
+    },
+    {
+      "nombre": "diferencial_ton_sag_relave",
+      "descripcion": "Diferencial de tonelaje: SAG total - relave (t/h)",
+      "tipo": "aritmetica",
+      "operacion": "resta",
+      "args": [
+        "tonelaje_sag_total",
+        "tonelaje_relave"
+      ]
+    },
+    {
+      "nombre": "diferencial_presion_bbas",
+      "descripcion": "Diferencial de presion de impulsion: bomba_1 - bomba_2 (bar)",
+      "tipo": "aritmetica",
+      "operacion": "resta",
+      "args": [
+        "presion_bomba_1",
+        "presion_bomba_2"
+      ]
+    }
+  ]
+}

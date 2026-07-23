@@ -1,0 +1,1805 @@
+[
+  {
+    "id": "E1.S1",
+    "bloque": "critico",
+    "priority": 100.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_diferencial",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ],
+      [
+        "torque",
+        "HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA_FUERTE",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA_FUERTE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA_FUERTE"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_TONELAJE_FUERTE",
+        "waits": [
+          {
+            "wait_id": "wait::tonelaje_critico",
+            "nombre": "tonelaje_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control critico de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE_FUERTE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::tonelaje_estabilidad",
+            "nombre": "tonelaje_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control de estabilidad de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE_FUERTE"
+          }
+        ]
+      }
+    ],
+    "enabled": true
+  },
+  {
+    "id": "E1.S2",
+    "bloque": "critico",
+    "priority": 100.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_diferencial",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ],
+      [
+        "torque",
+        "NO-HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA_FUERTE",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA_FUERTE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA_FUERTE"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_TONELAJE",
+        "waits": [
+          {
+            "wait_id": "wait::tonelaje_critico",
+            "nombre": "tonelaje_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control critico de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::tonelaje_estabilidad",
+            "nombre": "tonelaje_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control de estabilidad de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E1.S3",
+    "bloque": "critico",
+    "priority": 100.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_diferencial",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ],
+      [
+        "torque",
+        "HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_TONELAJE_FUERTE",
+        "waits": [
+          {
+            "wait_id": "wait::tonelaje_critico",
+            "nombre": "tonelaje_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control critico de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE_FUERTE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::tonelaje_estabilidad",
+            "nombre": "tonelaje_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control de estabilidad de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE_FUERTE"
+          }
+        ]
+      }
+    ],
+    "enabled": true
+  },
+  {
+    "id": "E1.S4",
+    "bloque": "critico",
+    "priority": 100.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_diferencial",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "LOW"
+          ],
+          [
+            "pend_presion_diferencial",
+            "NO-INC"
+          ],
+          [
+            "torque_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_torque_bomba",
+            "NO-DEC"
+          ],
+          [
+            "potencia_bomba",
+            "HIGH"
+          ],
+          [
+            "pend_potencia_bomba",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ],
+      [
+        "torque",
+        "NO-HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_TONELAJE",
+        "waits": [
+          {
+            "wait_id": "wait::tonelaje_critico",
+            "nombre": "tonelaje_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control critico de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::tonelaje_estabilidad",
+            "nombre": "tonelaje_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control de estabilidad de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E2.S1",
+    "bloque": "critico",
+    "priority": 99.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_descarga",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "HIGH"
+          ],
+          [
+            "pend_presion_descarga",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_TONELAJE",
+        "waits": [
+          {
+            "wait_id": "wait::tonelaje_critico",
+            "nombre": "tonelaje_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control critico de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::tonelaje_estabilidad",
+            "nombre": "tonelaje_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control de estabilidad de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E2.S2",
+    "bloque": "critico",
+    "priority": 99.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_descarga",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "HIGH"
+          ],
+          [
+            "pend_presion_descarga",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E3.S1",
+    "bloque": "critico",
+    "priority": 98.0,
+    "weight": 1.0,
+    "fuerza": [
+      "nivel_rastra",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "nivel_rastra",
+            "HIGH"
+          ],
+          [
+            "pend_nivel_rastra",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_TONELAJE",
+        "waits": [
+          {
+            "wait_id": "wait::tonelaje_critico",
+            "nombre": "tonelaje_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control critico de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::tonelaje_estabilidad",
+            "nombre": "tonelaje_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_tonelaje",
+            "descripcion": "Wait compartido para control de estabilidad de tonelaje",
+            "duracion_s": 2700.0,
+            "accion": "DISMINUIR_TONELAJE"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E3.S2",
+    "bloque": "critico",
+    "priority": 98.0,
+    "weight": 1.0,
+    "fuerza": [
+      "nivel_rastra",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "nivel_rastra",
+            "HIGH"
+          ],
+          [
+            "pend_nivel_rastra",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E4.S1",
+    "bloque": "critico",
+    "priority": 97.0,
+    "weight": 1.0,
+    "fuerza": [
+      "torque",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "torque",
+            "HIGH"
+          ],
+          [
+            "pend_torque",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E4.S2",
+    "bloque": "critico",
+    "priority": 97.0,
+    "weight": 1.0,
+    "fuerza": [
+      "torque",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "torque",
+            "HIGH"
+          ],
+          [
+            "pend_torque",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ]
+      },
+      {
+        "accion": "DISMINUIR_FLOCULANTE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_critico",
+            "nombre": "floculante_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control critico de floculante",
+            "duracion_s": 1800.0,
+            "accion": "DISMINUIR_FLOCULANTE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "DISMINUIR_FLOCULANTE"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E5.S1",
+    "bloque": "critico",
+    "priority": 96.0,
+    "weight": 1.0,
+    "fuerza": [
+      "bed_mass",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "HIGH"
+          ],
+          [
+            "pend_bed_mass",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ]
+      },
+      {
+        "accion": "AUMENTAR_FLOCULANTE_SUAVE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_critico",
+            "nombre": "floculante_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control critico de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE_SUAVE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE_SUAVE"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E5.S2",
+    "bloque": "critico",
+    "priority": 96.0,
+    "weight": 1.0,
+    "fuerza": [
+      "bed_mass",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "HIGH"
+          ],
+          [
+            "pend_bed_mass",
+            "NO-DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "E6.S1",
+    "bloque": "estabilidad",
+    "priority": 89.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_diferencial",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "CERCA_BAJO"
+          ],
+          [
+            "pend_presion_diferencial",
+            "DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "AUMENTAR_FLOCULANTE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E6.S2",
+    "bloque": "estabilidad",
+    "priority": 89.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_diferencial",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_diferencial",
+            "CERCA_BAJO"
+          ],
+          [
+            "pend_presion_diferencial",
+            "DEC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E7.S1",
+    "bloque": "estabilidad",
+    "priority": 88.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_descarga",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_presion_descarga",
+            "INC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "AUMENTAR_FLOCULANTE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E7.S2",
+    "bloque": "estabilidad",
+    "priority": 88.0,
+    "weight": 1.0,
+    "fuerza": [
+      "presion_descarga",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "presion_descarga",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_presion_descarga",
+            "INC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E8.S1",
+    "bloque": "estabilidad",
+    "priority": 87.0,
+    "weight": 1.0,
+    "fuerza": [
+      "torque",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "torque",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_torque",
+            "INC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E8.S2",
+    "bloque": "estabilidad",
+    "priority": 87.0,
+    "weight": 1.0,
+    "fuerza": [
+      "torque",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "torque",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_torque",
+            "INC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_FLOCULANTE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "DISMINUIR_FLOCULANTE"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E9.S1",
+    "bloque": "estabilidad",
+    "priority": 86.0,
+    "weight": 1.0,
+    "fuerza": [
+      "bed_mass",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_bed_mass",
+            "INC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "AUMENTAR_FLOCULANTE_SUAVE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE_SUAVE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E9.S2",
+    "bloque": "estabilidad",
+    "priority": 86.0,
+    "weight": 1.0,
+    "fuerza": [
+      "bed_mass",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_mass",
+            "CERCA_ALTO"
+          ],
+          [
+            "pend_bed_mass",
+            "INC"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E10.A.S1",
+    "bloque": "estabilidad",
+    "priority": 85.0,
+    "weight": 1.0,
+    "fuerza": [
+      "densidad",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "HIGH"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "DISMINUIR_FLOCULANTE_SUAVE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "DISMINUIR_FLOCULANTE_SUAVE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E10.A.S2",
+    "bloque": "estabilidad",
+    "priority": 85.0,
+    "weight": 1.0,
+    "fuerza": [
+      "densidad",
+      "HIGH"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "HIGH"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E10.B.S1",
+    "bloque": "estabilidad",
+    "priority": 85.0,
+    "weight": 1.0,
+    "fuerza": [
+      "densidad",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_FRENAR_DESCARGA",
+            "OFF"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "AUMENTAR_FLOCULANTE_SUAVE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE_SUAVE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "enabled": true
+  },
+  {
+    "id": "E10.B.S2",
+    "bloque": "estabilidad",
+    "priority": 85.0,
+    "weight": 1.0,
+    "fuerza": [
+      "densidad",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "densidad",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_FRENAR_DESCARGA",
+            "OFF"
+          ]
+        ]
+      },
+      [
+        "bed_level",
+        "NO-LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "DISMINUIR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E11.S3",
+    "bloque": "estabilidad",
+    "priority": 84.0,
+    "weight": 1.0,
+    "fuerza": [
+      "bed_level",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_level",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "densidad",
+            "OK"
+          ]
+        ]
+      },
+      [
+        "pend_densidad",
+        "DEC"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      },
+      {
+        "accion": "AUMENTAR_FLOCULANTE_SUAVE",
+        "waits": [
+          {
+            "wait_id": "wait::floculante_estabilidad",
+            "nombre": "floculante_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_floculante",
+            "descripcion": "Wait compartido para control de estabilidad de floculante",
+            "duracion_s": 1800.0,
+            "accion": "AUMENTAR_FLOCULANTE_SUAVE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E11.S4",
+    "bloque": "estabilidad",
+    "priority": 84.0,
+    "weight": 1.0,
+    "fuerza": [
+      "bed_level",
+      "LOW"
+    ],
+    "if": [
+      {
+        "AND": [
+          [
+            "bed_level",
+            "LOW"
+          ],
+          [
+            "__PERM_PERMITIR_SOLTAR_DESCARGA",
+            "OFF"
+          ],
+          [
+            "densidad",
+            "OK"
+          ]
+        ]
+      },
+      [
+        "pend_densidad",
+        "INC"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_estabilidad",
+            "nombre": "vel_bomba_estabilidad",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control de estabilidad de velocidad de bomba",
+            "duracion_s": 900.0,
+            "accion": "AUMENTAR_VEL_BOMBA"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ]
+  },
+  {
+    "id": "E11",
+    "bloque": "estabilidad",
+    "fuerza": [
+      "presion_descarga",
+      "LOW"
+    ],
+    "if": [
+      [
+        "bed_level",
+        "LOW"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "DISMINUIR_VEL_BOMBA_FUERTE",
+        "waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900,
+            "accion": "DISMINUIR_VEL_BOMBA_FUERTE"
+          }
+        ],
+        "reiniciar_waits": [
+          {
+            "wait_id": "wait::vel_bomba_critico",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "duracion_s": 900,
+            "accion": "DISMINUIR_VEL_BOMBA_FUERTE"
+          }
+        ]
+      },
+      {
+        "accion": "AUMENTAR_VEL_BOMBA_FUERTE",
+        "waits": [],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 49.0
+  },
+  {
+    "id": "J",
+    "bloque": "estabilidad",
+    "fuerza": {
+      "OR": [
+        [
+          "torque",
+          "LOW"
+        ],
+        [
+          "densidad",
+          "NO-OK"
+        ],
+        [
+          "nivel_rastra",
+          "CERCA_BAJO"
+        ]
+      ]
+    },
+    "if": [
+      {
+        "AND": [
+          [
+            "torque",
+            "LOW"
+          ]
+        ]
+      },
+      [
+        "pend_bed_level",
+        "NO-HIGH"
+      ],
+      [
+        "pend_presion_descarga",
+        "OK"
+      ],
+      {
+        "OR": [
+          [
+            "pend_presion_diferencial",
+            "ON"
+          ],
+          [
+            "pend_potencia_bomba",
+            "INC"
+          ]
+        ]
+      }
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR_VEL_BOMBA_FUERTE",
+        "waits": [
+          {
+            "descripcion": "Wait compartido para control critico de velocidad de bomba",
+            "nombre": "vel_bomba_critico",
+            "tipo": "custom",
+            "variable_controlada": "sp_vel_bomba",
+            "wait_id": "wait::vel_bomba_critico",
+            "duracion_s": 900,
+            "accion": "AUMENTAR_VEL_BOMBA_FUERTE"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 11.0
+  }
+]

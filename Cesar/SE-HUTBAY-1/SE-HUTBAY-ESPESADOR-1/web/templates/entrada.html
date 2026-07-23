@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Espesador -- Entrada de Datos</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{display:flex;gap:8px;padding:12px 20px;background:#0b1322;border-bottom:1px solid #1e293b}
+nav a{color:#94a3b8;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+h1{font-size:1.4rem;margin-bottom:4px}
+.subtitle{color:#64748b;font-size:.85rem;margin-bottom:20px}
+
+/* Filters */
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+.filter-btn{padding:5px 14px;border-radius:16px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.78rem;transition:.15s}
+.filter-btn:hover{border-color:#38bdf8;color:#e2e8f0}
+.filter-btn.active{background:#1e3a5f;border-color:#38bdf8;color:#38bdf8;font-weight:600}
+.filter-btn.dir-input.active{background:#1e3a5f;border-color:#3b82f6;color:#3b82f6}
+.filter-btn.dir-output.active{background:#0f2e1e;border-color:#22c55e;color:#22c55e}
+.search-box{padding:6px 12px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:.82rem;width:220px}
+.search-box::placeholder{color:#475569}
+
+/* Tag count */
+.tag-count{color:#64748b;font-size:.78rem;margin-bottom:8px}
+
+/* Table */
+.tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid #1e293b}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+thead{background:#0b1322;position:sticky;top:0}
+th{text-align:left;padding:10px 12px;color:#64748b;font-weight:600;border-bottom:1px solid #1e293b;white-space:nowrap}
+th.sel-col{width:36px;text-align:center}
+td{padding:8px 12px;border-bottom:1px solid #1e293b20}
+tr:hover{background:#1e293b40}
+tr.selected-row{background:#1e3a5f30}
+
+/* Checkbox */
+.tag-cb{width:16px;height:16px;accent-color:#3b82f6;cursor:pointer}
+
+/* Direction badge */
+.dir-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
+.dir-badge.input{background:rgba(59,130,246,.15);color:#3b82f6;border:1px solid rgba(59,130,246,.3)}
+.dir-badge.output{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+
+/* Group badge */
+.grp-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.68rem;font-weight:600}
+.grp-pv{background:rgba(59,130,246,.12);color:#3b82f6}
+.grp-cruda{background:rgba(245,158,11,.12);color:#f59e0b}
+.grp-lim{background:rgba(99,102,241,.12);color:#6366f1}
+.grp-sp{background:rgba(34,197,94,.12);color:#22c55e}
+.grp-other{background:rgba(100,116,139,.12);color:#94a3b8}
+
+/* Value cell */
+.val-cell{font-family:'Cascadia Code','Fira Code',monospace;font-weight:600;font-size:.85rem}
+.val-cell.no-data{color:#475569;font-style:italic;font-weight:400}
+
+/* Status dot */
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-dot.ok{background:#22c55e}
+.status-dot.missing{background:#ef4444}
+
+/* Sparkline */
+.sparkline-cell{width:140px;min-width:140px}
+.sparkline-cell canvas{display:block}
+
+/* Selected tags panel */
+.sel-panel{margin-top:24px;background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);border-radius:12px;padding:20px 24px;border:1px solid #334155;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.sel-panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.sel-panel-header h3{font-size:1rem;color:#e2e8f0;display:flex;align-items:center;gap:8px}
+.sel-panel-header h3 .count-badge{background:#3b82f6;color:#fff;font-size:.7rem;padding:2px 8px;border-radius:10px}
+.sel-tags-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.sel-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:16px;font-size:.75rem;font-weight:600;cursor:pointer;transition:.15s}
+.sel-chip.input{background:rgba(59,130,246,.12);color:#60a5fa;border:1px solid rgba(59,130,246,.25)}
+.sel-chip.output{background:rgba(34,197,94,.12);color:#4ade80;border:1px solid rgba(34,197,94,.25)}
+.sel-chip:hover{transform:scale(1.03)}
+.sel-chip .x{margin-left:4px;opacity:.4;font-size:.9rem}
+.sel-chip:hover .x{opacity:1;color:#ef4444}
+.sel-chart-wrap{background:#0b1322;border-radius:10px;padding:16px;border:1px solid #1e293b}
+.sel-chart-wrap canvas{width:100%!important;height:380px!important}
+.sel-controls{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.sel-controls button{padding:6px 14px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.78rem;transition:.15s}
+.sel-controls button:hover{border-color:#38bdf8;color:#e2e8f0;background:#1e293b}
+.sel-controls button.primary{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.sel-controls button.primary:hover{background:#2563eb}
+.sel-controls .sep{color:#334155;font-size:.75rem}
+.refresh-btn{padding:5px 12px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.75rem;transition:.15s}
+.refresh-btn:hover{border-color:#38bdf8;color:#e2e8f0}
+.refresh-btn.active{background:rgba(56,189,248,.1);border-color:#38bdf8;color:#38bdf8;font-weight:600}
+.legend-row{display:flex;gap:16px;margin-top:12px;padding:10px 12px;background:#1e293b50;border-radius:8px;font-size:.75rem;color:#94a3b8}
+.legend-row .leg-item{display:flex;align-items:center;gap:6px}
+.legend-row .leg-line{width:24px;height:2px;border-radius:1px}
+.legend-row .leg-line.solid{background:#3b82f6}
+.legend-row .leg-line.dashed{background:#22c55e;background:repeating-linear-gradient(90deg,#22c55e 0,#22c55e 5px,transparent 5px,transparent 8px)}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<nav>
+  <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25);letter-spacing:.3px;margin-right:8px">ESPESADORES</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada" class="active">Entrada de Datos</a>
+  <a href="/espesador/graficos">Graficos en Vivo</a>
+  <a href="/espesador/diagrama">Diagrama de Flujo</a>
+</nav>
+<div class="container">
+<h1>Entrada de Datos</h1>
+<p class="subtitle">Vista en tiempo real de todos los tags del sistema &mdash; entradas (PV, Crudas, Limites) y salidas (Setpoints). Historial de los ultimos 50 valores.</p>
+
+<!-- Filters -->
+<div class="filters">
+  <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">Todos</button>
+  <button class="filter-btn dir-input" data-filter="input" onclick="setFilter('input',this)">Entradas</button>
+  <button class="filter-btn dir-output" data-filter="output" onclick="setFilter('output',this)">Salidas</button>
+  <span style="color:#334155">|</span>
+  <button class="filter-btn" data-filter="pv" onclick="setFilter('pv',this)">PV</button>
+  <button class="filter-btn" data-filter="cruda" onclick="setFilter('cruda',this)">Crudas</button>
+  <button class="filter-btn" data-filter="lim" onclick="setFilter('lim',this)">Limites</button>
+  <button class="filter-btn" data-filter="sp" onclick="setFilter('sp',this)">Setpoints</button>
+  <input type="text" class="search-box" id="searchBox" placeholder="Buscar tag..." oninput="applyFilters()">
+</div>
+
+<div class="tag-count" id="tagCount"></div>
+
+<!-- Table -->
+<div class="tbl-wrap">
+<table>
+<thead>
+<tr>
+  <th class="sel-col"><input type="checkbox" class="tag-cb" id="cbAll" onchange="toggleAll(this)"></th>
+  <th>Tag</th>
+  <th>Grupo</th>
+  <th>Direccion</th>
+  <th>Estado</th>
+  <th>Valor</th>
+  <th class="sparkline-cell">Historial (50)</th>
+</tr>
+</thead>
+<tbody id="tagsBody"></tbody>
+</table>
+</div>
+
+<!-- Selected tags panel -->
+<div class="sel-panel" id="selPanel" style="display:none">
+<div class="sel-panel-header">
+  <h3>Comparacion en Tiempo Real <span class="count-badge" id="selCountBadge">0</span></h3>
+  <span style="color:#475569;font-size:.75rem" id="selInfo"></span>
+</div>
+<div class="sel-tags-wrap" id="selTagsWrap"></div>
+<div class="sel-controls">
+  <button class="primary" onclick="clearSelection()">Limpiar seleccion</button>
+  <span class="sep">|</span>
+  <span style="color:#64748b;font-size:.78rem">Refresco:</span>
+  <button class="refresh-btn active" data-rate="2000" onclick="setRefresh(2000,this)">2s</button>
+  <button class="refresh-btn" data-rate="5000" onclick="setRefresh(5000,this)">5s</button>
+  <button class="refresh-btn" data-rate="10000" onclick="setRefresh(10000,this)">10s</button>
+</div>
+<div class="sel-chart-wrap">
+  <canvas id="selChart"></canvas>
+</div>
+<div class="legend-row">
+  <div class="leg-item"><span class="leg-line solid"></span> Entrada (linea solida)</div>
+  <div class="leg-item"><span class="leg-line dashed"></span> Salida (linea punteada)</div>
+</div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+let allTags = [];
+let selectedTags = new Set();
+let currentFilter = 'all';
+let sparkCanvases = {};
+let selChart = null;
+let pollTimer = null;
+let pollRate = 2000;
+
+const GRP_LABELS = {pv:'PV',cruda:'Cruda',lim:'Limite',sp:'Setpoint',other:'Otro'};
+const GRP_COLORS = {pv:'#3b82f6',cruda:'#f59e0b',lim:'#6366f1',sp:'#22c55e',other:'#94a3b8'};
+const DIR_COLORS = {input:'#3b82f6', output:'#22c55e'};
+
+function setRefresh(rate, btn) {
+  pollRate = rate;
+  document.querySelectorAll('.refresh-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  startPolling();
+}
+
+async function fetchData() {
+  const res = await fetch('/api/entrada');
+  allTags = await res.json();
+  renderTable();
+  renderSparklines();
+  updateSelPanel();
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const rows = document.querySelectorAll('#tagsBody tr');
+  let visible = 0;
+  rows.forEach(row => {
+    const name = row.dataset.name.toLowerCase();
+    const dir = row.dataset.dir;
+    const grp = row.dataset.grp;
+    let show = true;
+    if (currentFilter === 'input' && dir !== 'input') show = false;
+    if (currentFilter === 'output' && dir !== 'output') show = false;
+    if (['pv','cruda','lim','sp'].includes(currentFilter) && grp !== currentFilter) show = false;
+    if (search && !name.includes(search)) show = false;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('tagCount').textContent = visible + ' de ' + allTags.length + ' tags';
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tagsBody');
+  tbody.innerHTML = '';
+  allTags.forEach((tag, i) => {
+    const tr = document.createElement('tr');
+    tr.dataset.name = tag.name;
+    tr.dataset.dir = tag.direction;
+    tr.dataset.grp = tag.group;
+    if (selectedTags.has(tag.name)) tr.classList.add('selected-row');
+
+    const valStr = tag.value !== null && tag.value !== undefined ? parseFloat(tag.value).toFixed(3) : 'Sin datos';
+    const valClass = tag.value !== null && tag.value !== undefined ? 'val-cell' : 'val-cell no-data';
+    const statusCls = tag.exists ? 'ok' : 'missing';
+    const statusTxt = tag.exists ? 'Conectado' : 'No encontrado';
+
+    tr.innerHTML = `
+      <td style="text-align:center"><input type="checkbox" class="tag-cb" data-tag="${tag.name}" ${selectedTags.has(tag.name)?'checked':''} onchange="toggleTagSel(this)"></td>
+      <td style="font-family:monospace;font-weight:600;font-size:.82rem">${tag.name}</td>
+      <td><span class="grp-badge grp-${tag.group}">${GRP_LABELS[tag.group]||tag.group}</span></td>
+      <td><span class="dir-badge ${tag.direction}">${tag.direction==='input'?'ENTRADA':'SALIDA'}</span></td>
+      <td><span class="status-dot ${statusCls}"></span>${statusTxt}</td>
+      <td class="${valClass}">${valStr}</td>
+      <td class="sparkline-cell"><canvas id="spark-${i}" width="130" height="32"></canvas></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  applyFilters();
+}
+
+function renderSparklines() {
+  allTags.forEach((tag, i) => {
+    const canvas = document.getElementById('spark-' + i);
+    if (!canvas || !tag.history || tag.history.length < 2) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const vals = tag.history.map(p => p.v);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const range = mx - mn || 1;
+    const color = tag.direction === 'output' ? '#22c55e' : GRP_COLORS[tag.group] || '#3b82f6';
+
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    vals.forEach((v, j) => {
+      const x = (j / (vals.length - 1)) * w;
+      const y = h - ((v - mn) / range) * (h - 4) - 2;
+      j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    const lastX = w;
+    const lastY = h - ((vals[vals.length-1] - mn) / range) * (h - 4) - 2;
+    ctx.arc(lastX, lastY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function toggleTagSel(cb) {
+  const name = cb.dataset.tag;
+  if (cb.checked) selectedTags.add(name); else selectedTags.delete(name);
+  cb.closest('tr').classList.toggle('selected-row', cb.checked);
+  updateSelPanel();
+}
+
+function toggleAll(cb) {
+  const rows = document.querySelectorAll('#tagsBody tr');
+  rows.forEach(row => {
+    if (row.style.display === 'none') return;
+    const checkbox = row.querySelector('.tag-cb');
+    if (!checkbox || !checkbox.dataset.tag) return;
+    checkbox.checked = cb.checked;
+    if (cb.checked) selectedTags.add(checkbox.dataset.tag);
+    else selectedTags.delete(checkbox.dataset.tag);
+    row.classList.toggle('selected-row', cb.checked);
+  });
+  updateSelPanel();
+}
+
+function clearSelection() {
+  selectedTags.clear();
+  document.querySelectorAll('#tagsBody .tag-cb').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('#tagsBody tr').forEach(tr => tr.classList.remove('selected-row'));
+  document.getElementById('cbAll').checked = false;
+  updateSelPanel();
+}
+
+function updateSelPanel() {
+  const panel = document.getElementById('selPanel');
+  if (selectedTags.size === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const wrap = document.getElementById('selTagsWrap');
+  wrap.innerHTML = '';
+  selectedTags.forEach(name => {
+    const tag = allTags.find(t => t.name === name);
+    if (!tag) return;
+    const chip = document.createElement('span');
+    chip.className = 'sel-chip ' + tag.direction;
+    chip.innerHTML = name + '<span class="x">&times;</span>';
+    chip.onclick = () => { selectedTags.delete(name); const cb = document.querySelector(`.tag-cb[data-tag="${name}"]`); if(cb){cb.checked=false;cb.closest('tr').classList.remove('selected-row');} updateSelPanel(); };
+    wrap.appendChild(chip);
+  });
+
+  const nIn = [...selectedTags].filter(n => { const t = allTags.find(x=>x.name===n); return t && t.direction==='input'; }).length;
+  const nOut = [...selectedTags].filter(n => { const t = allTags.find(x=>x.name===n); return t && t.direction==='output'; }).length;
+  document.getElementById('selInfo').textContent = nIn + ' entradas, ' + nOut + ' salidas';
+  document.getElementById('selCountBadge').textContent = selectedTags.size;
+
+  buildSelChart();
+}
+
+function _makeGradient(ctx, color) {
+  const g = ctx.createLinearGradient(0, 0, 0, 380);
+  g.addColorStop(0, color + '30');
+  g.addColorStop(1, color + '02');
+  return g;
+}
+
+function buildSelChart() {
+  const canvas = document.getElementById('selChart');
+  const ctx = canvas.getContext('2d');
+  if (selChart) selChart.destroy();
+
+  const datasets = [];
+  const palette = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6','#6366f1','#84cc16','#f97316','#06b6d4','#e11d48'];
+  let ci = 0;
+  let maxLen = 0;
+
+  selectedTags.forEach(name => {
+    const tag = allTags.find(t => t.name === name);
+    if (!tag || !tag.history || tag.history.length === 0) return;
+    if (tag.history.length > maxLen) maxLen = tag.history.length;
+    const color = palette[ci % palette.length];
+    const isOutput = tag.direction === 'output';
+    datasets.push({
+      label: name.replace('RETO.',''),
+      data: tag.history.map(p => p.v),
+      borderColor: color,
+      backgroundColor: _makeGradient(ctx, color),
+      fill: datasets.length === 0,
+      borderWidth: isOutput ? 2.5 : 1.8,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: color,
+      pointHoverBorderColor: '#fff',
+      pointHoverBorderWidth: 2,
+      tension: 0.35,
+      borderDash: isOutput ? [6, 4] : [],
+    });
+    ci++;
+  });
+
+  const labels = [];
+  if (maxLen > 0) {
+    const refTag = allTags.find(t => selectedTags.has(t.name) && t.history && t.history.length > 0);
+    if (refTag) {
+      refTag.history.forEach(p => {
+        const d = new Date(p.t * 1000);
+        labels.push(d.toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+      });
+    }
+  }
+
+  selChart = new Chart(ctx, {
+    type: 'line',
+    data: {labels, datasets},
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {duration: 300, easing: 'easeOutQuart'},
+      interaction: {mode: 'index', intersect: false},
+      scales: {
+        x: {
+          ticks: {color:'#475569', maxTicksLimit: 12, maxRotation: 0, font:{size:10}},
+          grid: {color:'#1e293b80', lineWidth: 0.5}
+        },
+        y: {
+          ticks: {color:'#475569', font:{size:10}, callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : Number(v.toFixed(2))},
+          grid: {color:'#1e293b80', lineWidth: 0.5}
+        }
+      },
+      plugins: {
+        legend: {
+          labels: {color:'#cbd5e1', boxWidth:16, boxHeight:2, font:{size:11}, padding:12, usePointStyle:false},
+          position: 'top'
+        },
+        tooltip: {
+          backgroundColor: '#0f172aee',
+          borderColor: '#334155',
+          borderWidth: 1,
+          titleColor: '#e2e8f0',
+          bodyColor: '#94a3b8',
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: true,
+          boxWidth: 10,
+          boxHeight: 2,
+          callbacks: {
+            label: item => ' ' + item.dataset.label + ': ' + Number(item.raw).toFixed(3)
+          }
+        }
+      }
+    }
+  });
+}
+
+async function pollUpdate() {
+  try {
+    const res = await fetch('/api/entrada');
+    const data = await res.json();
+    allTags = data;
+
+    // Update values & sparklines in-place
+    const rows = document.querySelectorAll('#tagsBody tr');
+    data.forEach((tag, i) => {
+      if (!rows[i]) return;
+      const valTd = rows[i].querySelector('.val-cell');
+      if (valTd) {
+        if (tag.value !== null && tag.value !== undefined) {
+          valTd.textContent = parseFloat(tag.value).toFixed(3);
+          valTd.classList.remove('no-data');
+        } else {
+          valTd.textContent = 'Sin datos';
+          valTd.classList.add('no-data');
+        }
+      }
+    });
+    renderSparklines();
+    if (selectedTags.size > 0) buildSelChart();
+  } catch(e) {}
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollUpdate, pollRate);
+}
+
+// Init
+fetchData().then(() => startPolling());
+
+// Alert indicator (floating)
+const _ACATS = ALERT_CATEGORIES_JSON;
+async function _pollAlerts() {
+  try {
+    const r = await fetch('/api/alerts');
+    const d = await r.json();
+    const el = document.getElementById('alertFloat');
+    const cnt = d.alerts.length;
+    el.querySelector('.af-count').textContent = cnt;
+    el.style.borderColor = cnt > 0 ? '#ef4444' : '#22c55e';
+    el.querySelector('.af-count').style.background = cnt > 0 ? '#ef4444' : '#22c55e';
+    const body = el.querySelector('.af-body');
+    if (cnt === 0) {
+      body.innerHTML = '<div style="color:#22c55e;font-size:.8rem;padding:8px">Sin alertas</div>';
+    } else {
+      body.innerHTML = d.alerts.map(a => {
+        const cat = _ACATS[a.category] || _ACATS.general;
+        return '<div style="padding:6px 0;border-bottom:1px solid #1e293b;font-size:.78rem"><span style="color:'+cat.color+';font-weight:600">'+cat.icon+'</span> '+a.message+'</div>';
+      }).join('');
+    }
+  } catch(e){}
+}
+_pollAlerts(); setInterval(_pollAlerts, 10000);
+</script>
+
+<!-- Floating alert badge -->
+<div id="alertFloat" style="position:fixed;bottom:16px;right:16px;background:#0b1322;border:2px solid #22c55e;border-radius:12px;z-index:200;cursor:pointer;min-width:36px;transition:.2s" onclick="this.classList.toggle('open')">
+  <div style="display:flex;align-items:center;gap:6px;padding:6px 10px">
+    <span class="af-count" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#22c55e;color:#fff;font-size:.72rem;font-weight:700">0</span>
+    <span style="color:#94a3b8;font-size:.78rem">Alertas</span>
+  </div>
+  <div class="af-body" style="display:none;padding:4px 12px 8px 12px;max-height:250px;overflow-y:auto"></div>
+</div>
+<style>
+#alertFloat.open{width:320px}
+#alertFloat.open .af-body{display:block}
+</style>
+</body>
+</html>

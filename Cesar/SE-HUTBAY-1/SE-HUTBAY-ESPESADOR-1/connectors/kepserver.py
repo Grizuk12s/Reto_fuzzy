@@ -1,0 +1,158 @@
+# -*- coding: utf-8 -*-
+"""Conector KEPserver — toda la lógica OPC-UA en un solo lugar.
+
+IT-8: extraído de web/state.py.
+
+API pública
+-----------
+URL : str
+    Dirección del servidor OPC-UA.
+
+read_tags_batch(tag_names) -> dict[str, dict]
+    Lee múltiples tags en una sesión OPC-UA.
+    Devuelve {tag_name: {"connected", "exists", "value", "quality"}}.
+
+write_tag(tag_name, value, data_type) -> dict
+    Escribe un valor a un tag. Devuelve {"ok", "error"}.
+
+write_float_batch(tag_values) -> None
+    Escribe un dict {tag_name: float} en una sesión. Lanza Exception si no conecta.
+
+enrich_tags(tags) -> list[dict]
+    Agrega datos live de KEPserver a una lista de dicts de tags.
+
+check_connection() -> tuple[bool, str]
+    Verifica conectividad. Devuelve (ok, mensaje_error).
+"""
+from __future__ import annotations
+
+URL = "opc.tcp://127.0.0.1:49320"
+
+_TYPE_MAP = {
+    "Float":   "Float",
+    "Int":     "Int32",
+    "Boolean": "Boolean",
+    "String":  "String",
+}
+
+
+def read_tags_batch(tag_names: list[str]) -> dict[str, dict]:
+    """Lee múltiples tags del KEPserver en una sola sesión OPC-UA."""
+    def _default() -> dict:
+        return {"connected": False, "exists": False, "value": None, "quality": "Unknown"}
+
+    results: dict[str, dict] = {n: _default() for n in tag_names}
+    if not tag_names:
+        return results
+
+    try:
+        from opcua import Client  # type: ignore
+        client = Client(URL)
+        client.connect()
+        try:
+            for name in tag_names:
+                try:
+                    node = client.get_node(f"ns=2;s={name}")
+                    val = node.get_value()
+                    results[name] = {
+                        "connected": True,
+                        "exists":    True,
+                        "value":     val,
+                        "quality":   "Good",
+                    }
+                except Exception:
+                    results[name] = {
+                        "connected": True,
+                        "exists":    False,
+                        "value":     None,
+                        "quality":   "Bad",
+                    }
+        finally:
+            client.disconnect()
+    except Exception:
+        pass  # results permanecen con connected=False
+
+    return results
+
+
+def write_tag(tag_name: str, value, data_type: str) -> dict:
+    """Escribe un valor a un tag KEPserver via OPC-UA.
+
+    Devuelve {"ok": bool, "error": str|None}.
+    """
+    try:
+        from opcua import Client, ua  # type: ignore
+        client = Client(URL)
+        client.connect()
+        try:
+            node = client.get_node(f"ns=2;s={tag_name}")
+            vtype_name = _TYPE_MAP.get(data_type, "Float")
+            vtype = getattr(ua.VariantType, vtype_name)
+            node.set_value(ua.DataValue(ua.Variant(value, vtype)))
+            return {"ok": True, "error": None}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            client.disconnect()
+    except Exception as e:
+        return {"ok": False, "error": f"Sin conexion OPC-UA: {e}"}
+
+
+def write_float_batch(tag_values: dict[str, float]) -> None:
+    """Escribe múltiples tags Float en una sola sesión OPC-UA.
+
+    Lanza Exception si no puede conectar. Ignora errores por tag individual.
+    """
+    if not tag_values:
+        return
+
+    from opcua import Client, ua  # type: ignore  (ImportError se propaga)
+
+    client = Client(URL)
+    client.connect()
+    try:
+        for tag_name, val in tag_values.items():
+            try:
+                node = client.get_node(f"ns=2;s={tag_name}")
+                node.set_value(
+                    ua.DataValue(ua.Variant(float(val), ua.VariantType.Float))
+                )
+            except Exception:
+                pass
+    finally:
+        client.disconnect()
+
+
+def enrich_tags(tags: list[dict]) -> list[dict]:
+    """Agrega datos live de KEPserver a cada tag dict.
+
+    Tags con enabled=False reciben quality='Suspended' sin consultar al servidor.
+    """
+    enabled = {t["name"]: t for t in tags if t.get("enabled", True)}
+    live = read_tags_batch(list(enabled.keys()))
+
+    results = []
+    for tag in tags:
+        if tag.get("enabled", True) and tag["name"] in live:
+            results.append({**tag, **live[tag["name"]]})
+        else:
+            results.append({**tag, "connected": False, "exists": False,
+                            "value": None, "quality": "Suspended"})
+    return results
+
+
+def check_connection() -> tuple[bool, str]:
+    """Verifica conectividad con el KEPserver.
+
+    Devuelve (True, "") si OK, o (False, mensaje_error) si falla.
+    """
+    try:
+        from opcua import Client  # type: ignore
+        c = Client(URL)
+        c.connect()
+        c.disconnect()
+        return True, ""
+    except ImportError:
+        return False, "Modulo 'opcua' no instalado. Ejecuta: pip install opcua"
+    except Exception as e:
+        return False, str(e)
