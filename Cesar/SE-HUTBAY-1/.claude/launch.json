@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "espesador-flask",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["SE-HUTBAY-ESPESADOR-1/app.py"],
+      "port": 5000
+    }
+  ]
+}

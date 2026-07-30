@@ -65,6 +65,7 @@ TAGS_JSON       = os.path.join(_CFG_DIR, "tags.json")
 LICENCIA_JSON   = os.path.join(_CFG_DIR, "licencia.json")
 ESTADOS_JSON_PATH = os.path.join(_CFG_DIR, "estados.json")
 WAITS_JSON_PATH   = os.path.join(_CFG_DIR, "waits.json")
+TRACKING_JSON     = os.path.join(_CFG_DIR, "tracking.json")
 
 
 # ============================================================
@@ -598,6 +599,12 @@ class SEEngine:
         self._reglas = cargar_reglas_json()
         self._permisivos_config = cargar_permisivos_json()
 
+        try:
+            from web.api.postgres import ensure_tables
+            ensure_tables("espesadores")
+        except Exception:
+            pass
+
     def _read_tags(self) -> tuple[dict, dict, dict] | None:
         """Lee PV, CRUDA y LIM tags del KEPserver. Devuelve (inputs, crudas, limites) o None."""
         all_tags = list(TAG_TO_PV.keys()) + list(TAG_TO_CRUDA.keys()) + list(TAG_TO_LIM.keys())
@@ -718,6 +725,34 @@ class SEEngine:
             self._last_events = tick_events[-5:]
 
         self._write_setpoints()
+
+        try:
+            from web.api.postgres import persist_tick
+            entrada_vals = {}
+            for tag, var in TAG_TO_PV.items():
+                if var in inputs_raw:
+                    entrada_vals[tag] = inputs_raw[var]
+            for tag, var in TAG_TO_CRUDA.items():
+                if var in crudas:
+                    entrada_vals[tag] = crudas[var]
+            for tag, (var, bound) in TAG_TO_LIM.items():
+                if var in limites and bound in limites[var]:
+                    entrada_vals[tag] = limites[var][bound]
+            salida_vals = {tag: float(self._setpoints.get(sp_key, 0.0))
+                           for sp_key, tag in SP_TO_TAG.items()}
+            store = _load_tags()
+            tag_meta = {}
+            for t in store.get("tags", []):
+                tag_meta[t["name"]] = {
+                    "pseudonimo": t.get("pseudonimo"),
+                    "instrumento": t.get("instrumento"),
+                    "unidad_ing": t.get("unidad_ing"),
+                    "equipo": t.get("equipo"),
+                }
+            persist_tick(entrada_vals, salida_vals, tag_meta, "espesadores")
+        except Exception as e:
+            _alerts.add("general", f"PostgreSQL: {e}")
+
         self._last_error = None
         _alerts.resolve_category("se_engine")
         _alerts.resolve_category("kep")
@@ -795,6 +830,7 @@ BIENVENIDA_PAGE = _load_template("bienvenida.html")
 HTML_PAGE       = _load_template("index.html")
 DIAGRAM_PAGE    = _load_template("diagrama.html")
 ENTRADA_PAGE    = _load_template("entrada.html")
+POSTGRES_PAGE   = _load_template("postgres.html")
 
 # Gráficos en tiempo real — inline (no es un archivo separado)
 CHART_VARS = [

@@ -26,7 +26,9 @@ check_connection() -> tuple[bool, str]
 """
 from __future__ import annotations
 
-URL = "opc.tcp://127.0.0.1:49320"
+import os
+
+URL = os.environ.get("KEPSERVER_URL", "opc.tcp://127.0.0.1:49320")
 
 _TYPE_MAP = {
     "Float":   "Float",

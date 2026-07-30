@@ -39,6 +39,7 @@ from web.state import (
     _alerts,
     REGLAS_JSON, FILTROS_JSON, DEFUZZY_JSON, FUZZY_JSON, VARIABLES_JSON,
     PERMISIVOS_JSON, LICENCIA_JSON, ESTADOS_JSON_PATH, WAITS_JSON_PATH,
+    TRACKING_JSON,
     VARIABLES_DISPONIBLES, ETIQUETAS_DISPONIBLES, ACCIONES_DISPONIBLES,
     BLOQUES_DISPONIBLES, PERMISIVOS_DISPONIBLES, WAITS_CATALOGO_DISPONIBLES,
     VARIABLES_VALIDAS, ETIQUETAS_VALIDAS, ACCIONES_VALIDAS, BLOQUES_VALIDOS,
@@ -1176,3 +1177,94 @@ def api_reset_waits():
     cfg = _defaults_waits()
     _save_waits(cfg)
     return jsonify({"ok": True})
+
+
+# ============================================================
+# Helpers — Tracking PV-SP
+# ============================================================
+
+TRACKING_FAMILIAS = list(SETPOINT_KEYS)
+
+
+def _defaults_tracking() -> dict:
+    return {
+        "sp_tonelaje":   {"pv_key": "pv_tonelaje",   "rango": 1.0,  "habilitado": True},
+        "sp_floculante": {"pv_key": "pv_floculante", "rango": 0.05, "habilitado": True},
+        "sp_vel_bomba":  {"pv_key": "pv_vel_bomba",  "rango": 0.10, "habilitado": True},
+    }
+
+
+def _save_tracking(cfg: dict) -> None:
+    with open(TRACKING_JSON, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+def _load_tracking() -> dict:
+    if not os.path.exists(TRACKING_JSON):
+        cfg = _defaults_tracking()
+        _save_tracking(cfg)
+        return cfg
+    try:
+        with open(TRACKING_JSON, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return _defaults_tracking()
+    if not isinstance(data, dict) or not data:
+        return _defaults_tracking()
+    return data
+
+
+def _normalizar_tracking_payload(data: dict) -> tuple[dict | None, str | None]:
+    if not isinstance(data, dict) or not data:
+        return None, "El payload debe ser un objeto no vacio { <familia>: {pv_key, rango, habilitado} }."
+    out = {}
+    for familia in TRACKING_FAMILIAS:
+        if familia not in data:
+            return None, f"Falta la familia '{familia}' en el payload."
+        spec = data[familia]
+        if not isinstance(spec, dict):
+            return None, f"'{familia}': debe ser un objeto con pv_key, rango y habilitado."
+        pv_key = spec.get("pv_key")
+        if not isinstance(pv_key, str) or not pv_key.strip():
+            return None, f"'{familia}': 'pv_key' debe ser un string no vacio."
+        try:
+            rango = float(spec.get("rango"))
+        except (TypeError, ValueError):
+            return None, f"'{familia}': 'rango' debe ser numerico."
+        if rango < 0.0:
+            return None, f"'{familia}': 'rango' debe ser >= 0 (valor recibido: {rango})."
+        habilitado = bool(spec.get("habilitado", True))
+        out[familia] = {"pv_key": pv_key.strip(), "rango": rango, "habilitado": habilitado}
+    extras = set(data.keys()) - set(TRACKING_FAMILIAS)
+    if extras:
+        return None, f"Familias desconocidas: {sorted(extras)}. Validas: {TRACKING_FAMILIAS}."
+    return out, None
+
+
+_load_tracking()
+
+
+@bp_config.route("/api/tracking", methods=["GET"])
+def api_get_tracking():
+    return jsonify({
+        "familias": TRACKING_FAMILIAS,
+        "defaults": _defaults_tracking(),
+        "actual": _load_tracking(),
+    })
+
+
+@bp_config.route("/api/tracking", methods=["PUT"])
+def api_put_tracking():
+    data = request.get_json(force=True)
+    norm, error = _normalizar_tracking_payload(data)
+    if error is not None:
+        return jsonify({"error": error}), 400
+    _save_tracking(norm)
+    return jsonify({"ok": True, "actual": norm})
+
+
+@bp_config.route("/api/tracking/reset", methods=["POST"])
+def api_reset_tracking():
+    cfg = _defaults_tracking()
+    _save_tracking(cfg)
+    return jsonify({"ok": True, "actual": cfg})

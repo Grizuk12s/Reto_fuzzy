@@ -101,6 +101,7 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
   <a href="/espesador/entrada">Entrada de Datos</a>
   <a href="/espesador/graficos">Graficos en Vivo</a>
   <a href="/espesador/diagrama" class="active">Diagrama de Flujo</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
 </nav>
 <div class="container">
 <h1>Diagrama de Flujo del Sistema Experto</h1>
@@ -443,5 +444,50 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
 </div>
 
 </div><!-- /container -->
+
+<script>
+(async function applyPseudonimos() {
+  try {
+    const res = await fetch('/api/entrada');
+    const tags = await res.json();
+    const map = {};
+    for (const t of tags) {
+      if (t.pseudonimo) map[t.name] = t.pseudonimo;
+    }
+    if (Object.keys(map).length === 0) return;
+
+    document.querySelectorAll('code').forEach(el => {
+      const text = el.textContent.trim();
+      if (map[text]) {
+        el.innerHTML = '<span style="color:#e2e8f0;font-weight:600">' + map[text] + '</span>'
+          + '<span style="color:#475569;font-size:.72rem;margin-left:4px">(' + text + ')</span>';
+      }
+    });
+
+    document.querySelectorAll('.detail-grid .detail-label').forEach(el => {
+      const text = el.textContent.trim();
+      if (map[text]) {
+        el.textContent = map[text];
+        el.title = text;
+      }
+    });
+
+    document.querySelectorAll('.detail-grid span:not(.detail-label)').forEach(el => {
+      const codes = el.querySelectorAll('code');
+      if (codes.length > 0) return;
+      const text = el.textContent.trim();
+      for (const [tagName, pseudo] of Object.entries(map)) {
+        if (text.includes(tagName)) {
+          el.innerHTML = el.innerHTML.replace(
+            tagName,
+            '<span style="color:#e2e8f0;font-weight:600">' + pseudo + '</span>'
+              + ' <span style="color:#475569;font-size:.72rem">(' + tagName + ')</span>'
+          );
+        }
+      }
+    });
+  } catch (e) {}
+})();
+</script>
 </body>
 </html>

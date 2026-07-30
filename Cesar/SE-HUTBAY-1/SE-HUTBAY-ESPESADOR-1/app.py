@@ -16,6 +16,7 @@ from web.state import _startup_checks
 from web.api.config import bp_config
 from web.api.tags import bp_tags
 from web.api.se import bp_se
+from web.api.postgres import bp_postgres
 from web.api.views import bp_views
 
 app = Flask(__name__)
@@ -91,6 +92,7 @@ button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.
   <a href="/espesador/entrada">Entrada de Datos</a>
   <a href="/espesador/graficos" class="active">Graficos en Vivo</a>
   <a href="/espesador/diagrama">Diagrama de Flujo</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
 </nav>
 <h1>Espesador -- Graficos en Tiempo Real</h1>
 <h2>Monitoreo en vivo de variables de proceso, tags KEPserver y simulacion del sistema experto.</h2>
@@ -600,6 +602,7 @@ app.charts_page = CHARTS_PAGE  # expuesto para bp_views.graficos()
 app.register_blueprint(bp_config)
 app.register_blueprint(bp_tags)
 app.register_blueprint(bp_se)
+app.register_blueprint(bp_postgres)
 app.register_blueprint(bp_views)
 
 # Health checks al arrancar (puebla _alerts)
@@ -607,12 +610,17 @@ _startup_checks()
 
 
 if __name__ == "__main__":
+    import os
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    port = int(os.environ.get("FLASK_PORT", "5000"))
+    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
     print("=" * 60)
     print("  Reto Digital -- Sistema Experto (v2)")
-    print("  http://127.0.0.1:5000                    (bienvenida)")
-    print("  http://127.0.0.1:5000/espesador           (configuracion SE)")
-    print("  http://127.0.0.1:5000/espesador/entrada   (entrada de datos)")
-    print("  http://127.0.0.1:5000/espesador/graficos  (graficos en vivo)")
-    print("  http://127.0.0.1:5000/espesador/diagrama  (diagrama de flujo)")
+    print(f"  http://{host}:{port}                    (bienvenida)")
+    print(f"  http://{host}:{port}/espesador           (configuracion SE)")
+    print(f"  http://{host}:{port}/espesador/entrada   (entrada de datos)")
+    print(f"  http://{host}:{port}/espesador/graficos  (graficos en vivo)")
+    print(f"  http://{host}:{port}/espesador/diagrama  (diagrama de flujo)")
+    print(f"  http://{host}:{port}/espesador/postgres  (conexion PostgreSQL)")
     print("=" * 60)
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=debug, host=host, port=port)

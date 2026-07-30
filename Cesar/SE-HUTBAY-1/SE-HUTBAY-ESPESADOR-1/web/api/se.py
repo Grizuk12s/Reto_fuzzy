@@ -93,16 +93,16 @@ def api_se_stop():
 def api_entrada():
     store = _load_tags()
     tags = store.get("tags", [])
-    enabled_tags = [t for t in tags if t.get("enabled", True)]
-    tag_names = [t["name"] for t in enabled_tags]
+    enabled_names = [t["name"] for t in tags if t.get("enabled", True)]
 
-    live = _read_kepserver_tags_batch(tag_names) if tag_names else {}
+    live = _read_kepserver_tags_batch(enabled_names) if enabled_names else {}
     hist = _get_tag_history()
 
     result = []
-    for t in enabled_tags:
+    for t in tags:
         name = t["name"]
-        info = live.get(name, {})
+        is_enabled = t.get("enabled", True)
+        info = live.get(name, {}) if is_enabled else {}
         direction = "output" if name.startswith("RETO.SP.") else "input"
         if name.startswith("RETO.PV."):
             group = "pv"
@@ -115,12 +115,19 @@ def api_entrada():
         else:
             group = "other"
         result.append({
-            "name":      name,
-            "value":     info.get("value"),
-            "exists":    info.get("exists", False),
-            "direction": direction,
-            "group":     group,
-            "history":   hist.get(name, []),
+            "id":          t["id"],
+            "name":        name,
+            "value":       info.get("value"),
+            "exists":      info.get("exists", False),
+            "direction":   direction,
+            "group":       group,
+            "enabled":     is_enabled,
+            "processes":   t.get("processes", ["espesadores"]),
+            "pseudonimo":  t.get("pseudonimo", ""),
+            "instrumento": t.get("instrumento", ""),
+            "unidad_ing":  t.get("unidad_ing", ""),
+            "equipo":      t.get("equipo", ""),
+            "history":     hist.get(name, []),
         })
     return jsonify(result)
 

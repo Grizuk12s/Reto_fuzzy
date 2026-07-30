@@ -20,7 +20,7 @@ from config import SETPOINT_KEYS
 from web.state import (
     AlertCollector,
     VARIABLES_DISPONIBLES, ETIQUETAS_DISPONIBLES, ACCIONES_DISPONIBLES, BLOQUES_DISPONIBLES,
-    BIENVENIDA_PAGE, HTML_PAGE, DIAGRAM_PAGE, ENTRADA_PAGE, CHART_VARS,
+    BIENVENIDA_PAGE, HTML_PAGE, DIAGRAM_PAGE, ENTRADA_PAGE, POSTGRES_PAGE, CHART_VARS,
     _load_estados, _load_waits,
 )
 
@@ -64,3 +64,8 @@ def diagrama():
 def entrada():
     page = ENTRADA_PAGE.replace("ALERT_CATEGORIES_JSON", json.dumps(AlertCollector.CATEGORIES))
     return Response(page, mimetype="text/html")
+
+
+@bp_views.route("/espesador/postgres")
+def postgres():
+    return Response(POSTGRES_PAGE, mimetype="text/html")

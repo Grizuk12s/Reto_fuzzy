@@ -7,15 +7,31 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh}
-.sidebar{width:220px;flex-shrink:0;background:#0b1322;border-right:1px solid #1e293b;padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto}
-.sidebar .brand{font-size:.95rem;font-weight:700;color:#38bdf8;padding:4px 8px 14px 8px;border-bottom:1px solid #1e293b;margin-bottom:8px}
-.sidebar a{display:block;color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:6px;font-size:.85rem;border-left:3px solid transparent;transition:.15s}
+.sidebar{width:220px;flex-shrink:0;background:#0b1322;border-right:1px solid #1e293b;padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto;transition:width .25s ease}
+.sidebar.collapsed{width:52px;padding:18px 4px;align-items:center;overflow-x:hidden}
+.sidebar .brand{font-size:.95rem;font-weight:700;color:#38bdf8;padding:4px 8px 14px 8px;border-bottom:1px solid #1e293b;margin-bottom:8px;white-space:nowrap;overflow:hidden}
+.sidebar.collapsed .brand{font-size:.75rem;padding:4px 2px 14px 2px;text-align:center}
+.sidebar a{display:flex;align-items:center;color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:6px;font-size:.85rem;border-left:3px solid transparent;transition:.15s;white-space:nowrap;overflow:hidden}
+.sidebar.collapsed a{padding:8px 0;justify-content:center;border-left:none;font-size:.7rem}
 .sidebar a:hover{background:#1e293b;color:#e2e8f0}
 .sidebar a.active{background:#1e293b;color:#38bdf8;border-left-color:#38bdf8;font-weight:600}
+.sidebar.collapsed a.active{border-left:none;border-bottom:2px solid #38bdf8;border-radius:4px}
 .sidebar a.external{color:#64748b;font-size:.78rem;margin-top:4px}
+.sidebar.collapsed a.external{font-size:.7rem;margin-top:2px}
+.sidebar .link-label{transition:opacity .2s}
+.sidebar.collapsed .link-label{display:none}
+.sidebar .badge-full{display:inline-block}
+.sidebar.collapsed .badge-full{display:none}
+.sidebar .badge-short{display:none}
+.sidebar.collapsed .badge-short{display:inline-block}
+.sidebar.collapsed .section-label{display:none}
+.sidebar .sidebar-toggle{background:none;border:1px solid #1e293b;color:#64748b;cursor:pointer;padding:6px;border-radius:6px;font-size:.85rem;margin-bottom:6px;transition:.15s;width:100%}
+.sidebar .sidebar-toggle:hover{background:#1e293b;color:#e2e8f0}
+.sidebar.collapsed .sidebar-toggle{padding:6px 2px;font-size:.75rem}
 .sidebar .step-num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:.65rem;font-weight:700;margin-right:6px;flex-shrink:0}
 .sidebar .step-num.s1{background:rgba(37,99,235,.2);color:#3b82f6}
 .sidebar .step-num.s2{background:rgba(8,145,178,.2);color:#06b6d4}
+.sidebar .step-num.s3{background:rgba(16,185,129,.2);color:#10b981}
 .sidebar .step-num.s4{background:rgba(99,102,241,.2);color:#6366f1}
 .sidebar .step-num.s5{background:rgba(168,85,247,.2);color:#a855f7}
 .sidebar .step-num.s6{background:rgba(20,184,166,.2);color:#14b8a6}
@@ -186,29 +202,35 @@ tr.rule-disabled:hover{background:#1e1e34}
 </style>
 </head>
 <body>
-<aside class="sidebar">
-  <a href="/" class="brand" style="text-decoration:none;display:block">Reto Digital</a>
-  <div style="padding:2px 8px 10px 8px"><span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25);letter-spacing:.3px">ESPESADORES</span></div>
+<aside class="sidebar" id="main-sidebar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" title="Contraer / Expandir">&#9776;</button>
+  <a href="/" class="brand" style="text-decoration:none;display:block"><span class="link-label">Reto Digital</span><span class="badge-short" style="font-size:.75rem">R-T</span></a>
+  <div style="padding:2px 8px 10px 8px">
+    <span class="badge-full" style="padding:2px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25);letter-spacing:.3px">ESPESADORES</span>
+    <span class="badge-short" style="padding:2px 6px;border-radius:12px;font-size:.6rem;font-weight:700;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25)">ESP</span>
+  </div>
   <span class="section-label">Sistema</span>
-  <a href="#licencia" data-sec="licencia"><span class="step-num s9">L</span>Licenciamiento</a>
+  <a href="#licencia" data-sec="licencia"><span class="step-num s9">L</span><span class="link-label">Licenciamiento</span></a>
   <hr class="sep">
   <span class="section-label">Pipeline SE</span>
-  <a href="/espesador/entrada" class="external" style="color:#38bdf8;font-weight:600"><span class="step-num s1">1</span>Entrada de Datos →</a>
-  <a href="#variables"  data-sec="variables"><span class="step-num s2">2</span>Variables calc.</a>
-  <a href="#filtros"    data-sec="filtros"><span class="step-num s4">4</span>Filtros Exp-Q</a>
-  <a href="#fuzzy"      data-sec="fuzzy"><span class="step-num s5">5</span>Fuzzificacion</a>
-  <a href="#estados"    data-sec="estados"><span class="step-num s5">5b</span>Estados</a>
-  <a href="#waits"      data-sec="waits"><span class="step-num s5">5c</span>Waits</a>
-  <a href="#permisivos" data-sec="permisivos"><span class="step-num s6">6</span>Permisivos</a>
-  <a href="#reglas"     data-sec="reglas"><span class="step-num s7">7</span>Motor de Reglas</a>
-  <a href="#defuzzy"    data-sec="defuzzy"><span class="step-num s8">8</span>Defuzzificacion</a>
+  <a href="/espesador/entrada" class="external" style="color:#38bdf8;font-weight:600"><span class="step-num s1">1</span><span class="link-label">Entrada de Datos &rarr;</span></a>
+  <a href="#variables"  data-sec="variables"><span class="step-num s2">2</span><span class="link-label">Variables calc.</span></a>
+  <a href="#tracking"   data-sec="tracking"><span class="step-num s3">3</span><span class="link-label">Tracking PV-SP</span></a>
+  <a href="#filtros"    data-sec="filtros"><span class="step-num s4">4</span><span class="link-label">Filtros Exp-Q</span></a>
+  <a href="#fuzzy"      data-sec="fuzzy"><span class="step-num s5">5</span><span class="link-label">Fuzzificacion</span></a>
+  <a href="#estados"    data-sec="estados"><span class="step-num s5">5b</span><span class="link-label">Estados</span></a>
+  <a href="#waits"      data-sec="waits"><span class="step-num s5">5c</span><span class="link-label">Waits</span></a>
+  <a href="#permisivos" data-sec="permisivos"><span class="step-num s6">6</span><span class="link-label">Permisivos</span></a>
+  <a href="#reglas"     data-sec="reglas"><span class="step-num s7">7</span><span class="link-label">Motor de Reglas</span></a>
+  <a href="#defuzzy"    data-sec="defuzzy"><span class="step-num s8">8</span><span class="link-label">Defuzzificacion</span></a>
   <hr class="sep">
   <span class="section-label">Conexion</span>
-  <a href="#tags" data-sec="tags">Tags KEPserver</a>
+  <a href="#tags" data-sec="tags"><span class="link-label">Tags KEPserver</span><span class="badge-short" style="font-size:.65rem">Kep</span></a>
   <hr class="sep">
   <span class="section-label">Visualizacion</span>
-  <a href="/espesador/graficos" class="external">Graficos en Vivo →</a>
-  <a href="/espesador/diagrama" class="external">Diagrama de Flujo →</a>
+  <a href="/espesador/graficos" class="external"><span class="link-label">Graficos en Vivo &rarr;</span><span class="badge-short" style="font-size:.65rem">GV</span></a>
+  <a href="/espesador/diagrama" class="external"><span class="link-label">Diagrama de Flujo &rarr;</span><span class="badge-short" style="font-size:.65rem">DF</span></a>
+  <a href="/espesador/postgres" class="external"><span class="link-label">PostgreSQL &rarr;</span><span class="badge-short" style="font-size:.65rem">PG</span></a>
 </aside>
 <main class="main">
 <section class="seccion" id="seccion-licencia">
@@ -288,14 +310,16 @@ tr.rule-disabled:hover{background:#1e1e34}
   </div>
 </div>
 
-<table id="rules-table">
+<div id="rules-scroll-wrap" style="overflow-x:auto;margin-bottom:20px;padding-bottom:4px">
+<table id="rules-table" style="margin-bottom:0;min-width:900px">
 <thead><tr>
-  <th>ID</th><th style="min-width:170px">Control</th><th>Bloque</th><th>Prioridad</th><th>Fuerza</th>
-  <th>Activacion (IF)</th><th>Acciones (THEN)</th><th>Waits</th><th>Reiniciar Waits</th>
-  <th>Weight</th>
+  <th style="width:50px">ID</th><th style="min-width:150px;width:150px">Control</th><th style="width:80px">Bloque</th><th style="width:65px">Prior.</th><th style="width:60px">Fuerza</th>
+  <th>Activacion (IF)</th><th>Acciones (THEN)</th><th style="width:90px">Waits</th><th style="width:90px">Reinic. Waits</th>
+  <th style="width:55px">Weight</th>
 </tr></thead>
 <tbody id="rules-body"></tbody>
 </table>
+</div>
 
 <div id="sim-results">
   <h3>Resultados de la Simulacion</h3>
@@ -407,6 +431,61 @@ tr.rule-disabled:hover{background:#1e1e34}
     <button class="btn-sm btn-success" onclick="addDefinicion('rolling_std')">+ Rolling std</button>
   </div>
   <div style="overflow-x:auto"><table id="definiciones-table"></table></div>
+</section>
+
+<section class="seccion" id="seccion-tracking">
+  <div class="top-bar">
+    <div>
+      <h1>Tracking PV-SP</h1>
+      <h2>Bloqueo por seguimiento entre el valor de proceso (PV) y el setpoint objetivo (SP).
+          Mientras <code>|PV - SP| &gt; rango</code>, la familia queda bloqueada y el motor no emite nuevas acciones sobre ella.</h2>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" onclick="saveTracking()">Guardar</button>
+      <button class="btn-danger"  onclick="resetTracking()">Restaurar default</button>
+    </div>
+  </div>
+  <div id="tracking-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+
+  <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span style="width:10px;height:10px;border-radius:50%;background:#10b981;flex-shrink:0"></span>
+      <span style="font-weight:700;font-size:.9rem;color:#e2e8f0">Como funciona el Tracking</span>
+    </div>
+    <p style="font-size:.82rem;color:#94a3b8;line-height:1.6;margin-bottom:8px">
+      Cada familia de setpoint (tonelaje, floculante, velocidad de bomba) tiene asociado un <b>PV de readback</b> que mide el valor real del proceso.
+      Cuando el motor de reglas emite una accion que modifica un SP, el tracking compara el PV actual contra el SP objetivo.
+    </p>
+    <p style="font-size:.82rem;color:#94a3b8;line-height:1.6;margin-bottom:8px">
+      Si la diferencia <code>|PV - SP|</code> supera el <b>rango</b> configurado, la familia queda <b style="color:#ef4444">bloqueada</b>:
+      no se emiten nuevas acciones sobre ese SP hasta que el PV entre en la banda <code>[SP - rango, SP + rango]</code>.
+    </p>
+    <p style="font-size:.82rem;color:#94a3b8;line-height:1.6">
+      Esto evita oscilaciones: el sistema espera a que el proceso alcance el objetivo antes de actuar de nuevo.
+      Si una familia esta <b>deshabilitada</b>, el tracking no la bloquea (comportamiento clasico sin tracking).
+    </p>
+  </div>
+
+  <table id="tracking-table">
+    <thead><tr>
+      <th>Familia SP</th>
+      <th style="width:200px">PV Key (readback)</th>
+      <th style="width:150px">Rango (tolerancia)</th>
+      <th style="width:130px">Habilitado</th>
+      <th style="width:200px">Default core</th>
+    </tr></thead>
+    <tbody id="tracking-body"></tbody>
+  </table>
+
+  <details style="margin-top:18px">
+    <summary style="cursor:pointer;color:#94a3b8">Ejemplo de evaluacion</summary>
+    <div style="background:#0f172a;color:#cbd5e1;padding:14px;border-radius:6px;font-size:.82rem;margin-top:6px;line-height:1.6">
+      <p><strong>Familia:</strong> <code>sp_tonelaje</code> | <strong>PV Key:</strong> <code>pv_tonelaje</code> | <strong>Rango:</strong> 1.0</p>
+      <p style="margin-top:8px"><strong>SP objetivo:</strong> 100.0 &rarr; Banda valida: [99.0, 101.0]</p>
+      <p style="margin-top:4px"><strong>PV actual:</strong> 97.5 &rarr; <code>|97.5 - 100.0| = 2.5 &gt; 1.0</code> &rarr; <span style="color:#ef4444;font-weight:600">BLOQUEADA</span></p>
+      <p style="margin-top:4px"><strong>PV actual:</strong> 99.8 &rarr; <code>|99.8 - 100.0| = 0.2 &le; 1.0</code> &rarr; <span style="color:#22c55e;font-weight:600">DESBLOQUEADA</span></p>
+    </div>
+  </details>
 </section>
 
 <section class="seccion" id="seccion-estados">
@@ -693,6 +772,17 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
 </div>
 
 <script>
+function toggleSidebar() {
+  const sb = document.getElementById('main-sidebar');
+  sb.classList.toggle('collapsed');
+  sessionStorage.setItem('_sidebarCollapsed', sb.classList.contains('collapsed') ? '1' : '');
+}
+(function() {
+  if (sessionStorage.getItem('_sidebarCollapsed') === '1') {
+    document.getElementById('main-sidebar').classList.add('collapsed');
+  }
+})();
+
 const VARS    = VARIABLES_JSON;
 const LABELS  = LABELS_JSON;
 const ACTIONS = ACTIONS_JSON;
@@ -700,6 +790,21 @@ const BLOCKS  = BLOCKS_JSON;
 const SETPOINTS = SETPOINTS_JSON;
 let ESTADOS = ESTADOS_JSON;
 let WAITS   = WAITS_JSON;
+
+const _pseudoMap = {};
+function dn(varName) { return _pseudoMap[varName] || varName; }
+(async function _loadPseudoMap() {
+  try {
+    const r = await fetch('/api/entrada');
+    const tags = await r.json();
+    for (const t of tags) {
+      if (!t.pseudonimo) continue;
+      const short = t.name.replace(/^RETO\.\w+\./, '');
+      _pseudoMap[short] = t.pseudonimo;
+      _pseudoMap[t.name] = t.pseudonimo;
+    }
+  } catch (e) {}
+})();
 
 let editingId = null;
 
@@ -731,17 +836,17 @@ function _isComplexIf(ifList) {
 }
 function _renderItemHTML(it) {
   if (_isLeaf(it)) {
-    return `<span class="tag tag-var">${it[0]}</span> <span class="tag tag-label">${it[1]}</span>`;
+    return `<span class="tag tag-var">${dn(it[0])}</span> <span class="tag tag-label">${it[1]}</span>`;
   }
   if (_isOrGroup(it)) {
     const inner = it.OR.map(l =>
-      `<span class="tag tag-var">${l[0]}</span> <span class="tag tag-label">${l[1]}</span>`
+      `<span class="tag tag-var">${dn(l[0])}</span> <span class="tag tag-label">${l[1]}</span>`
     ).join(' <b style="color:#facc15">OR</b> ');
     return `<span style="color:#94a3b8">(</span> ${inner} <span style="color:#94a3b8">)</span>`;
   }
   if (_isAndGroup(it)) {
     const inner = it.AND.map(leaf => {
-      if (_isLeaf(leaf)) return `<span class="tag tag-var">${leaf[0]}</span> <span class="tag tag-label">${leaf[1]}</span>`;
+      if (_isLeaf(leaf)) return `<span class="tag tag-var">${dn(leaf[0])}</span> <span class="tag tag-label">${leaf[1]}</span>`;
       return _renderItemHTML(leaf);
     }).join(' <b style="color:#22c55e">&</b> ');
     return `<span style="color:#64748b;font-size:.7rem">[Estado]</span> ${inner}`;
@@ -764,7 +869,7 @@ function addFuerzaRow(v, l) {
   row.style.cssText = 'border-left:3px solid #06b6d4;padding-left:6px';
   row.innerHTML = `
     <span style="color:#06b6d4;font-size:.7rem;width:22px">OR</span>
-    <select class="cfv">${VARS.map(x=>`<option ${x===v?'selected':''}>${x}</option>`).join('')}</select>
+    <select class="cfv">${VARS.map(x=>`<option value="${x}" ${x===v?'selected':''}>${dn(x)}</option>`).join('')}</select>
     <select class="cfl">${LABELS.map(x=>`<option ${x===l?'selected':''}>${x}</option>`).join('')}</select>
     <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
   c.appendChild(row);
@@ -841,10 +946,10 @@ function addAction(a) { addActionRow(a); }
 function _renderFuerza(fuerza) {
   if (!fuerza) return '<span style="color:#64748b">-</span>';
   if (Array.isArray(fuerza) && fuerza.length === 2 && typeof fuerza[0] === 'string' && typeof fuerza[1] === 'string') {
-    return `<span class="tag">${fuerza[0]} = ${fuerza[1]}</span>`;
+    return `<span class="tag">${dn(fuerza[0])} = ${fuerza[1]}</span>`;
   }
   if (fuerza.OR && Array.isArray(fuerza.OR)) {
-    return fuerza.OR.map(f => `<span class="tag">${f[0]} = ${f[1]}</span>`).join(' <b style="color:#facc15;font-size:.7rem">OR</b> ');
+    return fuerza.OR.map(f => `<span class="tag">${dn(f[0])} = ${f[1]}</span>`).join(' <b style="color:#facc15;font-size:.7rem">OR</b> ');
   }
   return `<span class="tag">${JSON.stringify(fuerza)}</span>`;
 }
@@ -934,7 +1039,7 @@ async function toggleRule(id) {
   if (data.ok) loadRules();
 }
 
-function _selVar(v)   { return `<select class="cv">${VARS.map(x=>`<option ${x===v?'selected':''}>${x}</option>`).join('')}</select>`; }
+function _selVar(v)   { return `<select class="cv">${VARS.map(x=>`<option value="${x}" ${x===v?'selected':''}>${dn(x)}</option>`).join('')}</select>`; }
 function _selLbl(l)   { return `<select class="cl">${LABELS.map(x=>`<option ${x===l?'selected':''}>${x}</option>`).join('')}</select>`; }
 
 function addCond(v, l) {
@@ -1357,8 +1462,8 @@ async function runSim() {
 // ============================================================
 // Router del sidebar (hash -> seccion)
 // ============================================================
-const SECCIONES = ['licencia','reglas','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags'];
-const _seccionLoaded = {licencia: false, reglas: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false};
+const SECCIONES = ['licencia','reglas','tracking','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags'];
+const _seccionLoaded = {licencia: false, reglas: false, tracking: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false};
 
 function _activarSeccion(name) {
   if (!SECCIONES.includes(name)) name = 'reglas';
@@ -1372,6 +1477,10 @@ function _activarSeccion(name) {
   if (name === 'reglas' && !_seccionLoaded.reglas) {
     loadRules();
     _seccionLoaded.reglas = true;
+  }
+  if (name === 'tracking' && !_seccionLoaded.tracking) {
+    loadTracking();
+    _seccionLoaded.tracking = true;
   }
   if (name === 'licencia' && !_seccionLoaded.licencia) {
     loadLicense();
@@ -1447,7 +1556,7 @@ function openEstadoModal(est=null) {
   const tipo = est ? est.tipo : 'estado';
   const condiciones = est && est.condicion && est.condicion.AND ? est.condicion.AND : [];
   const condsHtml = condiciones.map(c =>
-    `<div class="cond-row" style="margin-bottom:2px"><select class="esv">${VARS.map(v=>`<option ${v===c[0]?'selected':''}>${v}</option>`).join('')}</select>` +
+    `<div class="cond-row" style="margin-bottom:2px"><select class="esv">${VARS.map(v=>`<option value="${v}" ${v===c[0]?'selected':''}>${dn(v)}</option>`).join('')}</select>` +
     `<select class="esl">${LABELS.map(l=>`<option ${l===c[1]?'selected':''}>${l}</option>`).join('')}</select>` +
     `<button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button></div>`
   ).join('');
@@ -1464,7 +1573,7 @@ function openEstadoModal(est=null) {
           <label>Condiciones (AND)</label>
           <div id="es-conds">${condsHtml}</div>
           <button class="btn-primary btn-sm" onclick="document.getElementById('es-conds').insertAdjacentHTML('beforeend',
-            '<div class=\\'cond-row\\' style=\\'margin-bottom:2px\\'><select class=\\'esv\\'>${VARS.map(v=>'<option>'+v+'</option>').join('')}</select><select class=\\'esl\\'>${LABELS.map(l=>'<option>'+l+'</option>').join('')}</select><button class=\\'btn-danger btn-sm\\' onclick=\\'this.parentElement.remove()\\'>x</button></div>'
+            '<div class=\\'cond-row\\' style=\\'margin-bottom:2px\\'><select class=\\'esv\\'>${VARS.map(v=>'<option value="'+v+'">'+dn(v)+'</option>').join('')}</select><select class=\\'esl\\'>${LABELS.map(l=>'<option>'+l+'</option>').join('')}</select><button class=\\'btn-danger btn-sm\\' onclick=\\'this.parentElement.remove()\\'>x</button></div>'
           )" style="margin-top:4px">+ Condicion</button>
         </div>
       </div>
@@ -1533,7 +1642,7 @@ function _renderWaitsTable() {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td><b>${w.nombre}</b></td>
       <td><code style="font-size:.75rem">${w.wait_id}</code></td>
-      <td>${w.variable_controlada || '-'}</td>
+      <td>${dn(w.variable_controlada) || '-'}${w.variable_controlada && dn(w.variable_controlada) !== w.variable_controlada ? '<br><span style="font-size:.68rem;color:#475569;font-family:monospace">'+w.variable_controlada+'</span>' : ''}</td>
       <td style="font-size:.8rem">${w.descripcion || ''}</td>
       <td>
         <button class="btn-primary btn-sm" onclick="editWaitTab('${w.wait_id}')">Editar</button>
@@ -1555,7 +1664,7 @@ function openWaitModal(w=null) {
       <div class="form-grid">
         <div class="form-group"><label>Nombre</label><input id="wt-nombre" value="${nombre}" ${w?'disabled':''}></div>
         <div class="form-group"><label>Variable controlada (setpoint)</label>
-          <select id="wt-var"><option value="">(ninguna)</option>${spVars.map(v=>`<option ${v===varCtrl?'selected':''}>${v}</option>`).join('')}</select>
+          <select id="wt-var"><option value="">(ninguna)</option>${spVars.map(v=>`<option value="${v}" ${v===varCtrl?'selected':''}>${dn(v)}</option>`).join('')}</select>
         </div>
         <div class="form-group full"><label>Descripcion</label><input id="wt-desc" value="${desc}"></div>
       </div>
@@ -1601,6 +1710,77 @@ async function resetWaits() {
   if (!confirm('Restaurar waits al default del core?')) return;
   await fetch('/api/waits/reset', {method:'POST'});
   loadWaitsTab();
+}
+
+// ============================================================
+// Tracking PV-SP
+// ============================================================
+let _trackingState = null;
+
+function _setTrackingMsg(text, color) {
+  const m = document.getElementById('tracking-msg');
+  m.textContent = text || '';
+  m.style.color = color || '#94a3b8';
+}
+
+async function loadTracking() {
+  const r = await fetch('/api/tracking');
+  _trackingState = await r.json();
+  _renderTrackingTable();
+  _setTrackingMsg('');
+}
+
+function _renderTrackingTable() {
+  if (!_trackingState) return;
+  const body = document.getElementById('tracking-body');
+  body.innerHTML = '';
+  for (const familia of _trackingState.familias) {
+    const cur = _trackingState.actual[familia] || _trackingState.defaults[familia];
+    const def = _trackingState.defaults[familia];
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><span class="tag tag-var" style="font-weight:700">' + dn(familia) + '</span>' + (dn(familia) !== familia ? '<br><span style="font-size:.68rem;color:#475569;font-family:monospace">' + familia + '</span>' : '') + '</td>'
+      + '<td><input data-fam="' + familia + '" data-k="pv_key" type="text" value="' + (cur.pv_key || '') + '" style="width:180px"></td>'
+      + '<td><input data-fam="' + familia + '" data-k="rango" type="number" step="0.01" min="0" value="' + cur.rango + '" style="width:120px"></td>'
+      + '<td style="text-align:center"><label class="toggle-switch" style="width:44px;height:24px"><input type="checkbox" data-fam="' + familia + '" data-k="habilitado" ' + (cur.habilitado ? 'checked' : '') + '><span class="toggle-slider" style="border-radius:24px"></span></label></td>'
+      + '<td style="color:#64748b;font-size:.78rem">pv=' + def.pv_key + ', rango=' + def.rango + ', ' + (def.habilitado ? 'ON' : 'OFF') + '</td>';
+    body.appendChild(tr);
+  }
+}
+
+async function saveTracking() {
+  const payload = {};
+  for (const familia of _trackingState.familias) {
+    const pvInp = document.querySelector('#tracking-body input[data-fam="' + familia + '"][data-k="pv_key"]');
+    const rangoInp = document.querySelector('#tracking-body input[data-fam="' + familia + '"][data-k="rango"]');
+    const habInp = document.querySelector('#tracking-body input[data-fam="' + familia + '"][data-k="habilitado"]');
+    payload[familia] = {
+      pv_key: pvInp.value.trim(),
+      rango: parseFloat(rangoInp.value) || 0,
+      habilitado: habInp.checked
+    };
+  }
+  const r = await fetch('/api/tracking', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await r.json();
+  if (!r.ok) return _setTrackingMsg(d.error || 'Error', '#ef4444');
+  _trackingState.actual = d.actual;
+  _renderTrackingTable();
+  _setTrackingMsg('Configuracion guardada. Se aplicara en la proxima ejecucion.', '#22c55e');
+  setTimeout(() => _setTrackingMsg(''), 4000);
+}
+
+async function resetTracking() {
+  if (!confirm('Restaurar la configuracion de tracking al default del core?')) return;
+  const r = await fetch('/api/tracking/reset', {method: 'POST'});
+  if (!r.ok) return _setTrackingMsg('Error al restaurar.', '#ef4444');
+  const d = await r.json();
+  _trackingState.actual = d.actual;
+  _renderTrackingTable();
+  _setTrackingMsg('Restaurado a defaults.', '#22c55e');
+  setTimeout(() => _setTrackingMsg(''), 4000);
 }
 
 // ============================================================
@@ -1685,7 +1865,7 @@ async function loadFiltros() {
     const def = d.defaults[v];
     const tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><span class="tag tag-var">' + v + '</span></td>'
+      '<td><span class="tag tag-var">' + dn(v) + '</span>' + (dn(v) !== v ? '<br><span style="font-size:.68rem;color:#475569;font-family:monospace">' + v + '</span>' : '') + '</td>'
       + '<td><input data-var="' + v + '" data-k="q" type="number" step="0.01" min="0" max="1" value="' + cur.q + '"></td>'
       + '<td><input data-var="' + v + '" data-k="window_size" type="number" step="1" min="1" max="1000" value="' + cur.window_size + '"></td>'
       + '<td style="color:#64748b;font-size:.78rem">q=' + def.q + ', ws=' + def.window_size + '</td>';
@@ -1737,7 +1917,7 @@ async function loadDefuzzy() {
   const sel = document.getElementById('dfz-familia');
   sel.innerHTML = '';
   for (const f of _defuzzyState.familias) {
-    const o = document.createElement('option'); o.value = f; o.textContent = f;
+    const o = document.createElement('option'); o.value = f; o.textContent = dn(f);
     sel.appendChild(o);
   }
   _renderDefuzzy();
@@ -2034,7 +2214,7 @@ function _renderVariables() {
   }
   defs.forEach((d, i) => {
     const refs = _refsDisponibles(i);
-    const optsRef = refs.map(r => `<option value="${r}">${r}</option>`).join('');
+    const optsRef = refs.map(r => `<option value="${r}">${dn(r)}</option>`).join('');
     let params = '';
     if (d.tipo === 'aritmetica') {
       const opOpts = _varsState.operaciones.map(o => `<option value="${o}" ${o===d.operacion?'selected':''}>${o}</option>`).join('');

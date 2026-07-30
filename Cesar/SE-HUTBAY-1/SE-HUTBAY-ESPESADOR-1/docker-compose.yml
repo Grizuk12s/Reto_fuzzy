@@ -1,0 +1,16 @@
+services:
+  se-espesador:
+    build: .
+    container_name: se-espesador
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - FLASK_DEBUG=0
+      - KEPSERVER_URL=opc.tcp://host.docker.internal:49320
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

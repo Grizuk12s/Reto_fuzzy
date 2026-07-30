@@ -4,238 +4,391 @@
       "id": 1,
       "name": "RETO.IN.Potencia_SAG",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores",
+        "molienda"
+      ],
+      "pseudonimo": "Potencia Sag",
+      "instrumento": "",
+      "unidad_ing": "",
+      "equipo": ""
     },
     {
       "id": 2,
       "name": "RETO.IN.Potencia_Bolas",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores",
+        "molienda"
+      ]
     },
     {
       "id": 3,
       "name": "RETO.IN.Nivel_Molino",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores",
+        "molienda"
+      ]
     },
     {
       "id": 4,
       "name": "RETO.PV.torque",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ],
+      "pseudonimo": "Torque Espesador",
+      "instrumento": "nivel pv",
+      "unidad_ing": "%",
+      "equipo": "Cajon ch3"
     },
     {
       "id": 5,
       "name": "RETO.PV.bed_mass",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 6,
       "name": "RETO.PV.bed_level",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 7,
       "name": "RETO.PV.densidad",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 8,
       "name": "RETO.PV.torque_bomba",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 9,
       "name": "RETO.PV.potencia_bomba",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 10,
       "name": "RETO.PV.presion_descarga",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 11,
       "name": "RETO.PV.presion_diferencial",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 12,
       "name": "RETO.PV.nivel_rastra",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 13,
       "name": "RETO.CRUDA.tonelaje_sag_1",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores",
+        "molienda"
+      ]
     },
     {
       "id": 14,
       "name": "RETO.CRUDA.tonelaje_sag_2",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores",
+        "molienda"
+      ]
     },
     {
       "id": 15,
       "name": "RETO.CRUDA.tonelaje_relave",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 16,
       "name": "RETO.CRUDA.presion_bomba_1",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 17,
       "name": "RETO.CRUDA.presion_bomba_2",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 18,
       "name": "RETO.CRUDA.turbiedad_agua",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 19,
       "name": "RETO.LIM.torque_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 20,
       "name": "RETO.LIM.torque_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 21,
       "name": "RETO.LIM.bed_mass_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 22,
       "name": "RETO.LIM.bed_mass_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 23,
       "name": "RETO.LIM.bed_level_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 24,
       "name": "RETO.LIM.bed_level_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 25,
       "name": "RETO.LIM.densidad_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 26,
       "name": "RETO.LIM.densidad_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 27,
       "name": "RETO.LIM.torque_bomba_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 28,
       "name": "RETO.LIM.torque_bomba_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 29,
       "name": "RETO.LIM.potencia_bomba_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 30,
       "name": "RETO.LIM.potencia_bomba_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 31,
       "name": "RETO.LIM.presion_descarga_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 32,
       "name": "RETO.LIM.presion_descarga_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 33,
       "name": "RETO.LIM.presion_diferencial_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 34,
       "name": "RETO.LIM.presion_diferencial_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 35,
       "name": "RETO.LIM.nivel_rastra_lmin",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 36,
       "name": "RETO.LIM.nivel_rastra_lmax",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ]
     },
     {
       "id": 37,
       "name": "RETO.SP.sp_tonelaje",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ],
+      "pseudonimo": "SP Tonenaje",
+      "instrumento": "",
+      "unidad_ing": "",
+      "equipo": ""
     },
     {
       "id": 38,
       "name": "RETO.SP.sp_floculante",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ],
+      "pseudonimo": "SP Floculante",
+      "instrumento": "",
+      "unidad_ing": "",
+      "equipo": ""
     },
     {
       "id": 39,
       "name": "RETO.SP.sp_vel_bomba",
       "data_type": "Float",
-      "enabled": true
+      "enabled": true,
+      "processes": [
+        "espesadores"
+      ],
+      "pseudonimo": "SP VL Bomba",
+      "instrumento": "",
+      "unidad_ing": "",
+      "equipo": ""
     }
   ],
   "next_id": 40,
+  "catalogs": {
+    "instrumentos": [
+      "nivel pv"
+    ],
+    "unidades_ing": [
+      "%"
+    ],
+    "equipos": [
+      "Cajon ch3"
+    ]
+  },
   "simulation_mode": false,
   "generator": {
     "intervalo_s": 5.0,

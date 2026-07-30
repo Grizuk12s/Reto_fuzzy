@@ -30,6 +30,8 @@ Endpoints API:
   DELETE /api/tags/<id>            -- Eliminar un tag.
   POST   /api/tags/<id>/write      -- Escribir un valor al KEPserver.
   POST   /api/tags/refresh         -- Re-leer todos los valores del KEPserver.
+  GET    /api/licenciamiento       -- Estado actual del licenciamiento (prototipo).
+  POST   /api/licenciamiento/activar -- Activar licencia por 3/6/9/12 meses.
   POST   /api/simulacion           -- Ejecutar simulacion completa (sincrona).
   POST   /api/simulacion/start     -- Inicializar streaming.
   GET    /api/simulacion/next      -- Devolver siguiente lote (streaming).
@@ -47,7 +49,9 @@ import os
 import threading
 import time
 import traceback
+from calendar import monthrange
 from collections import deque
+from datetime import datetime
 
 from flask import Flask, Response, jsonify, request
 
@@ -154,6 +158,141 @@ FUZZY_JSON      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fuzz
 VARIABLES_JSON  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "variables.json")
 PERMISIVOS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "permisivos.json")
 TAGS_JSON       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tags.json")
+LICENCIA_JSON   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "licenciamiento.json")
+
+
+# ============================================================
+# Licenciamiento (prototipo)
+# ============================================================
+
+LICENCIA_PERIODOS_VALIDOS = (3, 6, 9, 12)
+
+
+def _add_months(base: datetime, months: int) -> datetime:
+  month_index = (base.month - 1) + months
+  year = base.year + (month_index // 12)
+  month = (month_index % 12) + 1
+  day = min(base.day, monthrange(year, month)[1])
+  return base.replace(year=year, month=month, day=day)
+
+
+def _mask_license_code(code: str) -> str:
+  raw = (code or "").strip()
+  if not raw:
+    return "No ingresado"
+  if len(raw) <= 4:
+    return "*" * len(raw)
+  return ("*" * (len(raw) - 4)) + raw[-4:]
+
+
+def _default_license_store() -> dict:
+  return {
+    "prototype": True,
+    "codigo": "",
+    "periodo_meses": None,
+    "activada_en": None,
+    "expira_en": None,
+    "notas": "Prototipo: aun no se definen funciones a habilitar o deshabilitar al expirar.",
+  }
+
+
+def _save_license_store(data: dict) -> None:
+  with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _load_license_store() -> dict:
+  if not os.path.exists(LICENCIA_JSON):
+    data = _default_license_store()
+    _save_license_store(data)
+    return data
+  try:
+    with open(LICENCIA_JSON, "r", encoding="utf-8") as f:
+      data = json.load(f)
+  except (OSError, ValueError):
+    return _default_license_store()
+  if not isinstance(data, dict):
+    return _default_license_store()
+  merged = _default_license_store()
+  merged.update(data)
+  return merged
+
+
+def _build_license_public_state(data: dict) -> dict:
+  state = _default_license_store()
+  state.update(data or {})
+
+  now = datetime.now()
+  activada_en = None
+  expira_en = None
+  try:
+    if state.get("activada_en"):
+      activada_en = datetime.fromisoformat(str(state.get("activada_en")))
+  except ValueError:
+    activada_en = None
+  try:
+    if state.get("expira_en"):
+      expira_en = datetime.fromisoformat(str(state.get("expira_en")))
+  except ValueError:
+    expira_en = None
+
+  if not state.get("codigo") or activada_en is None or expira_en is None:
+    status = "sin_activar"
+    estado_label = "Sin activar"
+    dias_restantes = None
+  elif expira_en < now:
+    status = "expirada"
+    estado_label = "Expirada"
+    dias_restantes = 0
+  else:
+    status = "activa"
+    estado_label = "Activa"
+    dias_restantes = max(0, int((expira_en - now).total_seconds() // 86400))
+
+  return {
+    "prototype": True,
+    "status": status,
+    "estado_label": estado_label,
+    "codigo_masked": _mask_license_code(str(state.get("codigo") or "")),
+    "periodo_meses": state.get("periodo_meses"),
+    "activada_en": state.get("activada_en"),
+    "expira_en": state.get("expira_en"),
+    "dias_restantes": dias_restantes,
+    "notas": state.get("notas") or _default_license_store()["notas"],
+  }
+
+
+@app.route("/api/licenciamiento", methods=["GET"])
+def api_get_licenciamiento():
+  return jsonify(_build_license_public_state(_load_license_store()))
+
+
+@app.route("/api/licenciamiento/activar", methods=["POST"])
+def api_activate_licenciamiento():
+  body = request.get_json(force=True)
+  codigo = str(body.get("codigo") or "").strip()
+  if not codigo:
+    return jsonify({"error": "Debes ingresar un codigo de licencia."}), 400
+
+  try:
+    periodo_meses = int(body.get("periodo_meses"))
+  except (TypeError, ValueError):
+    return jsonify({"error": "El periodo debe ser 3, 6, 9 o 12 meses."}), 400
+
+  if periodo_meses not in LICENCIA_PERIODOS_VALIDOS:
+    return jsonify({"error": "Periodo invalido. Usa 3, 6, 9 o 12 meses."}), 400
+
+  activada_en = datetime.now().replace(microsecond=0)
+  expira_en = _add_months(activada_en, periodo_meses)
+  store = _default_license_store()
+  store.update({
+    "codigo": codigo,
+    "periodo_meses": periodo_meses,
+    "activada_en": activada_en.isoformat(),
+    "expira_en": expira_en.isoformat(),
+  })
+  _save_license_store(store)
+  return jsonify({"ok": True, "licencia": _build_license_public_state(store)})
 
 
 # ============================================================
@@ -2611,6 +2750,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
   <hr class="sep">
   <span class="section-label">Conexion</span>
   <a href="#tags" data-sec="tags">Tags KEPserver</a>
+  <a href="#licenciamiento" data-sec="licenciamiento">Licenciamiento</a>
   <hr class="sep">
   <span class="section-label">Visualizacion</span>
   <a href="/graficos" class="external">Graficos en Vivo →</a>
@@ -2990,6 +3130,67 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
          Esto es util para desactivar temporalmente un tag sin eliminarlo.</p>
     </div>
   </details>
+</section>
+
+<section class="seccion" id="seccion-licenciamiento">
+  <div class="top-bar">
+    <div>
+      <h1>Licenciamiento</h1>
+      <h2>Prototipo de activacion manual por codigo. Aunque la licencia expire, esta lamina seguira accesible desde el navegador.</h2>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="tag" style="background:rgba(250,204,21,.15);color:#facc15;border-color:rgba(250,204,21,.35)">PROTOTIPO</span>
+    </div>
+  </div>
+
+  <div id="lic-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px">
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px">
+      <div style="font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Estado</div>
+      <div id="lic-status-badge" style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:rgba(100,116,139,.18);color:#cbd5e1;font-weight:700">Sin activar</div>
+      <div style="margin-top:10px;font-size:.82rem;color:#94a3b8">Aun no se aplican restricciones funcionales cuando la licencia vence.</div>
+    </div>
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px">
+      <div style="font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Codigo registrado</div>
+      <div id="lic-code-display" style="font-size:1rem;font-weight:700;color:#e2e8f0">No ingresado</div>
+      <div style="margin-top:10px;font-size:.82rem;color:#94a3b8">Se muestra enmascarado dentro de la interfaz.</div>
+    </div>
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px">
+      <div style="font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Vigencia</div>
+      <div id="lic-period-display" style="font-size:1rem;font-weight:700;color:#e2e8f0">Sin periodo</div>
+      <div id="lic-remaining-display" style="margin-top:10px;font-size:.82rem;color:#94a3b8">Sin dias restantes</div>
+    </div>
+  </div>
+
+  <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:18px;margin-bottom:18px">
+    <div style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(140px,1fr) auto;gap:12px;align-items:end">
+      <div>
+        <label style="display:block;font-size:.76rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Codigo de activacion</label>
+        <input id="lic-code-input" type="text" placeholder="Ingresa codigo de licencia" style="width:100%">
+      </div>
+      <div>
+        <label style="display:block;font-size:.76rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Periodo</label>
+        <select id="lic-period-select" style="width:100%">
+          <option value="3">3 meses</option>
+          <option value="6">6 meses</option>
+          <option value="9">9 meses</option>
+          <option value="12">12 meses</option>
+        </select>
+      </div>
+      <button class="btn-success" onclick="activateLicense()">Activar</button>
+    </div>
+  </div>
+
+  <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px">
+    <div style="font-size:.76rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Detalle</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;font-size:.85rem;color:#cbd5e1">
+      <div><strong>Activada en:</strong> <span id="lic-activated-display">-</span></div>
+      <div><strong>Expira en:</strong> <span id="lic-expires-display">-</span></div>
+      <div><strong>Modo actual:</strong> <span id="lic-mode-display">Prototipo</span></div>
+    </div>
+    <div id="lic-notes" style="margin-top:12px;font-size:.82rem;color:#94a3b8"></div>
+  </div>
 </section>
 
 <!-- Modal edicion -->
@@ -3541,8 +3742,8 @@ async function runSim() {
 // ============================================================
 // Router del sidebar (hash -> seccion)
 // ============================================================
-const SECCIONES = ['reglas','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags'];
-const _seccionLoaded = {reglas: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false};
+const SECCIONES = ['reglas','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags','licenciamiento'];
+const _seccionLoaded = {reglas: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false, licenciamiento: false};
 
 function _activarSeccion(name) {
   if (!SECCIONES.includes(name)) name = 'reglas';
@@ -3588,6 +3789,10 @@ function _activarSeccion(name) {
   if (name === 'tags' && !_seccionLoaded.tags) {
     loadTags();
     _seccionLoaded.tags = true;
+  }
+  if (name === 'licenciamiento' && !_seccionLoaded.licenciamiento) {
+    loadLicenciamiento();
+    _seccionLoaded.licenciamiento = true;
   }
 }
 
@@ -4465,6 +4670,95 @@ async function resetPermisivos() {
 let _tagsData = [];
 let _simulationMode = true;
 
+function _setLicMsg(text, color) {
+  const m = document.getElementById('lic-msg');
+  if (m) { m.textContent = text || ''; m.style.color = color || '#94a3b8'; }
+}
+
+function _formatLicDate(value) {
+  if (!value) return '-';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleString('es-CL');
+}
+
+function _renderLicenciamiento(data) {
+  const statusEl = document.getElementById('lic-status-badge');
+  const codeEl = document.getElementById('lic-code-display');
+  const periodEl = document.getElementById('lic-period-display');
+  const remainEl = document.getElementById('lic-remaining-display');
+  const activatedEl = document.getElementById('lic-activated-display');
+  const expiresEl = document.getElementById('lic-expires-display');
+  const notesEl = document.getElementById('lic-notes');
+  const modeEl = document.getElementById('lic-mode-display');
+
+  const palette = {
+    sin_activar: {bg: 'rgba(100,116,139,.18)', fg: '#cbd5e1'},
+    activa: {bg: 'rgba(34,197,94,.18)', fg: '#22c55e'},
+    expirada: {bg: 'rgba(239,68,68,.18)', fg: '#f87171'},
+  };
+  const style = palette[data.status] || palette.sin_activar;
+
+  statusEl.textContent = data.estado_label || 'Sin activar';
+  statusEl.style.background = style.bg;
+  statusEl.style.color = style.fg;
+  codeEl.textContent = data.codigo_masked || 'No ingresado';
+  periodEl.textContent = data.periodo_meses ? (data.periodo_meses + ' meses') : 'Sin periodo';
+  remainEl.textContent = data.dias_restantes === null || data.dias_restantes === undefined
+    ? 'Sin dias restantes'
+    : ('Dias restantes: ' + data.dias_restantes);
+  activatedEl.textContent = _formatLicDate(data.activada_en);
+  expiresEl.textContent = _formatLicDate(data.expira_en);
+  notesEl.textContent = data.notas || '';
+  modeEl.textContent = data.prototype ? 'Prototipo' : 'Licenciamiento activo';
+}
+
+async function loadLicenciamiento() {
+  try {
+    const r = await fetch('/api/licenciamiento');
+    const d = await r.json();
+    if (!r.ok) {
+      _setLicMsg(d.error || 'Error cargando licenciamiento.', '#ef4444');
+      return;
+    }
+    _renderLicenciamiento(d);
+  } catch (e) {
+    _setLicMsg('Error cargando licenciamiento: ' + e.message, '#ef4444');
+  }
+}
+
+async function activateLicense() {
+  const codeEl = document.getElementById('lic-code-input');
+  const periodEl = document.getElementById('lic-period-select');
+  const codigo = (codeEl.value || '').trim();
+  const periodoMeses = parseInt(periodEl.value, 10);
+
+  if (!codigo) {
+    _setLicMsg('Ingresa un codigo de licencia.', '#f59e0b');
+    codeEl.focus();
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/licenciamiento/activar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({codigo: codigo, periodo_meses: periodoMeses})
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      _setLicMsg(d.error || 'No se pudo activar la licencia.', '#ef4444');
+      return;
+    }
+    _renderLicenciamiento(d.licencia || {});
+    codeEl.value = '';
+    _setLicMsg('Licencia prototipo activada por ' + periodoMeses + ' meses.', '#22c55e');
+    setTimeout(() => _setLicMsg(''), 4000);
+  } catch (e) {
+    _setLicMsg('Error activando licencia: ' + e.message, '#ef4444');
+  }
+}
+
 function _setTagsMsg(text, color) {
   const m = document.getElementById('tags-msg');
   if (m) { m.textContent = text || ''; m.style.color = color || '#94a3b8'; }
@@ -5168,6 +5462,7 @@ button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.
 <h1>Espesador -- Graficos en Tiempo Real</h1>
 <h2>Monitoreo en vivo de variables de proceso, tags KEPserver y simulacion del sistema experto.</h2>
 
+  <a href="/#licenciamiento">Licenciamiento</a>
 <!-- Tab bar -->
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('sim')">Simulacion SE</button>
@@ -5784,6 +6079,7 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
 <div class="container">
 <h1>Diagrama de Flujo del Sistema Experto</h1>
 <p class="subtitle">Pipeline completo de procesamiento por cada tick temporal. Haz clic en cada etapa para ver detalles tecnicos.</p>
+  <a href="/#licenciamiento">Licenciamiento</a>
 <p class="click-hint">Haz clic en cualquier nodo para expandir/contraer los detalles</p>
 
 <div class="flow-wrapper">
@@ -6244,6 +6540,7 @@ tr.selected-row{background:#1e3a5f30}
 <div class="container">
 <h1>Entrada de Datos</h1>
 <p class="subtitle">Vista en tiempo real de todos los tags del sistema &mdash; entradas (PV, Crudas, Limites) y salidas (Setpoints). Historial de los ultimos 50 valores.</p>
+  <a href="/#licenciamiento">Licenciamiento</a>
 
 <!-- Filters -->
 <div class="filters">

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Espesador -- Conexion PostgreSQL</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{display:flex;gap:8px;padding:12px 20px;background:#0b1322;border-bottom:1px solid #1e293b}
+nav a{color:#94a3b8;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:720px;margin:0 auto;padding:32px 24px}
+
+.page-header{margin-bottom:28px}
+.page-header h1{font-size:1.6rem;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:12px}
+.process-accent{background:linear-gradient(135deg,#0ea5e9,#38bdf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{color:#64748b;font-size:.85rem;line-height:1.5;max-width:600px}
+
+.panel{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:28px;margin-bottom:24px}
+.panel-title{font-size:1rem;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:10px}
+.panel-title .icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;background:#4f46e5;color:#fff;flex-shrink:0}
+
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group.full{grid-column:1/-1}
+.form-label{font-size:.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.form-input{padding:10px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.88rem;transition:.2s;width:100%}
+.form-input:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.1)}
+.form-input::placeholder{color:#475569}
+.form-hint{font-size:.68rem;color:#475569;margin-top:2px}
+
+.btn-row{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
+.btn{padding:10px 22px;border-radius:8px;border:none;cursor:pointer;font-size:.88rem;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:8px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:#0ea5e9;color:#fff}
+.btn-primary:hover:not(:disabled){background:#0284c7}
+.btn-test{background:#6366f1;color:#fff}
+.btn-test:hover:not(:disabled){background:#4f46e5}
+.btn-danger{background:transparent;color:#94a3b8;border:1px solid #334155}
+.btn-danger:hover{border-color:#ef4444;color:#ef4444}
+.btn-success{background:#22c55e;color:#fff}
+.btn-success:hover:not(:disabled){background:#16a34a}
+
+.result-box{margin-top:18px;padding:14px 18px;border-radius:10px;font-size:.85rem;line-height:1.6;display:none}
+.result-box.show{display:block}
+.result-box.success{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);color:#22c55e}
+.result-box.error{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);color:#ef4444}
+.result-box.info{background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8}
+.result-box .detail{color:#94a3b8;font-size:.78rem;margin-top:6px}
+.result-box code{background:#0f172a;padding:2px 6px;border-radius:4px;font-size:.78rem}
+
+.status-card{display:flex;align-items:center;gap:14px;padding:16px 20px;background:#0f172a;border:1px solid #334155;border-radius:10px;margin-bottom:20px}
+.status-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.status-dot.connected{background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.5)}
+.status-dot.disconnected{background:#64748b}
+.status-dot.error{background:#ef4444;box-shadow:0 0 8px rgba(239,68,68,.5)}
+.status-text{font-size:.85rem}
+.status-text .label{color:#64748b;font-size:.72rem;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:2px}
+
+.toggle-pass{background:none;border:none;color:#64748b;cursor:pointer;font-size:.82rem;padding:4px 8px;border-radius:4px;transition:.15s;position:absolute;right:6px;top:50%;transform:translateY(-50%)}
+.toggle-pass:hover{color:#e2e8f0;background:#334155}
+.pass-wrap{position:relative}
+
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid #ffffff40;border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px 20px;margin-top:20px;font-size:.82rem;color:#94a3b8;line-height:1.7}
+.info-panel b{color:#e2e8f0}
+
+.tables-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.table-card{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px 18px;display:flex;flex-direction:column;gap:4px}
+.table-card .tname{font-size:.82rem;font-weight:600;color:#e2e8f0;font-family:'Consolas','Courier New',monospace}
+.table-card .tcount{font-size:1rem;font-weight:700;color:#38bdf8}
+.table-card .tmeta{font-size:.72rem;color:#64748b}
+.table-card.exists{border-color:rgba(34,197,94,.3)}
+.table-card.missing{opacity:.55}
+.table-card.missing .tcount{color:#64748b}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(14,165,233,.12);color:#0ea5e9;border:1px solid rgba(14,165,233,.25);letter-spacing:.3px;margin-right:8px">ESPESADORES</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada">Entrada de Datos</a>
+  <a href="/espesador/graficos">Graficos en Vivo</a>
+  <a href="/espesador/diagrama">Diagrama de Flujo</a>
+  <a href="/espesador/postgres" class="active">PostgreSQL</a>
+</nav>
+<div class="container">
+
+<div class="page-header">
+  <h1>Conexion <span class="process-accent">PostgreSQL</span></h1>
+  <p class="subtitle">Configura la conexion a la base de datos PostgreSQL. Los datos se guardan localmente y puedes probar la conexion antes de usarla.</p>
+</div>
+
+<div class="status-card" id="statusCard">
+  <span class="status-dot disconnected" id="statusDot"></span>
+  <div class="status-text">
+    <span class="label">Estado de conexion</span>
+    <span id="statusLabel">Sin configurar</span>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title"><span class="icon">&#9881;</span> Configuracion de conexion</div>
+  <div class="form-grid">
+    <div class="form-group">
+      <span class="form-label">Host / IP</span>
+      <input type="text" class="form-input" id="pgHost" placeholder="localhost" value="localhost">
+      <span class="form-hint">IP o hostname del servidor PostgreSQL</span>
+    </div>
+    <div class="form-group">
+      <span class="form-label">Puerto</span>
+      <input type="number" class="form-input" id="pgPort" placeholder="5432" value="5432">
+      <span class="form-hint">Puerto por defecto: 5432</span>
+    </div>
+    <div class="form-group">
+      <span class="form-label">Nombre de la Base de Datos</span>
+      <input type="text" class="form-input" id="pgDatabase" placeholder="mi_base_de_datos">
+    </div>
+    <div class="form-group">
+      <span class="form-label">Usuario</span>
+      <input type="text" class="form-input" id="pgUser" placeholder="postgres">
+    </div>
+    <div class="form-group full">
+      <span class="form-label">Contrasena</span>
+      <div class="pass-wrap">
+        <input type="password" class="form-input" id="pgPassword" placeholder="Contrasena del usuario">
+        <button type="button" class="toggle-pass" onclick="togglePassword()" id="togglePassBtn" title="Mostrar/ocultar">&#128065;</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-test" id="btnTest" onclick="testConnection()">
+      <span id="testIcon">&#9889;</span> Probar Conexion
+    </button>
+    <button class="btn btn-primary" id="btnSave" onclick="saveConfig()">Guardar Configuracion</button>
+    <button class="btn btn-danger" onclick="clearConfig()">Limpiar</button>
+  </div>
+
+  <div class="result-box" id="resultBox">
+    <div id="resultMsg"></div>
+    <div class="detail" id="resultDetail"></div>
+  </div>
+</div>
+
+<div class="panel" id="tablesPanel" style="display:none">
+  <div class="panel-title"><span class="icon" style="background:#22c55e">&#9634;</span> Estado de Tablas</div>
+  <p style="font-size:.82rem;color:#94a3b8;margin-bottom:16px">Cada proceso tiene una tabla de <b style="color:#e2e8f0">entrada</b> (tags leidos) y una de <b style="color:#e2e8f0">salida</b> (setpoints generados). Se crean automaticamente al probar la conexion o al iniciar el motor SE.</p>
+  <div class="tables-grid" id="tablesGrid"></div>
+  <div class="btn-row" style="margin-top:0">
+    <button class="btn btn-success" onclick="createTables()">&#9634; Crear / Verificar Tablas</button>
+    <button class="btn btn-primary" onclick="loadTablesStatus()">&#8634; Actualizar</button>
+  </div>
+  <div class="result-box" id="tablesResult">
+    <div id="tablesMsg"></div>
+  </div>
+</div>
+
+<div class="info-panel">
+  <p><b>Persistencia:</b> Con cada iteracion del motor SE, todos los tags de entrada (PV, CRUDA, LIM) y los setpoints de salida se guardan en la BD con su timestamp.</p>
+  <p style="margin-top:6px"><b>Estructura:</b> Cada registro incluye: tag_name, pseudonimo, proceso, instrumento, unidad_ing, equipo, valor y timestamp. Si se eliminan tags, los registros historicos permanecen.</p>
+  <p style="margin-top:6px"><b>Requisitos:</b> El servidor PostgreSQL debe estar accesible desde esta maquina. Se requiere <code style="background:#1e293b;padding:2px 6px;border-radius:4px;color:#38bdf8">psycopg2-binary</code> instalado en el entorno Python.</p>
+</div>
+
+</div>
+
+<script>
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/postgres/config');
+    const data = await res.json();
+    if (data.host) document.getElementById('pgHost').value = data.host;
+    if (data.port) document.getElementById('pgPort').value = data.port;
+    if (data.database) document.getElementById('pgDatabase').value = data.database;
+    if (data.user) document.getElementById('pgUser').value = data.user;
+    if (data.password) document.getElementById('pgPassword').value = data.password;
+    updateStatus(data.last_status || 'unconfigured', data.last_message || '');
+    if (data.last_status === 'connected') loadTablesStatus();
+  } catch (e) {}
+}
+
+function getFormData() {
+  return {
+    host: document.getElementById('pgHost').value.trim(),
+    port: parseInt(document.getElementById('pgPort').value) || 5432,
+    database: document.getElementById('pgDatabase').value.trim(),
+    user: document.getElementById('pgUser').value.trim(),
+    password: document.getElementById('pgPassword').value,
+  };
+}
+
+function validate() {
+  const d = getFormData();
+  if (!d.host) { showResult('error', 'El host es obligatorio.'); return null; }
+  if (!d.database) { showResult('error', 'El nombre de la base de datos es obligatorio.'); return null; }
+  if (!d.user) { showResult('error', 'El usuario es obligatorio.'); return null; }
+  return d;
+}
+
+async function testConnection() {
+  const data = validate();
+  if (!data) return;
+  const btn = document.getElementById('btnTest');
+  const icon = document.getElementById('testIcon');
+  btn.disabled = true;
+  icon.innerHTML = '<span class="spinner"></span>';
+  showResult('info', 'Probando conexion...');
+  try {
+    const res = await fetch('/api/postgres/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (result.ok) {
+      showResult('success', 'Conexion exitosa — tablas verificadas', result.detail || '');
+      updateStatus('connected', 'Conexion verificada');
+      loadTablesStatus();
+    } else {
+      showResult('error', 'Error de conexion', result.error || '');
+      updateStatus('error', result.error || 'Error');
+    }
+  } catch (e) {
+    showResult('error', 'Error de red', e.message);
+    updateStatus('error', e.message);
+  } finally {
+    btn.disabled = false;
+    icon.textContent = '⚡';
+  }
+}
+
+async function saveConfig() {
+  const data = validate();
+  if (!data) return;
+  try {
+    const res = await fetch('/api/postgres/config', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (result.ok) {
+      showResult('success', 'Configuracion guardada correctamente.');
+    } else {
+      showResult('error', 'Error al guardar', result.error || '');
+    }
+  } catch (e) {
+    showResult('error', 'Error de red', e.message);
+  }
+}
+
+function clearConfig() {
+  document.getElementById('pgHost').value = 'localhost';
+  document.getElementById('pgPort').value = '5432';
+  document.getElementById('pgDatabase').value = '';
+  document.getElementById('pgUser').value = '';
+  document.getElementById('pgPassword').value = '';
+  hideResult();
+  updateStatus('unconfigured', '');
+  document.getElementById('tablesPanel').style.display = 'none';
+}
+
+function togglePassword() {
+  const inp = document.getElementById('pgPassword');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function showResult(type, msg, detail) {
+  const box = document.getElementById('resultBox');
+  box.className = 'result-box show ' + type;
+  document.getElementById('resultMsg').textContent = msg;
+  document.getElementById('resultDetail').innerHTML = detail || '';
+}
+
+function hideResult() {
+  document.getElementById('resultBox').className = 'result-box';
+}
+
+function updateStatus(status, msg) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
+  dot.className = 'status-dot';
+  if (status === 'connected') {
+    dot.classList.add('connected');
+    label.textContent = msg || 'Conectado';
+    label.style.color = '#22c55e';
+  } else if (status === 'error') {
+    dot.classList.add('error');
+    label.textContent = msg || 'Error';
+    label.style.color = '#ef4444';
+  } else {
+    dot.classList.add('disconnected');
+    label.textContent = 'Sin configurar';
+    label.style.color = '#94a3b8';
+  }
+}
+
+async function loadTablesStatus() {
+  const panel = document.getElementById('tablesPanel');
+  try {
+    const res = await fetch('/api/postgres/tables');
+    const data = await res.json();
+    if (!data.ok) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    const grid = document.getElementById('tablesGrid');
+    grid.innerHTML = '';
+    for (const [table, info] of Object.entries(data.tables)) {
+      const card = document.createElement('div');
+      card.className = 'table-card ' + (info.exists ? 'exists' : 'missing');
+      const label = table.includes('_entrada') ? 'Entrada (tags)' : 'Salida (setpoints)';
+      card.innerHTML =
+        '<div class="tname">' + table + '</div>' +
+        '<div class="tcount">' + (info.exists ? info.count.toLocaleString() + ' registros' : 'No existe') + '</div>' +
+        '<div class="tmeta">' + (info.exists ? '✓ ' + label : '— Sin crear') + '</div>';
+      grid.appendChild(card);
+    }
+  } catch (e) {
+    panel.style.display = 'none';
+  }
+}
+
+async function createTables() {
+  const tbResult = document.getElementById('tablesResult');
+  tbResult.className = 'result-box show info';
+  document.getElementById('tablesMsg').textContent = 'Creando tablas...';
+  try {
+    const res = await fetch('/api/postgres/ensure-tables', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({proceso: 'espesadores'}),
+    });
+    const result = await res.json();
+    if (result.ok) {
+      tbResult.className = 'result-box show success';
+      document.getElementById('tablesMsg').textContent = 'Tablas de espesadores verificadas/creadas correctamente.';
+      loadTablesStatus();
+    } else {
+      tbResult.className = 'result-box show error';
+      document.getElementById('tablesMsg').textContent = result.error || 'Error al crear tablas.';
+    }
+  } catch (e) {
+    tbResult.className = 'result-box show error';
+    document.getElementById('tablesMsg').textContent = 'Error de red: ' + e.message;
+  }
+}
+
+loadConfig();
+</script>
+</body>
+</html>

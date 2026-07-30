@@ -74,6 +74,9 @@ def api_update_tag(tag_id: int):
         tag["data_type"] = body["data_type"]
     if "enabled" in body:
         tag["enabled"] = bool(body["enabled"])
+    for field in ("pseudonimo", "instrumento", "unidad_ing", "equipo"):
+        if field in body:
+            tag[field] = (body[field] or "").strip()
     _save_tags(store)
     live = _read_kepserver_tags_batch([tag["name"]]) if tag["enabled"] else {}
     info = live.get(tag["name"], {"connected": False, "exists": False, "value": None, "quality": "Suspended"})
@@ -109,6 +112,51 @@ def api_write_tag(tag_id: int):
 def api_refresh_tags():
     store = _load_tags()
     return jsonify({"tags": _enrich_tags_with_kepserver(store["tags"])})
+
+
+_CATALOG_TYPES = ("instrumentos", "unidades_ing", "equipos")
+_CATALOG_FIELD = {"instrumentos": "instrumento", "unidades_ing": "unidad_ing", "equipos": "equipo"}
+
+
+@bp_tags.route("/api/tags/catalogs", methods=["GET"])
+def api_get_catalogs():
+    store = _load_tags()
+    return jsonify(store.get("catalogs", {t: [] for t in _CATALOG_TYPES}))
+
+
+@bp_tags.route("/api/tags/catalogs/<catalog_type>", methods=["POST"])
+def api_manage_catalog(catalog_type: str):
+    if catalog_type not in _CATALOG_TYPES:
+        return jsonify({"error": "Tipo de catalogo invalido."}), 400
+    body = request.get_json(force=True)
+    action = body.get("action", "add")
+    value = (body.get("value") or "").strip()
+    if not value:
+        return jsonify({"error": "El valor es obligatorio."}), 400
+
+    store = _load_tags()
+    catalogs = store.setdefault("catalogs", {t: [] for t in _CATALOG_TYPES})
+    items = catalogs.setdefault(catalog_type, [])
+
+    if action == "add":
+        if value in items:
+            return jsonify({"error": f"'{value}' ya existe."}), 409
+        items.append(value)
+        _save_tags(store)
+        return jsonify({"ok": True, "items": items}), 201
+
+    if action == "remove":
+        if value not in items:
+            return jsonify({"error": "Item no encontrado."}), 404
+        items.remove(value)
+        field = _CATALOG_FIELD[catalog_type]
+        for tag in store.get("tags", []):
+            if tag.get(field) == value:
+                tag[field] = ""
+        _save_tags(store)
+        return jsonify({"ok": True, "items": items})
+
+    return jsonify({"error": "Accion invalida (add|remove)."}), 400
 
 
 @bp_tags.route("/api/tags/simulation", methods=["GET"])
