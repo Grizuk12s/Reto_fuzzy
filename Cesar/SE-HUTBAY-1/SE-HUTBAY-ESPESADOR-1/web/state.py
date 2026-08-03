@@ -81,6 +81,7 @@ class AlertCollector:
         "reglas":    {"label": "Reglas / Motor",        "color": "#f59e0b", "icon": "R"},
         "se_engine": {"label": "Motor SE",              "color": "#a855f7", "icon": "S"},
         "generator": {"label": "Generador de Datos",    "color": "#6366f1", "icon": "G"},
+        "heartbeat": {"label": "Heartbeat KEPserver",   "color": "#14b8a6", "icon": "H"},
         "config":    {"label": "Configuracion / JSON",  "color": "#ec4899", "icon": "C"},
         "general":   {"label": "Error General",         "color": "#64748b", "icon": "?"},
     }
@@ -327,8 +328,9 @@ def _enrich_tags_with_kepserver(tags: list[dict]) -> list[dict]:
 # ============================================================
 # Tag history buffer (circular, últimos N valores por tag)
 # ============================================================
-
-_TAG_HISTORY_SIZE = 50
+# 3600 muestras @ 5s = 5 horas de datos. Cubre con margen la ventana
+# máxima de 3h del Explorador de Series (/espesador/graficos).
+_TAG_HISTORY_SIZE = 3600
 _tag_history: dict[str, deque[dict]] = {}
 _tag_history_lock = threading.Lock()
 
@@ -525,6 +527,157 @@ class TagGenerator:
 
 
 _tag_generator = TagGenerator()
+
+
+# ============================================================
+# HeartbeatManager — pulso periodico via dos tags KEPserver
+# ============================================================
+#
+# Escribe un valor alternante (value_a <-> value_b) al tag OUT cada
+# `intervalo_s` segundos y lee el tag IN para verificar el "eco". Si el
+# valor leido coincide con el ultimo escrito, se considera que el sistema
+# remoto (PLC / KEPserver) esta vivo. La configuracion se persiste en
+# tags.json bajo la clave "heartbeat".
+
+HEARTBEAT_DEFAULTS = {
+    "enabled":     False,
+    "tag_out":     "RETO.HB.OUT",
+    "tag_in":      "RETO.HB.IN",
+    "intervalo_s": 2.0,
+    "value_a":     0.0,
+    "value_b":     1.0,
+    "data_type":   "Float",
+}
+
+
+class HeartbeatManager:
+    """Envia un pulso alternante a un tag OUT y verifica el eco en un tag IN."""
+
+    def __init__(self):
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._running = False
+        self._tick = 0
+        self._cfg: dict = dict(HEARTBEAT_DEFAULTS)
+        self._last_out = None
+        self._last_in = None
+        self._last_write_ok = False
+        self._last_echo_ok = False
+        self._last_error: str | None = None
+        self._last_ts: float | None = None
+        self._load_config()
+
+    def _load_config(self):
+        store = _load_tags()
+        cfg = store.get("heartbeat") or {}
+        merged = dict(HEARTBEAT_DEFAULTS)
+        merged.update(cfg)
+        self._cfg = merged
+
+    def _save_config(self):
+        store = _load_tags()
+        store["heartbeat"] = self._cfg
+        _save_tags(store)
+
+    def _next_value(self):
+        return self._cfg["value_a"] if (self._tick % 2 == 0) else self._cfg["value_b"]
+
+    def _worker(self):
+        while not self._stop_event.is_set():
+            try:
+                val_out = self._next_value()
+                dtype = self._cfg.get("data_type", "Float")
+                res = _kep.write_tag(self._cfg["tag_out"], val_out, dtype)
+                self._last_out = val_out
+                self._last_write_ok = bool(res.get("ok"))
+                if not self._last_write_ok:
+                    self._last_error = res.get("error") or "Escritura fallida"
+                    _alerts.add("heartbeat", f"HB write: {self._last_error}")
+                else:
+                    _alerts.resolve_category("heartbeat")
+
+                read = _kep.read_tags_batch([self._cfg["tag_in"]])
+                info = read.get(self._cfg["tag_in"], {}) or {}
+                self._last_in = info.get("value")
+                try:
+                    self._last_echo_ok = bool(
+                        info.get("connected") and info.get("exists")
+                        and self._last_in is not None
+                        and float(self._last_in) == float(val_out)
+                    )
+                except Exception:
+                    self._last_echo_ok = False
+
+                if self._last_write_ok:
+                    self._last_error = None
+                self._last_ts = time.time()
+            except Exception as e:
+                self._last_error = str(e)
+                _alerts.add("heartbeat", str(e), traceback.format_exc())
+            self._tick += 1
+            self._stop_event.wait(max(0.2, float(self._cfg.get("intervalo_s", 2.0))))
+
+    def start(self):
+        if self._running:
+            return
+        self._load_config()
+        self._stop_event.clear()
+        self._tick = 0
+        self._last_error = None
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+        self._running = True
+        # Persistir el flag para reflejar el estado deseado
+        self._cfg["enabled"] = True
+        self._save_config()
+
+    def stop(self):
+        if not self._running:
+            return
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=3)
+        self._running = False
+        self._thread = None
+        self._cfg["enabled"] = False
+        self._save_config()
+
+    def update_config(self, **kwargs):
+        allowed = ("tag_out", "tag_in", "intervalo_s", "value_a", "value_b", "data_type")
+        for k, v in kwargs.items():
+            if k not in allowed or v is None:
+                continue
+            if k == "intervalo_s":
+                self._cfg[k] = max(0.2, float(v))
+            elif k in ("value_a", "value_b"):
+                try:
+                    self._cfg[k] = float(v)
+                except (TypeError, ValueError):
+                    pass
+            elif k == "data_type":
+                if v in ("Float", "Int", "Boolean", "String"):
+                    self._cfg[k] = v
+            else:
+                s = str(v).strip()
+                if s:
+                    self._cfg[k] = s
+        self._save_config()
+
+    def status(self) -> dict:
+        return {
+            "running":       self._running,
+            "tick":          self._tick,
+            "config":        self._cfg,
+            "last_out":      self._last_out,
+            "last_in":       self._last_in,
+            "last_write_ok": self._last_write_ok,
+            "last_echo_ok":  self._last_echo_ok,
+            "last_error":    self._last_error,
+            "last_ts":       self._last_ts,
+        }
+
+
+_heartbeat = HeartbeatManager()
 
 
 # ============================================================
@@ -831,8 +984,11 @@ HTML_PAGE       = _load_template("index.html")
 DIAGRAM_PAGE    = _load_template("diagrama.html")
 ENTRADA_PAGE    = _load_template("entrada.html")
 POSTGRES_PAGE   = _load_template("postgres.html")
+GRAFICOS_PAGE   = _load_template("graficos.html")
 
-# Gráficos en tiempo real — inline (no es un archivo separado)
+# CHART_VARS se mantiene por compatibilidad (usado por otros modulos),
+# pero el nuevo Explorador de Series construye sus datasets desde el
+# catalogo de tags (/api/entrada) — no depende de esta lista.
 CHART_VARS = [
     {"key": "torque",              "label": "Torque (%)",              "color": "#38bdf8"},
     {"key": "bed_level",           "label": "Bed Level (m)",           "color": "#a78bfa"},

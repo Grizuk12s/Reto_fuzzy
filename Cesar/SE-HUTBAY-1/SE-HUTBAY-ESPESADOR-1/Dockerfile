@@ -11,11 +11,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV FLASK_HOST=0.0.0.0
-ENV FLASK_PORT=5000
-ENV FLASK_DEBUG=0
+# Envs de KEPserver (las de Flask ya no se usan: en producción manda Gunicorn)
 ENV KEPSERVER_URL=opc.tcp://host.docker.internal:49320
+
+# Gunicorn se configura en gunicorn.conf.py (bind, workers, threads, timeouts).
+# Overrides puntuales por env: GUNICORN_BIND, GUNICORN_THREADS, GUNICORN_TIMEOUT.
 
 EXPOSE 5000
 
-CMD ["python", "app.py"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]

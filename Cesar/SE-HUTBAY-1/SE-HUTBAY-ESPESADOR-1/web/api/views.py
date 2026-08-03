@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import json
 
-from flask import Blueprint, Response
+from flask import Blueprint, Response, jsonify
 
 from config import SETPOINT_KEYS
 from web.state import (
     AlertCollector,
     VARIABLES_DISPONIBLES, ETIQUETAS_DISPONIBLES, ACCIONES_DISPONIBLES, BLOQUES_DISPONIBLES,
-    BIENVENIDA_PAGE, HTML_PAGE, DIAGRAM_PAGE, ENTRADA_PAGE, POSTGRES_PAGE, CHART_VARS,
+    BIENVENIDA_PAGE, HTML_PAGE, DIAGRAM_PAGE, ENTRADA_PAGE, POSTGRES_PAGE, GRAFICOS_PAGE,
     _load_estados, _load_waits,
 )
 
@@ -48,11 +48,7 @@ def index():
 
 @bp_views.route("/espesador/graficos")
 def graficos():
-    from flask import current_app
-    page = current_app.charts_page
-    page = page.replace("CHART_VARS_JSON", json.dumps(CHART_VARS))
-    page = page.replace("SP_KEYS_JSON",    json.dumps(list(SETPOINT_KEYS)))
-    return Response(page, mimetype="text/html")
+    return Response(GRAFICOS_PAGE, mimetype="text/html")
 
 
 @bp_views.route("/espesador/diagrama")
@@ -69,3 +65,9 @@ def entrada():
 @bp_views.route("/espesador/postgres")
 def postgres():
     return Response(POSTGRES_PAGE, mimetype="text/html")
+
+
+@bp_views.route("/health")
+def health():
+    """Liveness probe para Docker / orquestadores."""
+    return jsonify(status="ok"), 200

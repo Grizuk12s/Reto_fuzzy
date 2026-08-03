@@ -16,11 +16,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 
 .card{width:260px;border-radius:16px;padding:28px 24px;text-align:center;border:2px solid #1e293b;transition:all .3s;position:relative;overflow:hidden}
 
-/* Espesadores — activo */
+/* Prueba/Demo — activo */
 .card.active{background:#0f1d30;border-color:#1e3a5f;cursor:pointer}
 .card.active:hover{border-color:#38bdf8;transform:translateY(-6px);box-shadow:0 12px 40px rgba(56,189,248,.15)}
 .card.active:hover .card-icon{transform:scale(1.1)}
 .card.active:hover .card-title{color:#38bdf8}
+
+/* Badge "Demo" pequeño arriba a la derecha */
+.badge-demo{position:absolute;top:12px;right:12px;padding:2px 8px;border-radius:10px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35)}
 
 /* Deshabilitadas */
 .card.disabled{background:#0f172a;border-color:#1e293b;opacity:.45;cursor:not-allowed;user-select:none}
@@ -48,12 +51,20 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 
   <a href="/espesador" style="text-decoration:none;color:inherit">
     <div class="card active">
-      <div class="card-icon">&#9881;</div>
-      <div class="card-title">Espesadores</div>
-      <div class="card-desc">Control de espesador: torque, bed level, densidad, bomba de descarga y floculante.</div>
+      <span class="badge-demo">Demo</span>
+      <div class="card-icon">&#128293;</div>
+      <div class="card-title">Prueba/Demo</div>
+      <div class="card-desc">Entorno de demostracion del sistema experto. Ideal para probar reglas, simulaciones y flujo completo.</div>
       <span class="card-badge badge-ready">Disponible</span>
     </div>
   </a>
+
+  <div class="card disabled" title="No disponible en esta version">
+    <div class="card-icon">&#9881;</div>
+    <div class="card-title">Espesadores</div>
+    <div class="card-desc">Control de espesador: torque, bed level, densidad, bomba de descarga y floculante.</div>
+    <span class="card-badge badge-soon">No disponible</span>
+  </div>
 
   <div class="card disabled" title="Proximamente">
     <div class="card-icon">&#9881;</div>

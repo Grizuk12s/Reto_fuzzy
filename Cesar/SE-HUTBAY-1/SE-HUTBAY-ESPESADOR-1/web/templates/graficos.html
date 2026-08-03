@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba/Demo -- Explorador de Series</title>
+
+<!-- Chart.js core -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<!-- Adapter de fechas para eje X tipo 'time' -->
+<script src="https://cdn.jsdelivr.net/npm/date-fns@3.6.0/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<!-- Plugin de zoom/pan (rueda + drag) -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;min-height:100vh}
+h1{color:#a855f7;margin-bottom:4px;font-size:1.6rem}
+h2{color:#94a3b8;font-size:.85rem;margin-bottom:16px;font-weight:400}
+
+nav{display:flex;gap:16px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+nav a{color:#94a3b8;text-decoration:none;padding-bottom:2px}
+nav a.active{color:#a855f7;font-weight:600;border-bottom:2px solid #a855f7}
+
+button{cursor:pointer;border:none;border-radius:6px;padding:6px 12px;font-size:.78rem;font-weight:600;transition:.15s;background:#334155;color:#e2e8f0}
+button:hover{background:#475569}
+button.primary{background:#3b82f6;color:#fff}
+button.primary:hover{background:#2563eb}
+button.danger{background:#ef4444;color:#fff}
+button.danger:hover{background:#dc2626}
+button.ghost{background:transparent;border:1px solid #334155;color:#94a3b8}
+button.ghost.active{background:rgba(168,85,247,.15);border-color:#a855f7;color:#a855f7}
+
+input[type=number]{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 8px;font-size:.78rem;width:72px}
+input[type=number]:focus{outline:none;border-color:#a855f7}
+input[type=text]{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:.8rem;width:100%;max-width:280px}
+input[type=text]:focus{outline:none;border-color:#a855f7}
+select{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 8px;font-size:.78rem}
+label{font-size:.78rem;color:#94a3b8}
+
+/* ---- Panel base ---- */
+.panel{background:#1e293b;border-radius:10px;padding:14px 16px;margin-bottom:14px;border:1px solid #1e293b}
+.panel h3{font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;font-weight:700}
+
+/* ---- Selector de tags (chips) ---- */
+.tag-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow-y:auto;padding:8px;background:#0f172a;border-radius:8px;border:1px solid #334155}
+.chip{padding:4px 10px;border-radius:14px;font-size:.72rem;cursor:pointer;border:1px solid #475569;color:#94a3b8;user-select:none;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.chip:hover{border-color:#a855f7;color:#e2e8f0}
+.chip.selected{color:#fff;font-weight:600}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:transparent;flex-shrink:0}
+.chip.selected .dot{background:currentColor}
+
+.tag-groups{display:flex;gap:4px}
+.tag-groups button{padding:4px 10px;font-size:.7rem}
+
+.selection-info{font-size:.72rem;color:#64748b;margin-top:6px}
+
+/* ---- Slider dual con input numérico ---- */
+.slider-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.slider-wrap{flex:1;min-width:260px;position:relative;display:flex;align-items:center;gap:12px}
+.slider-wrap input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:6px;background:#334155;border-radius:3px;outline:none}
+.slider-wrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#a855f7;cursor:pointer;box-shadow:0 0 0 3px rgba(168,85,247,.2);transition:.15s}
+.slider-wrap input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 0 6px rgba(168,85,247,.25)}
+.slider-wrap input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:#a855f7;cursor:pointer}
+.slider-limits{font-size:.68rem;color:#64748b;min-width:44px;text-align:center}
+.slider-limits.right{text-align:right}
+
+.control-line{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.badge-live{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.badge-live .pulse{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 1.5s infinite}
+.badge-paused{background:rgba(100,116,139,.15);color:#94a3b8;border-color:rgba(100,116,139,.3)}
+.badge-paused .pulse{background:#94a3b8;animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ---- Chart card ---- */
+.chart-card{background:#1e293b;border-radius:10px;padding:14px 14px 8px 14px;position:relative;min-height:440px}
+.chart-wrap{position:relative;height:420px;display:flex;gap:10px}
+.chart-wrap canvas{flex:1;min-width:0}
+
+/* ---- Barra lateral vertical para pan del eje Y ---- */
+.y-pan-col{display:flex;flex-direction:column;align-items:center;gap:6px;width:34px;padding:4px 0;background:#0f172a;border-radius:8px;border:1px solid #334155}
+.y-pan-col .lbl{font-size:.55rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.y-pan-col input[type=range]{writing-mode:vertical-lr;direction:rtl;-webkit-appearance:slider-vertical;flex:1;width:20px;padding:0;background:transparent;cursor:ns-resize}
+.y-pan-col input[type=range]::-webkit-slider-runnable-track{width:6px;background:#334155;border-radius:3px}
+.y-pan-col input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#a855f7;box-shadow:0 0 0 3px rgba(168,85,247,.2);cursor:pointer}
+.y-pan-col input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:#a855f7;cursor:pointer}
+.y-pan-btn{width:24px;height:24px;padding:0;border-radius:6px;background:#334155;color:#e2e8f0;font-size:.7rem;line-height:1;border:none;cursor:pointer;transition:.15s}
+.y-pan-btn:hover{background:#475569;color:#a855f7}
+.y-pan-btn.reset{background:transparent;color:#94a3b8}
+.y-pan-btn.reset:hover{background:rgba(168,85,247,.15);color:#a855f7}
+
+/* ---- Formato eje X ---- */
+.axis-x-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}
+
+/* ---- Resumen ---- */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.stat-card{background:#0f172a;border-radius:8px;padding:10px 12px;border-left:3px solid #a855f7;font-size:.78rem}
+.stat-card .st-name{font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.stat-card .st-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.stat-card .st-row{display:flex;justify-content:space-between;color:#94a3b8;font-size:.72rem;margin-top:2px}
+.stat-card .st-row b{color:#e2e8f0;font-weight:600}
+
+.msg-empty{text-align:center;color:#64748b;padding:60px 20px;font-size:.85rem}
+
+/* ---- Responsive ---- */
+@media(max-width:900px){
+  .slider-wrap{min-width:200px}
+  .chart-wrap{height:360px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada">Entrada de Datos</a>
+  <a href="/espesador/graficos" class="active">Explorador de Series</a>
+  <a href="/espesador/diagrama">Diagrama de Flujo</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
+</nav>
+
+<h1>Explorador de Series</h1>
+<h2>Trending temporal de los tags de la simulacion. Buffer en memoria: hasta 3 horas hacia atras.</h2>
+
+<!-- Panel 1: Selección de tags -->
+<div class="panel">
+  <h3>1. Tags a graficar</h3>
+  <div class="tag-toolbar">
+    <input type="text" id="tag-search" placeholder="Buscar tag o pseudonimo..." oninput="renderChips()">
+    <div class="tag-groups">
+      <button class="ghost active" data-grp="all" onclick="setGroup('all', this)">Todos</button>
+      <button class="ghost" data-grp="pv" onclick="setGroup('pv', this)">PV</button>
+      <button class="ghost" data-grp="cruda" onclick="setGroup('cruda', this)">CRUDA</button>
+      <button class="ghost" data-grp="sp" onclick="setGroup('sp', this)">SP</button>
+      <button class="ghost" data-grp="lim" onclick="setGroup('lim', this)">LIM</button>
+    </div>
+    <button onclick="selectAllVisible()">Marcar visibles</button>
+    <button onclick="clearSelection()">Limpiar seleccion</button>
+  </div>
+  <div class="chips" id="tag-chips"></div>
+  <div class="selection-info" id="sel-info">Sin tags seleccionados.</div>
+</div>
+
+<!-- Panel 2: Ventana + posición temporal -->
+<div class="panel">
+  <h3>2. Ventana de visualizacion (1-180 min)</h3>
+  <div class="slider-row">
+    <div class="slider-wrap">
+      <span class="slider-limits">1 min</span>
+      <input type="range" id="win-slider" min="1" max="180" value="30" step="1" oninput="onWinSlider()">
+      <span class="slider-limits right">180 min</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="number" id="win-input" min="1" max="180" step="1" value="30" onchange="onWinInput()">
+      <span style="font-size:.75rem;color:#94a3b8">min</span>
+    </div>
+  </div>
+
+  <h3 style="margin-top:16px">3. Posicion temporal (ultimas 3 horas)</h3>
+  <div class="slider-row">
+    <div class="slider-wrap">
+      <span class="slider-limits">-3 h</span>
+      <input type="range" id="pos-slider" min="-10800" max="0" value="0" step="1" oninput="onPosSlider()">
+      <span class="slider-limits right">ahora</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="number" id="pos-input" min="-180" max="0" step="1" value="0" onchange="onPosInput()">
+      <span style="font-size:.75rem;color:#94a3b8">min</span>
+    </div>
+  </div>
+
+  <div class="control-line">
+    <label style="display:inline-flex;align-items:center;gap:6px">
+      <input type="checkbox" id="follow-live" checked onchange="onFollowToggle()">
+      Seguir tiempo real
+    </label>
+    <label>Refresco:
+      <select id="poll-interval" onchange="restartPolling()">
+        <option value="1000">1 s</option>
+        <option value="2000" selected>2 s</option>
+        <option value="5000">5 s</option>
+        <option value="10000">10 s</option>
+      </select>
+    </label>
+    <span id="live-badge" class="badge-live"><span class="pulse"></span> EN VIVO</span>
+    <span id="range-label" style="font-size:.75rem;color:#94a3b8;margin-left:auto"></span>
+  </div>
+</div>
+
+<!-- Panel 3: Eje Y -->
+<div class="panel">
+  <h3>4. Eje Y</h3>
+  <div class="control-line">
+    <label style="display:inline-flex;align-items:center;gap:6px">
+      <input type="checkbox" id="y-auto" checked onchange="onYAutoToggle()">
+      Auto-escala
+    </label>
+    <label>min <input type="number" id="y-min" step="any" disabled onchange="applyYRange()"></label>
+    <label>max <input type="number" id="y-max" step="any" disabled onchange="applyYRange()"></label>
+    <button onclick="resetZoom()">Reset zoom</button>
+    <span style="font-size:.7rem;color:#64748b">rueda = zoom Y &nbsp;|&nbsp; barra lateral = mover Y</span>
+  </div>
+</div>
+
+<!-- Gráfico -->
+<div class="chart-card">
+  <div class="chart-wrap">
+    <canvas id="main-chart"></canvas>
+    <div class="y-pan-col" title="Mover el eje Y arriba / abajo">
+      <span class="lbl">Y+</span>
+      <button class="y-pan-btn" onclick="nudgeYPan(10)" title="Subir">&#9650;</button>
+      <input type="range" id="y-pan-slider" min="-100" max="100" value="0" step="1" oninput="onYPanSlider()">
+      <button class="y-pan-btn" onclick="nudgeYPan(-10)" title="Bajar">&#9660;</button>
+      <button class="y-pan-btn reset" onclick="resetYPan()" title="Centrar">&#8635;</button>
+      <span class="lbl">Y-</span>
+    </div>
+    <div class="msg-empty" id="msg-empty" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center">
+      Selecciona uno o mas tags para comenzar.
+    </div>
+  </div>
+  <div class="axis-x-controls">
+    <span style="font-size:.7rem;color:#94a3b8;margin-right:4px">Formato eje X:</span>
+    <button class="ghost active" id="fmt-h" onclick="toggleFmt('h', this)">Horas</button>
+    <button class="ghost active" id="fmt-m" onclick="toggleFmt('m', this)">Minutos</button>
+    <button class="ghost" id="fmt-s" onclick="toggleFmt('s', this)">Segundos</button>
+  </div>
+</div>
+
+<!-- Resumen -->
+<div class="panel">
+  <h3>5. Resumen estadistico (sobre la ventana visible)</h3>
+  <div class="stats-grid" id="stats-grid">
+    <div class="msg-empty" style="grid-column:1/-1">Sin datos.</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Paleta de colores para series (auto-asignación)
+// ============================================================
+const PALETTE = [
+  '#38bdf8', '#a78bfa', '#22c55e', '#fb923c', '#f472b6',
+  '#facc15', '#ef4444', '#14b8a6', '#8b5cf6', '#10b981',
+  '#f97316', '#ec4899', '#eab308', '#06b6d4', '#6366f1',
+];
+
+// ============================================================
+// Estado global
+// ============================================================
+const state = {
+  allTags: [],                  // catalogo completo desde /api/entrada
+  selected: new Set(),          // tag names seleccionados
+  group: 'all',
+  colorByTag: {},               // asignacion tag -> color
+  windowMin: 30,                // duracion visible en minutos
+  positionSec: 0,               // offset desde 'ahora' (segundos, negativo = pasado)
+  followLive: true,
+  yAuto: true,
+  yMin: null,
+  yMax: null,
+  yPanPct: 0,                   // pan vertical del eje Y (-1 a +1, fraccion del rango)
+  fmt: { h: true, m: true, s: false },
+  chart: null,
+  pollTimer: null,
+  hoverX: null,                 // pixel X del mouse (para crosshair)
+};
+
+const MAX_HISTORY_SEC = 3 * 60 * 60;  // 3 h = 10800 s
+const MAX_WINDOW_MIN = 180;
+
+// ============================================================
+// Plugin custom: crosshair vertical con valores por serie
+// ============================================================
+const crosshairPlugin = {
+  id: 'crosshair',
+  afterEvent(chart, args) {
+    const ev = args.event;
+    if (ev.type === 'mousemove') {
+      state.hoverX = ev.x;
+      chart.draw();
+    } else if (ev.type === 'mouseout') {
+      state.hoverX = null;
+      chart.draw();
+    }
+  },
+  afterDatasetsDraw(chart) {
+    if (state.hoverX == null) return;
+    const { ctx, chartArea } = chart;
+    const x = state.hoverX;
+    if (x < chartArea.left || x > chartArea.right) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(168,85,247,0.65)';
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    // Puntos destacados por dataset
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    const targetT = xScale.getValueForPixel(x);
+    chart.data.datasets.forEach((ds, i) => {
+      const meta = chart.getDatasetMeta(i);
+      if (meta.hidden || !ds.data.length) return;
+      // busqueda binaria por t
+      let lo = 0, hi = ds.data.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (ds.data[mid].x < targetT) lo = mid + 1; else hi = mid;
+      }
+      const pt = ds.data[lo];
+      if (!pt) return;
+      const px = xScale.getPixelForValue(pt.x);
+      const py = yScale.getPixelForValue(pt.y);
+      if (Math.abs(px - x) > 20) return;
+      ctx.beginPath();
+      ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = ds.borderColor;
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#0f172a';
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+};
+Chart.register(crosshairPlugin);
+
+// ============================================================
+// Cargar catálogo de tags desde /api/entrada
+// (solo enabled=True → esos son los "de la demo")
+// ============================================================
+async function loadTagCatalog() {
+  try {
+    const r = await fetch('/api/entrada');
+    const tags = await r.json();
+    state.allTags = (tags || []).filter(t => t.enabled).map(t => ({
+      name:  t.name,
+      group: t.group,           // pv | cruda | lim | sp | other
+      pseudonimo: t.pseudonimo || '',
+      unidad: t.unidad_ing || '',
+    }));
+    renderChips();
+  } catch (e) {
+    console.error('No se pudo cargar /api/entrada', e);
+    document.getElementById('tag-chips').innerHTML =
+      '<span style="color:#ef4444;font-size:.75rem">No se pudo cargar el catalogo de tags.</span>';
+  }
+}
+
+function setGroup(g, btn) {
+  state.group = g;
+  document.querySelectorAll('.tag-groups button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChips();
+}
+
+function renderChips() {
+  const q = (document.getElementById('tag-search').value || '').toLowerCase().trim();
+  const box = document.getElementById('tag-chips');
+  const visible = state.allTags.filter(t => {
+    if (state.group !== 'all' && t.group !== state.group) return false;
+    if (!q) return true;
+    return t.name.toLowerCase().includes(q) || t.pseudonimo.toLowerCase().includes(q);
+  });
+  if (!visible.length) {
+    box.innerHTML = '<span style="color:#64748b;font-size:.75rem">Sin resultados.</span>';
+    return;
+  }
+  box.innerHTML = visible.map(t => {
+    const sel = state.selected.has(t.name);
+    const color = sel ? colorFor(t.name) : '#475569';
+    const label = t.pseudonimo ? `${t.pseudonimo} (${t.name})` : t.name;
+    return `<span class="chip ${sel?'selected':''}" style="color:${color};border-color:${color}" onclick="toggleTag('${t.name}')">
+              <span class="dot"></span>${label}
+            </span>`;
+  }).join('');
+  updateSelectionInfo();
+}
+
+function colorFor(name) {
+  if (state.colorByTag[name]) return state.colorByTag[name];
+  const used = new Set(Object.values(state.colorByTag));
+  const next = PALETTE.find(c => !used.has(c)) || PALETTE[Object.keys(state.colorByTag).length % PALETTE.length];
+  state.colorByTag[name] = next;
+  return next;
+}
+
+function toggleTag(name) {
+  if (state.selected.has(name)) {
+    state.selected.delete(name);
+    delete state.colorByTag[name];
+  } else {
+    state.selected.add(name);
+    colorFor(name);
+  }
+  renderChips();
+  rebuildDatasets();
+  fetchData();
+}
+
+function selectAllVisible() {
+  const q = (document.getElementById('tag-search').value || '').toLowerCase().trim();
+  const visible = state.allTags.filter(t => {
+    if (state.group !== 'all' && t.group !== state.group) return false;
+    if (!q) return true;
+    return t.name.toLowerCase().includes(q) || t.pseudonimo.toLowerCase().includes(q);
+  });
+  visible.forEach(t => { state.selected.add(t.name); colorFor(t.name); });
+  renderChips();
+  rebuildDatasets();
+  fetchData();
+}
+
+function clearSelection() {
+  state.selected.clear();
+  state.colorByTag = {};
+  renderChips();
+  rebuildDatasets();
+  fetchData();
+}
+
+function updateSelectionInfo() {
+  const n = state.selected.size;
+  document.getElementById('sel-info').textContent =
+    n === 0 ? 'Sin tags seleccionados.' : `${n} tag${n===1?'':'s'} seleccionado${n===1?'':'s'}.`;
+}
+
+// ============================================================
+// Sliders de ventana y posición
+// ============================================================
+function onWinSlider() {
+  state.windowMin = parseInt(document.getElementById('win-slider').value);
+  document.getElementById('win-input').value = state.windowMin;
+  clampPosition();
+  fetchData();
+}
+function onWinInput() {
+  let v = parseInt(document.getElementById('win-input').value);
+  if (isNaN(v)) v = 30;
+  v = Math.max(1, Math.min(MAX_WINDOW_MIN, v));
+  state.windowMin = v;
+  document.getElementById('win-slider').value = v;
+  document.getElementById('win-input').value = v;
+  clampPosition();
+  fetchData();
+}
+function onPosSlider() {
+  state.positionSec = parseInt(document.getElementById('pos-slider').value);
+  const posMin = Math.round(state.positionSec / 60);
+  document.getElementById('pos-input').value = posMin;
+  if (state.positionSec !== 0 && state.followLive) {
+    document.getElementById('follow-live').checked = false;
+    state.followLive = false;
+    updateLiveBadge();
+  }
+  fetchData();
+}
+function onPosInput() {
+  let v = parseInt(document.getElementById('pos-input').value);
+  if (isNaN(v)) v = 0;
+  v = Math.max(-180, Math.min(0, v));
+  state.positionSec = v * 60;
+  document.getElementById('pos-input').value = v;
+  document.getElementById('pos-slider').value = state.positionSec;
+  if (v !== 0 && state.followLive) {
+    document.getElementById('follow-live').checked = false;
+    state.followLive = false;
+    updateLiveBadge();
+  }
+  fetchData();
+}
+function clampPosition() {
+  // asegurar que la ventana quede dentro del rango disponible
+  const minPos = -(MAX_HISTORY_SEC - state.windowMin * 60);
+  if (state.positionSec < minPos) state.positionSec = minPos;
+  document.getElementById('pos-slider').value = state.positionSec;
+  document.getElementById('pos-input').value = Math.round(state.positionSec / 60);
+}
+function onFollowToggle() {
+  state.followLive = document.getElementById('follow-live').checked;
+  if (state.followLive) {
+    state.positionSec = 0;
+    document.getElementById('pos-slider').value = 0;
+    document.getElementById('pos-input').value = 0;
+  }
+  updateLiveBadge();
+  fetchData();
+}
+function updateLiveBadge() {
+  const b = document.getElementById('live-badge');
+  if (state.followLive) {
+    b.className = 'badge-live';
+    b.innerHTML = '<span class="pulse"></span> EN VIVO';
+  } else {
+    b.className = 'badge-live badge-paused';
+    b.innerHTML = '<span class="pulse"></span> HISTORICO';
+  }
+}
+
+// ============================================================
+// Eje Y
+// ============================================================
+function onYAutoToggle() {
+  state.yAuto = document.getElementById('y-auto').checked;
+  document.getElementById('y-min').disabled = state.yAuto;
+  document.getElementById('y-max').disabled = state.yAuto;
+  applyYRange();
+}
+function applyYRange() {
+  if (!state.chart) return;
+  const y = state.chart.options.scales.y;
+  if (!state.yAuto) {
+    // Manual: usar inputs + pan offset
+    const mn = parseFloat(document.getElementById('y-min').value);
+    const mx = parseFloat(document.getElementById('y-max').value);
+    if (!isNaN(mn) && !isNaN(mx) && mx > mn) {
+      const range = mx - mn;
+      const shift = state.yPanPct * range;
+      y.min = mn + shift;
+      y.max = mx + shift;
+    }
+  } else {
+    // Auto: si hay pan, calculamos el rango de datos y aplicamos offset
+    if (state.yPanPct !== 0) {
+      const r = computeDataYRange();
+      if (r.min != null) {
+        const range = (r.max - r.min) || 1;
+        const shift = state.yPanPct * range;
+        y.min = r.min + shift;
+        y.max = r.max + shift;
+      } else {
+        y.min = undefined;
+        y.max = undefined;
+      }
+    } else {
+      y.min = undefined;
+      y.max = undefined;
+    }
+  }
+  state.chart.update('none');
+}
+function computeDataYRange() {
+  let mn = null, mx = null;
+  if (!state.chart) return { min: null, max: null };
+  state.chart.data.datasets.forEach((ds, i) => {
+    const meta = state.chart.getDatasetMeta(i);
+    if (meta && meta.hidden) return;
+    ds.data.forEach(pt => {
+      const v = pt.y;
+      if (v == null || !isFinite(v)) return;
+      if (mn == null || v < mn) mn = v;
+      if (mx == null || v > mx) mx = v;
+    });
+  });
+  if (mn != null && mn === mx) { mn -= 1; mx += 1; }
+  if (mn != null) {
+    const pad = (mx - mn) * 0.05;
+    mn -= pad; mx += pad;
+  }
+  return { min: mn, max: mx };
+}
+function onYPanSlider() {
+  state.yPanPct = parseFloat(document.getElementById('y-pan-slider').value) / 100;
+  applyYRange();
+}
+function nudgeYPan(delta) {
+  const s = document.getElementById('y-pan-slider');
+  let v = parseFloat(s.value) + delta;
+  v = Math.max(-100, Math.min(100, v));
+  s.value = v;
+  state.yPanPct = v / 100;
+  applyYRange();
+}
+function resetYPan() {
+  state.yPanPct = 0;
+  document.getElementById('y-pan-slider').value = 0;
+  applyYRange();
+}
+function resetZoom() {
+  if (state.chart && state.chart.resetZoom) state.chart.resetZoom();
+  resetYPan();
+}
+
+// ============================================================
+// Formato eje X (toggles H/M/S)
+// ============================================================
+function toggleFmt(k, btn) {
+  state.fmt[k] = !state.fmt[k];
+  btn.classList.toggle('active', state.fmt[k]);
+  // al menos uno tiene que estar activo
+  if (!state.fmt.h && !state.fmt.m && !state.fmt.s) {
+    state.fmt[k] = true;
+    btn.classList.add('active');
+    return;
+  }
+  applyXFormat();
+}
+function applyXFormat() {
+  if (!state.chart) return;
+  const f = buildXFormat();
+  state.chart.options.scales.x.time.displayFormats = f.disp;
+  state.chart.options.scales.x.time.tooltipFormat = f.tt;
+  state.chart.update('none');
+}
+function buildXFormat() {
+  // construye el format string segun toggles
+  const parts = [];
+  if (state.fmt.h) parts.push('HH');
+  if (state.fmt.m) parts.push('mm');
+  if (state.fmt.s) parts.push('ss');
+  const base = parts.join(':') || 'mm';
+  return {
+    disp: {
+      millisecond: base, second: base, minute: base, hour: base,
+      day: base, week: base, month: base, quarter: base, year: base,
+    },
+    tt: base,
+  };
+}
+
+// ============================================================
+// Polling & datos
+// ============================================================
+function computeRange() {
+  const now = Date.now();
+  const winMs = state.windowMin * 60 * 1000;
+  const posMs = state.positionSec * 1000;   // negativo o 0
+  const toMs = now + posMs;
+  const fromMs = toMs - winMs;
+  return { fromMs, toMs, now };
+}
+
+async function fetchData() {
+  const empty = document.getElementById('msg-empty');
+  if (state.selected.size === 0) {
+    empty.style.display = 'flex';
+    if (state.chart) {
+      state.chart.data.datasets.forEach(d => d.data = []);
+      state.chart.update('none');
+    }
+    updateStats({});
+    updateRangeLabel();
+    return;
+  }
+  empty.style.display = 'none';
+
+  const { fromMs, toMs } = computeRange();
+  updateRangeLabel(fromMs, toMs);
+  const tags = Array.from(state.selected).join(',');
+  try {
+    const r = await fetch(`/api/tags/history/range?tags=${encodeURIComponent(tags)}&from_ms=${Math.floor(fromMs)}&to_ms=${Math.floor(toMs)}`);
+    const data = await r.json();
+    applyData(data, fromMs, toMs);
+    updateStats(data);
+  } catch (e) {
+    console.error('fetch history', e);
+  }
+}
+
+function applyData(dataByTag, fromMs, toMs) {
+  if (!state.chart) return;
+  state.chart.data.datasets.forEach(ds => {
+    const pts = dataByTag[ds.tagName] || [];
+    ds.data = pts.map(p => ({ x: p[0], y: p[1] }));
+  });
+  state.chart.options.scales.x.min = fromMs;
+  state.chart.options.scales.x.max = toMs;
+  // Re-aplicar pan Y en cada refresco (el rango de datos cambia con el tiempo)
+  if (state.yPanPct !== 0 || !state.yAuto) {
+    applyYRange();
+  } else {
+    state.chart.update('none');
+  }
+}
+
+function updateRangeLabel(fromMs, toMs) {
+  const el = document.getElementById('range-label');
+  if (!fromMs) { el.textContent = ''; return; }
+  const f = new Date(fromMs), t = new Date(toMs);
+  el.textContent = `${fmtDate(f)}  →  ${fmtDate(t)}`;
+}
+function fmtDate(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// ============================================================
+// Estadísticas (mean, min, max, σ)
+// ============================================================
+function updateStats(dataByTag) {
+  const grid = document.getElementById('stats-grid');
+  const names = Array.from(state.selected);
+  if (!names.length) {
+    grid.innerHTML = '<div class="msg-empty" style="grid-column:1/-1">Sin datos.</div>';
+    return;
+  }
+  grid.innerHTML = names.map(n => {
+    const pts = (dataByTag[n] || []).map(p => p[1]);
+    const color = colorFor(n);
+    if (!pts.length) {
+      return `<div class="stat-card" style="border-left-color:${color}">
+        <div class="st-name"><span class="st-dot" style="background:${color}"></span>${n}</div>
+        <div class="st-row"><span>sin datos en la ventana</span></div>
+      </div>`;
+    }
+    const mean = pts.reduce((a,b)=>a+b,0) / pts.length;
+    let mn = pts[0], mx = pts[0], varSum = 0;
+    for (const v of pts) { if (v<mn) mn=v; if (v>mx) mx=v; varSum += (v-mean)*(v-mean); }
+    const sd = Math.sqrt(varSum / pts.length);
+    return `<div class="stat-card" style="border-left-color:${color}">
+      <div class="st-name"><span class="st-dot" style="background:${color}"></span>${n}</div>
+      <div class="st-row"><span>media</span><b>${mean.toFixed(3)}</b></div>
+      <div class="st-row"><span>min / max</span><b>${mn.toFixed(3)} / ${mx.toFixed(3)}</b></div>
+      <div class="st-row"><span>&sigma;</span><b>${sd.toFixed(3)}</b></div>
+      <div class="st-row"><span>n</span><b>${pts.length}</b></div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// Chart.js — construcción / datasets
+// ============================================================
+function buildChart() {
+  const ctx = document.getElementById('main-chart').getContext('2d');
+  const f = buildXFormat();
+  state.chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      parsing: false,
+      normalized: true,
+      interaction: { mode: 'index', intersect: false, axis: 'x' },
+      scales: {
+        x: {
+          type: 'time',
+          time: { displayFormats: f.disp, tooltipFormat: f.tt },
+          grid: { color: 'rgba(148,163,184,0.08)' },
+          ticks: { color: '#94a3b8', font: { size: 10 }, maxRotation: 0, autoSkipPadding: 20 },
+        },
+        y: {
+          grid: { color: 'rgba(148,163,184,0.08)' },
+          ticks: { color: '#94a3b8', font: { size: 10 } },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 }, boxWidth: 12 } },
+        tooltip: {
+          backgroundColor: 'rgba(15,23,42,0.95)',
+          titleColor: '#a855f7',
+          bodyColor: '#e2e8f0',
+          borderColor: '#334155',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            title: (items) => items.length ? fmtDate(new Date(items[0].parsed.x)) : '',
+            label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(3)}`,
+          },
+        },
+        zoom: {
+          pan:  { enabled: true, mode: 'y' },
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'y' },
+        },
+      },
+    },
+  });
+}
+
+function rebuildDatasets() {
+  if (!state.chart) return;
+  state.chart.data.datasets = Array.from(state.selected).map(name => ({
+    label: name,
+    tagName: name,
+    data: [],
+    borderColor: colorFor(name),
+    backgroundColor: colorFor(name) + '20',
+    borderWidth: 1.6,
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    tension: 0.15,
+    spanGaps: true,
+  }));
+  state.chart.update('none');
+}
+
+// ============================================================
+// Loop de polling
+// ============================================================
+function restartPolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  const ms = parseInt(document.getElementById('poll-interval').value) || 2000;
+  state.pollTimer = setInterval(() => {
+    if (state.followLive) fetchData();
+  }, ms);
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+window.addEventListener('DOMContentLoaded', async () => {
+  buildChart();
+  await loadTagCatalog();
+  updateLiveBadge();
+  await fetchData();
+  restartPolling();
+});
+</script>
+
+</body>
+</html>

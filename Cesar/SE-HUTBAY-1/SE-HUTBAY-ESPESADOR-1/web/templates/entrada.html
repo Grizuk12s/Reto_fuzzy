@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Espesador -- Entrada de Datos ESPESADORES</title>
+<title>Prueba/Demo -- Entrada de Datos</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
@@ -134,17 +134,17 @@ tr:hover .edit-icon{opacity:1;color:#38bdf8}
 <body>
 <nav>
   <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
-  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(14,165,233,.12);color:#0ea5e9;border:1px solid rgba(14,165,233,.25);letter-spacing:.3px;margin-right:8px">ESPESADORES</span>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
   <a href="/espesador">Configuracion SE</a>
   <a href="/espesador/entrada" class="active">Entrada de Datos</a>
-  <a href="/espesador/graficos">Graficos en Vivo</a>
+  <a href="/espesador/graficos">Explorador de Series</a>
   <a href="/espesador/diagrama">Diagrama de Flujo</a>
   <a href="/espesador/postgres">PostgreSQL</a>
 </nav>
 <div class="container">
 
 <div class="page-header">
-  <h1>Entrada de datos <span class="process-accent">ESPESADORES</span></h1>
+  <h1>Entrada de datos <span class="process-accent">PRUEBA DEMO</span></h1>
   <p class="subtitle">Selecciona y configura los tags del proceso. Haz click en un tag para asignar pseudonimo, instrumento, unidad de ingenieria y equipo.</p>
 </div>
 
@@ -159,7 +159,7 @@ tr:hover .edit-icon{opacity:1;color:#38bdf8}
   <div class="filter-row">
     <span class="filter-label">Proceso:</span>
     <button class="filter-btn active" data-pf="all" onclick="setFilter('pf','all',this)">Todos</button>
-    <button class="filter-btn" data-pf="espesadores" onclick="setFilter('pf','espesadores',this)">Espesadores</button>
+    <button class="filter-btn" data-pf="espesadores" onclick="setFilter('pf','espesadores',this)">Prueba/Demo</button>
     <button class="filter-btn" data-pf="compartido" onclick="setFilter('pf','compartido',this)">Compartido</button>
     <span style="color:#334155;margin:0 4px">|</span>
     <span class="filter-label" style="min-width:auto">Estado:</span>
@@ -346,7 +346,7 @@ function renderTable() {
     else if (tag.exists) { stDot = 'ok'; stTxt = 'Conectado'; }
     else { stDot = 'missing'; stTxt = 'No encontrado'; }
 
-    const proc = tag.enabled ? '<span class="proc-badge proc-espesadores">ESP</span>' : '<span class="meta-empty">—</span>';
+    const proc = tag.enabled ? '<span class="proc-badge proc-espesadores">PD</span>' : '<span class="meta-empty">—</span>';
     const inst = tag.instrumento ? '<span class="meta-badge inst">' + tag.instrumento + '</span>' : '<span class="meta-empty">—</span>';
     const unit = tag.unidad_ing ? '<span class="meta-badge unit">' + tag.unidad_ing + '</span>' : '<span class="meta-empty">—</span>';
     const eqp = tag.equipo ? '<span class="meta-badge eqp">' + tag.equipo + '</span>' : '<span class="meta-empty">—</span>';

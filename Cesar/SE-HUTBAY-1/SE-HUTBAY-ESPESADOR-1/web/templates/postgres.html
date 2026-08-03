@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Espesador -- Conexion PostgreSQL</title>
+<title>Prueba/Demo -- Conexion PostgreSQL</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
@@ -81,10 +81,10 @@ nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
 <body>
 <nav>
   <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
-  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(14,165,233,.12);color:#0ea5e9;border:1px solid rgba(14,165,233,.25);letter-spacing:.3px;margin-right:8px">ESPESADORES</span>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
   <a href="/espesador">Configuracion SE</a>
   <a href="/espesador/entrada">Entrada de Datos</a>
-  <a href="/espesador/graficos">Graficos en Vivo</a>
+  <a href="/espesador/graficos">Explorador de Series</a>
   <a href="/espesador/diagrama">Diagrama de Flujo</a>
   <a href="/espesador/postgres" class="active">PostgreSQL</a>
 </nav>
@@ -336,7 +336,7 @@ async function createTables() {
     const result = await res.json();
     if (result.ok) {
       tbResult.className = 'result-box show success';
-      document.getElementById('tablesMsg').textContent = 'Tablas de espesadores verificadas/creadas correctamente.';
+      document.getElementById('tablesMsg').textContent = 'Tablas de Prueba/Demo verificadas/creadas correctamente.';
       loadTablesStatus();
     } else {
       tbResult.className = 'result-box show error';

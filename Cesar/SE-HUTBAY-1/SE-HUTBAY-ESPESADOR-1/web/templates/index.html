@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Espesador -- Editor de Reglas</title>
+<title>Prueba/Demo -- Editor de Reglas</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh}
@@ -206,8 +206,8 @@ tr.rule-disabled:hover{background:#1e1e34}
   <button class="sidebar-toggle" onclick="toggleSidebar()" title="Contraer / Expandir">&#9776;</button>
   <a href="/" class="brand" style="text-decoration:none;display:block"><span class="link-label">Reto Digital</span><span class="badge-short" style="font-size:.75rem">R-T</span></a>
   <div style="padding:2px 8px 10px 8px">
-    <span class="badge-full" style="padding:2px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25);letter-spacing:.3px">ESPESADORES</span>
-    <span class="badge-short" style="padding:2px 6px;border-radius:12px;font-size:.6rem;font-weight:700;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25)">ESP</span>
+    <span class="badge-full" style="padding:2px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px">PRUEBA DEMO</span>
+    <span class="badge-short" style="padding:2px 6px;border-radius:12px;font-size:.6rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35)">PD</span>
   </div>
   <span class="section-label">Sistema</span>
   <a href="#licencia" data-sec="licencia"><span class="step-num s9">L</span><span class="link-label">Licenciamiento</span></a>
@@ -228,7 +228,7 @@ tr.rule-disabled:hover{background:#1e1e34}
   <a href="#tags" data-sec="tags"><span class="link-label">Tags KEPserver</span><span class="badge-short" style="font-size:.65rem">Kep</span></a>
   <hr class="sep">
   <span class="section-label">Visualizacion</span>
-  <a href="/espesador/graficos" class="external"><span class="link-label">Graficos en Vivo &rarr;</span><span class="badge-short" style="font-size:.65rem">GV</span></a>
+  <a href="/espesador/graficos" class="external"><span class="link-label">Explorador de Series &rarr;</span><span class="badge-short" style="font-size:.65rem">ES</span></a>
   <a href="/espesador/diagrama" class="external"><span class="link-label">Diagrama de Flujo &rarr;</span><span class="badge-short" style="font-size:.65rem">DF</span></a>
   <a href="/espesador/postgres" class="external"><span class="link-label">PostgreSQL &rarr;</span><span class="badge-short" style="font-size:.65rem">PG</span></a>
 </aside>
@@ -299,7 +299,7 @@ tr.rule-disabled:hover{background:#1e1e34}
 <section class="seccion" id="seccion-reglas">
 <div class="top-bar">
   <div>
-    <h1>Sistema Experto Espesador (v2)</h1>
+    <h1>Sistema Experto Prueba/Demo (v2)</h1>
     <h2>Editor de reglas en vivo -- las reglas se aplican al ejecutar la simulacion.
         Si reglas.json esta vacio se usan las reglas por defecto del experto.</h2>
   </div>
@@ -682,6 +682,120 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
           <tbody id="gen-ranges-body"></tbody>
         </table>
       </div>
+    </div>
+  </details>
+
+  <!-- Heartbeat KEPserver -->
+  <details id="hb-panel" style="margin-bottom:18px">
+    <summary style="cursor:pointer;padding:12px 16px;background:#1e293b;border:1px solid #334155;border-radius:8px;font-weight:700;color:#e2e8f0;font-size:.9rem;display:flex;align-items:center;gap:10px;user-select:none">
+      <span style="font-size:1.1rem">&#128147;</span> Heartbeat KEPserver
+      <span id="hb-status-badge" style="margin-left:auto;padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:rgba(100,116,139,.2);color:#94a3b8">DETENIDO</span>
+    </summary>
+    <div style="padding:16px;background:#1e293b;border:1px solid #334155;border-top:none;border-radius:0 0 8px 8px">
+      <p style="font-size:.82rem;color:#94a3b8;margin-bottom:14px;line-height:1.55">
+        Envia un <b style="color:#e2e8f0">pulso alternante</b> (Valor A &harr; Valor B) al tag
+        <b style="color:#14b8a6">OUT</b> cada N segundos, y lee el tag <b style="color:#14b8a6">IN</b>
+        para verificar el <b style="color:#e2e8f0">eco</b> desde el PLC/KEPserver. Si el valor leido
+        coincide con el ultimo valor escrito, la conexion esta viva.
+      </p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tag OUT (escritura)</label>
+          <input id="hb-tag-out" type="text" placeholder="RETO.HB.OUT">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tag IN (lectura)</label>
+          <input id="hb-tag-in" type="text" placeholder="RETO.HB.IN">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Frecuencia Tick (s)</label>
+          <input id="hb-intervalo" type="number" step="0.1" min="0.2" max="60" value="2">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tipo de dato</label>
+          <select id="hb-data-type">
+            <option value="Float">Float</option>
+            <option value="Int">Int</option>
+            <option value="Boolean">Boolean</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Valor A</label>
+          <input id="hb-value-a" type="number" step="1" value="0">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Valor B</label>
+          <input id="hb-value-b" type="number" step="1" value="1">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn-primary" onclick="saveHeartbeatConfig()">Guardar config</button>
+        <button class="btn-success" id="hb-start-btn" onclick="startHeartbeat()">Iniciar</button>
+        <button class="btn-danger" id="hb-stop-btn" onclick="stopHeartbeat()" style="display:none">Detener</button>
+      </div>
+
+      <!-- Status en vivo -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+        <div>
+          <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Tick</div>
+          <div id="hb-tick" style="font-size:1rem;font-weight:700;color:#38bdf8">0</div>
+        </div>
+        <div>
+          <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Ultimo valor OUT</div>
+          <div id="hb-last-out" style="font-size:1rem;font-weight:700;color:#e2e8f0">--</div>
+        </div>
+        <div>
+          <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Ultimo valor IN</div>
+          <div id="hb-last-in" style="font-size:1rem;font-weight:700;color:#e2e8f0">--</div>
+        </div>
+        <div>
+          <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Eco (IN == OUT)</div>
+          <div id="hb-echo" style="font-size:1rem;font-weight:700;color:#94a3b8">--</div>
+        </div>
+        <div>
+          <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Escritura</div>
+          <div id="hb-write" style="font-size:1rem;font-weight:700;color:#94a3b8">--</div>
+        </div>
+        <div>
+          <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Ultimo pulso</div>
+          <div id="hb-ts" style="font-size:.85rem;font-weight:600;color:#cbd5e1">--</div>
+        </div>
+      </div>
+      <div id="hb-error" style="font-size:.82rem;color:#ef4444;margin-top:8px;min-height:1em"></div>
+
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;color:#94a3b8;font-size:.82rem">&iquest;Como funciona el Heartbeat?</summary>
+        <div style="background:#0f172a;color:#cbd5e1;padding:12px 14px;border-radius:6px;font-size:.82rem;margin-top:6px;line-height:1.65">
+          <p><b>Concepto:</b> Un heartbeat es un pulso periodico que confirma que dos sistemas
+          (esta app y el PLC / KEPserver) siguen comunicandose. No transporta datos de proceso;
+          solo demuestra que el canal esta vivo.</p>
+
+          <p style="margin-top:8px"><b>Flujo por tick:</b></p>
+          <ol style="margin:6px 0 6px 22px;padding:0">
+            <li>La app alterna entre <b>Valor A</b> y <b>Valor B</b> (tick par &rarr; A, impar &rarr; B).</li>
+            <li>Escribe ese valor en el tag <b style="color:#14b8a6">OUT</b> via OPC-UA.</li>
+            <li>Lee el tag <b style="color:#14b8a6">IN</b>, que el PLC debe copiar desde OUT
+            (loopback en la logica del PLC).</li>
+            <li>Si <code>IN == OUT</code> y ambos tags responden, se marca <b style="color:#22c55e">Eco OK</b>
+            &rarr; la comunicacion bidireccional esta viva.</li>
+            <li>Espera <b>Frecuencia Tick</b> segundos y repite.</li>
+          </ol>
+
+          <p style="margin-top:8px"><b>Parametros editables:</b></p>
+          <ul style="margin:6px 0 6px 22px;padding:0">
+            <li><b>Tag OUT / Tag IN:</b> nombres de los tags KEPserver usados como pulso.</li>
+            <li><b>Frecuencia Tick (s):</b> intervalo entre pulsos (min 0.2 s).</li>
+            <li><b>Valor A / Valor B:</b> los dos valores que se alternan.</li>
+            <li><b>Tipo de dato:</b> Float, Int o Boolean (segun como este configurado el tag en KEPserver).</li>
+          </ul>
+
+          <p style="margin-top:8px"><b>Independiente del motor SE:</b> el heartbeat corre en su
+          propio hilo. Puede iniciarse / detenerse sin afectar el Generador de datos ni el
+          Sistema Experto. La configuracion se persiste en <code>tags.json</code>.</p>
+        </div>
+      </details>
     </div>
   </details>
 
@@ -2820,6 +2934,7 @@ async function loadTags() {
     loadGenerator().then(() => {
       _updateSystemControlUI();
     });
+    loadHeartbeat();
   } catch (e) {
     _setTagsMsg('Error cargando tags: ' + e.message, '#ef4444');
   }
@@ -3049,6 +3164,166 @@ function _startGenPolling() {
 
 function _stopGenPolling() {
   if (_genPolling) { clearInterval(_genPolling); _genPolling = null; }
+}
+
+// ============================================================
+// Heartbeat KEPserver
+// ============================================================
+let _hbPolling = null;
+
+function _updateHbUI(status) {
+  if (!status) return;
+  const cfg = status.config || {};
+  const badge = document.getElementById('hb-status-badge');
+  const startBtn = document.getElementById('hb-start-btn');
+  const stopBtn = document.getElementById('hb-stop-btn');
+
+  if (status.running) {
+    const dot = status.last_echo_ok ? 'ACTIVO - ECO OK' : 'ACTIVO - SIN ECO';
+    badge.textContent = dot + ' (tick ' + (status.tick || 0) + ')';
+    badge.style.background = status.last_echo_ok ? 'rgba(34,197,94,.2)' : 'rgba(249,115,22,.2)';
+    badge.style.color = status.last_echo_ok ? '#22c55e' : '#f97316';
+    startBtn.style.display = 'none';
+    stopBtn.style.display = '';
+  } else {
+    badge.textContent = 'DETENIDO';
+    badge.style.background = 'rgba(100,116,139,.2)';
+    badge.style.color = '#94a3b8';
+    startBtn.style.display = '';
+    stopBtn.style.display = 'none';
+  }
+
+  // Solo actualizar inputs si NO esta corriendo (para no pisar edicion en vivo)
+  if (!status.running) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+    set('hb-tag-out', cfg.tag_out);
+    set('hb-tag-in', cfg.tag_in);
+    set('hb-intervalo', cfg.intervalo_s);
+    set('hb-value-a', cfg.value_a);
+    set('hb-value-b', cfg.value_b);
+    const dt = document.getElementById('hb-data-type');
+    if (dt && cfg.data_type) dt.value = cfg.data_type;
+  }
+
+  document.getElementById('hb-tick').textContent = status.tick || 0;
+  document.getElementById('hb-last-out').textContent =
+    status.last_out !== null && status.last_out !== undefined ? status.last_out : '--';
+  document.getElementById('hb-last-in').textContent =
+    status.last_in !== null && status.last_in !== undefined ? status.last_in : '--';
+
+  const echoEl = document.getElementById('hb-echo');
+  if (!status.running) {
+    echoEl.textContent = '--'; echoEl.style.color = '#94a3b8';
+  } else if (status.last_echo_ok) {
+    echoEl.textContent = 'OK'; echoEl.style.color = '#22c55e';
+  } else {
+    echoEl.textContent = 'NO'; echoEl.style.color = '#ef4444';
+  }
+
+  const wEl = document.getElementById('hb-write');
+  if (!status.running) {
+    wEl.textContent = '--'; wEl.style.color = '#94a3b8';
+  } else if (status.last_write_ok) {
+    wEl.textContent = 'OK'; wEl.style.color = '#22c55e';
+  } else {
+    wEl.textContent = 'FALLO'; wEl.style.color = '#ef4444';
+  }
+
+  const tsEl = document.getElementById('hb-ts');
+  if (status.last_ts) {
+    const d = new Date(status.last_ts * 1000);
+    tsEl.textContent = d.toLocaleTimeString();
+  } else {
+    tsEl.textContent = '--';
+  }
+
+  document.getElementById('hb-error').textContent = status.last_error || '';
+}
+
+async function loadHeartbeat() {
+  try {
+    const r = await fetch('/api/tags/heartbeat');
+    const d = await r.json();
+    _updateHbUI(d);
+    if (d.running) _startHbPolling();
+  } catch (e) { /* ignore */ }
+}
+
+async function saveHeartbeatConfig() {
+  const body = {
+    tag_out:     (document.getElementById('hb-tag-out').value || '').trim(),
+    tag_in:      (document.getElementById('hb-tag-in').value || '').trim(),
+    intervalo_s: parseFloat(document.getElementById('hb-intervalo').value),
+    value_a:     parseFloat(document.getElementById('hb-value-a').value),
+    value_b:     parseFloat(document.getElementById('hb-value-b').value),
+    data_type:   document.getElementById('hb-data-type').value,
+  };
+  try {
+    const r = await fetch('/api/tags/heartbeat', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      _setTagsMsg('Error heartbeat: ' + (d.error || r.statusText), '#ef4444');
+      return false;
+    }
+    _updateHbUI(d);
+    _setTagsMsg('Configuracion de heartbeat guardada.', '#22c55e');
+    setTimeout(() => _setTagsMsg(''), 3000);
+    return true;
+  } catch (e) {
+    _setTagsMsg('Error heartbeat: ' + e.message, '#ef4444');
+    return false;
+  }
+}
+
+async function startHeartbeat() {
+  const ok = await saveHeartbeatConfig();
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/tags/heartbeat/start', {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      _setTagsMsg('Heartbeat iniciado.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 3000);
+      _updateHbUI(d);
+      _startHbPolling();
+    }
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function stopHeartbeat() {
+  try {
+    const r = await fetch('/api/tags/heartbeat/stop', {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      _setTagsMsg('Heartbeat detenido.', '#22c55e');
+      setTimeout(() => _setTagsMsg(''), 3000);
+      _stopHbPolling();
+      _updateHbUI(d);
+    }
+  } catch (e) {
+    _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+function _startHbPolling() {
+  _stopHbPolling();
+  _hbPolling = setInterval(async () => {
+    try {
+      const r = await fetch('/api/tags/heartbeat');
+      const d = await r.json();
+      _updateHbUI(d);
+    } catch (e) { /* ignore */ }
+  }, 2000);
+}
+
+function _stopHbPolling() {
+  if (_hbPolling) { clearInterval(_hbPolling); _hbPolling = null; }
 }
 
 _onHash();

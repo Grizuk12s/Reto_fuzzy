@@ -22,6 +22,7 @@ from web.state import (
     _read_kepserver_tags_batch, _try_write_kepserver_tag, _enrich_tags_with_kepserver,
     _record_tag_values, _get_tag_history,
     _tag_generator,
+    _heartbeat,
 )
 
 bp_tags = Blueprint("tags", __name__)
@@ -201,3 +202,120 @@ def api_start_generator():
 def api_stop_generator():
     _tag_generator.stop()
     return jsonify({"ok": True, "running": False})
+
+
+# ============================================================
+# Heartbeat KEPserver
+# ============================================================
+
+@bp_tags.route("/api/tags/heartbeat", methods=["GET"])
+def api_get_heartbeat():
+    return jsonify(_heartbeat.status())
+
+
+@bp_tags.route("/api/tags/heartbeat", methods=["PUT"])
+def api_put_heartbeat():
+    body = request.get_json(force=True) or {}
+    tag_out = (body.get("tag_out") or "").strip()
+    tag_in = (body.get("tag_in") or "").strip()
+    if tag_out and tag_in and tag_out == tag_in:
+        return jsonify({"error": "El tag OUT y el tag IN deben ser distintos."}), 400
+    try:
+        _heartbeat.update_config(
+            tag_out=body.get("tag_out"),
+            tag_in=body.get("tag_in"),
+            intervalo_s=body.get("intervalo_s"),
+            value_a=body.get("value_a"),
+            value_b=body.get("value_b"),
+            data_type=body.get("data_type"),
+        )
+    except (TypeError, ValueError) as e:
+        return jsonify({"error": f"Parametro invalido: {e}"}), 400
+    return jsonify({"ok": True, **_heartbeat.status()})
+
+
+@bp_tags.route("/api/tags/heartbeat/start", methods=["POST"])
+def api_start_heartbeat():
+    _heartbeat.start()
+    return jsonify({"ok": True, "running": True, **_heartbeat.status()})
+
+
+@bp_tags.route("/api/tags/heartbeat/stop", methods=["POST"])
+def api_stop_heartbeat():
+    _heartbeat.stop()
+    return jsonify({"ok": True, "running": False, **_heartbeat.status()})
+
+
+# ============================================================
+# Historial de tags — usado por el Explorador de Series
+# ============================================================
+
+@bp_tags.route("/api/tags/history/range", methods=["GET"])
+def api_tags_history_range():
+    """Devuelve las series de los tags pedidos dentro de un rango temporal.
+
+    Query params:
+      - tags:    csv de nombres de tag (ej: "RETO.PV.torque,RETO.PV.bed_level")
+      - from_ms: epoch en milisegundos (opcional; por defecto 0)
+      - to_ms:   epoch en milisegundos (opcional; por defecto ahora)
+
+    Respuesta:
+      {
+        "RETO.PV.torque":    [[t_ms, valor], ...],
+        "RETO.PV.bed_level": [[t_ms, valor], ...]
+      }
+    """
+    import time as _time
+
+    tags_param = request.args.get("tags", "")
+    tag_names = [t.strip() for t in tags_param.split(",") if t.strip()]
+
+    try:
+        from_ms = float(request.args.get("from_ms", 0))
+        to_ms = float(request.args.get("to_ms", _time.time() * 1000.0))
+    except ValueError:
+        return jsonify({"error": "from_ms / to_ms deben ser numericos."}), 400
+
+    hist_all = _get_tag_history()
+    result = {}
+    for name in tag_names:
+        pts = hist_all.get(name, [])
+        series = []
+        for p in pts:
+            t_ms = p["t"] * 1000.0
+            if from_ms <= t_ms <= to_ms:
+                series.append([int(t_ms), float(p["v"])])
+        result[name] = series
+    return jsonify(result)
+
+
+@bp_tags.route("/api/tags/history/meta", methods=["GET"])
+def api_tags_history_meta():
+    """Metadatos del buffer: rango temporal disponible y tags con datos.
+
+    Respuesta:
+      {
+        "earliest_ms": <int|null>,
+        "latest_ms":   <int|null>,
+        "tags_with_data": ["RETO.PV.torque", ...]
+      }
+    """
+    hist_all = _get_tag_history()
+    earliest = None
+    latest = None
+    tags_with_data = []
+    for name, pts in hist_all.items():
+        if not pts:
+            continue
+        tags_with_data.append(name)
+        e = pts[0]["t"] * 1000.0
+        l = pts[-1]["t"] * 1000.0
+        if earliest is None or e < earliest:
+            earliest = e
+        if latest is None or l > latest:
+            latest = l
+    return jsonify({
+        "earliest_ms":    int(earliest) if earliest is not None else None,
+        "latest_ms":      int(latest) if latest is not None else None,
+        "tags_with_data": tags_with_data,
+    })

@@ -22,7 +22,11 @@
       "processes": [
         "espesadores",
         "molienda"
-      ]
+      ],
+      "pseudonimo": "Potencia Bolas",
+      "instrumento": "",
+      "unidad_ing": "",
+      "equipo": ""
     },
     {
       "id": 3,
@@ -560,5 +564,14 @@
         "noise": 0
       }
     }
+  },
+  "heartbeat": {
+    "enabled": true,
+    "tag_out": "RETO.HB.OUT",
+    "tag_in": "RETO.HB.IN",
+    "intervalo_s": 2.0,
+    "value_a": 0.0,
+    "value_b": 1.0,
+    "data_type": "Float"
   }
 }

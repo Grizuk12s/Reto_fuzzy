@@ -121,3 +121,74 @@ REQUISITOS
     tick del SE Engine (sin reiniciar la app).
   - Para resetear cualquier configuración a sus defaults usar el endpoint
     POST /api/<recurso>/reset desde la interfaz web.
+
+
+8. DESPLIEGUE EN PRODUCCIÓN (Ubuntu + Docker + Gunicorn)
+---------------------------------------------------------
+
+  IMPORTANTE — dos entornos, dos servidores:
+
+    * Desarrollo (Windows):
+        python app.py         → Flask dev server (mono-hilo, debug ON)
+        Sin cambios respecto a la sección 2 de este documento.
+
+    * Producción (Ubuntu, contenedor):
+        gunicorn -c gunicorn.conf.py app:app   → WSGI robusto
+        El contenedor lo lanza automáticamente al hacer 'docker compose up'.
+
+  Nota: Gunicorn NO se ejecuta en Windows nativo (usa fork() de Unix).
+  Por eso el pip install de gunicorn está limitado a Linux/macOS mediante
+  el marker 'sys_platform != "win32"' en requirements.txt.
+
+  8.1  Construir y levantar el contenedor (en Ubuntu)
+  ---------------------------------------------------
+    cd /ruta/al/proyecto/SE-HUTBAY-ESPESADOR-1
+    docker compose build
+    docker compose up -d
+
+  8.2  Ver logs de Gunicorn en vivo
+  ----------------------------------
+    docker compose logs -f se-espesador
+
+  8.3  Acceder desde Windows
+  ---------------------------
+    http://<IP-del-servidor-Ubuntu>:5000/
+
+    Para obtener la IP del Ubuntu:  ip addr  o  hostname -I
+
+  8.4  Detener / reiniciar
+  -------------------------
+    docker compose stop
+    docker compose restart
+    docker compose down            (elimina el contenedor, conserva volumen)
+
+  8.5  Configuración de Gunicorn
+  -------------------------------
+    Todos los parámetros viven en:  gunicorn.conf.py
+
+    Defaults elegidos para este proyecto:
+      workers      = 1     (obligatorio: SEEngine mantiene estado en memoria
+                            y una única conexión OPC-UA hacia KEPserver)
+      worker_class = gthread
+      threads      = 4     (concurrencia HTTP dentro del único worker)
+      timeout      = 120s  (margen para ticks del SE)
+
+    Overrides puntuales por variable de entorno (docker-compose.yml):
+      GUNICORN_BIND       (default 0.0.0.0:5000)
+      GUNICORN_THREADS    (default 4)
+      GUNICORN_TIMEOUT    (default 120)
+      GUNICORN_LOGLEVEL   (default info)
+
+  8.6  Healthcheck
+  -----------------
+    Docker consulta cada 30s:  GET http://127.0.0.1:5000/health
+    Ver estado:
+      docker inspect --format='{{.State.Health.Status}}' se-espesador
+
+  8.7  KEPserver desde el contenedor
+  -----------------------------------
+    Se usa la URL:  opc.tcp://host.docker.internal:49320
+    (definida en docker-compose.yml + extra_hosts). Esto redirige al
+    KEPserver corriendo en el host Ubuntu. Si KEPserver corre en otra
+    máquina, cambiar el valor de KEPSERVER_URL en docker-compose.yml.
+
