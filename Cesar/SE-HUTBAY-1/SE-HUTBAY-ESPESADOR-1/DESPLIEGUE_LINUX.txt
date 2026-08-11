@@ -1,0 +1,255 @@
+================================================================================
+  SE-HUTBAY-ESPESADOR-1 -- Despliegue en Linux con Docker
+  Guia paso a paso para levantar el contenedor en una VM Ubuntu
+================================================================================
+
+
+ESCENARIO DE REFERENCIA
+-----------------------
+
+    +--------------------------------------+       +---------------------------+
+    |  VM Linux Docker                     |       |  Otra VM (proceso)        |
+    |  IP fija: 192.168.137.94             |       |  IP dinamica: 10.0.10.x   |
+    |                                      |       |                           |
+    |  Contenedor se-espesador             | ----> |  KEPserver EX  :49320     |
+    |  Flask :5000                         | ----> |  PostgreSQL    :5432      |
+    |  Lee kepserver.json + postgres.json  |       |                           |
+    +--------------------------------------+       +---------------------------+
+                    ^
+                    |
+                    | http://192.168.137.94:5000/
+                    |
+          +---------------------+
+          | Navegador operador  |
+          +---------------------+
+
+  - La VM Docker tiene IP fija.
+  - La otra VM (KEPserver + Postgres) tiene IP dinamica pero se pueden hacer
+    ping bidireccionalmente. El SE tiene UI para actualizar host/puerto de
+    ambos servicios sin tocar el contenedor.
+
+
+0. REQUISITOS
+-------------
+
+  - VM Ubuntu 22.04 / 24.04 (Debian 12 tambien sirve).
+  - Usuario con privilegios sudo.
+  - Puerto 5000/tcp libre en la VM.
+  - Conectividad de red hacia la VM del KEPserver (10.0.10.x).
+  - ~2 GB libres en disco (imagen + volumen).
+
+
+1. PREPARAR LA VM (primera vez)
+-------------------------------
+
+  1.1  Verificar la IP:
+       hostname -I
+       # Esperado: 192.168.137.94
+
+  1.2  Instalar Docker + Compose v2:
+       curl -fsSL https://get.docker.com | sudo sh
+
+  1.3  Permitir usar docker sin sudo:
+       sudo usermod -aG docker $USER
+       newgrp docker
+
+  1.4  Verificar:
+       docker --version           # >= 24.x
+       docker compose version     # v2.x
+
+  1.5  Firewall (solo si esta activo):
+       sudo ufw status
+       sudo ufw allow 5000/tcp    # solo si status dice "active"
+
+  1.6  Timezone del host (recomendado para logs coherentes):
+       timedatectl
+       sudo timedatectl set-timezone America/Santiago   # ajustar segun pais
+
+
+2. SUBIR EL PROYECTO A LA VM
+----------------------------
+
+  Opcion A -- desde Windows por scp (PowerShell):
+       cd C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1
+       scp -r .\SE-HUTBAY-ESPESADOR-1 usuario@192.168.137.94:/home/usuario/
+
+  Opcion B -- git clone (si el repo esta en un remoto):
+       cd ~
+       git clone <tu-repo>.git SE-HUTBAY-ESPESADOR-1
+
+
+3. VERIFICAR CONECTIVIDAD HACIA KEPSERVER + POSTGRES
+----------------------------------------------------
+
+  Reemplazar 10.0.10.50 por la IP actual de la otra VM.
+
+  3.1  Ping basico:
+       ping -c 3 10.0.10.50
+
+  3.2  Puertos abiertos (instalar netcat si falta):
+       sudo apt install -y netcat-openbsd
+       nc -zv 10.0.10.50 49320    # KEPserver OPC-UA
+       nc -zv 10.0.10.50 5432     # PostgreSQL
+
+  Si algo falla aqui, revisar firewall de la VM 10.0.10.x antes de continuar.
+
+
+4. CONSTRUIR Y ARRANCAR EL CONTENEDOR
+-------------------------------------
+
+  cd ~/SE-HUTBAY-ESPESADOR-1
+
+  4.1  Construir la imagen (primera vez tarda unos minutos):
+       docker compose build
+
+  4.2  Levantar en background:
+       docker compose up -d
+
+  4.3  Confirmar que arranco:
+       docker compose ps
+       docker compose logs -f se-espesador    # Ctrl+C para salir
+
+  4.4  Healthcheck:
+       docker inspect --format='{{.State.Health.Status}}' se-espesador
+       # Esperado: healthy   (puede estar "starting" ~20s al inicio)
+
+
+5. VERIFICAR ACCESO
+-------------------
+
+  5.1  Desde la propia VM Linux:
+       curl http://127.0.0.1:5000/health
+
+  5.2  Desde Windows u otra maquina de la red:
+       Navegador -> http://192.168.137.94:5000/
+
+
+6. CONFIGURAR KEPSERVER Y POSTGRES DESDE LA UI
+----------------------------------------------
+
+  Todo se hace desde el navegador. NO hace falta editar archivos ni rebuild.
+
+  6.1  Ir a la seccion "Tags KEPserver".
+  6.2  Abrir el panel "Conexion KEPserver (OPC-UA)":
+         - Poner IP actual (ej. 10.0.10.50) + puerto 49320
+         - Boton "Probar conexion" -> debe salir CONECTADO
+         - Boton "Guardar"
+  6.3  Ir a la seccion Postgres:
+         - Poner host + puerto + usuario + password + nombre BD
+         - Boton "Probar conexion" -> debe salir connected
+         - Boton "Guardar configuracion"
+  6.4  Verificar que la config quedo persistida:
+       ls ~/SE-HUTBAY-ESPESADOR-1/config/espesador/
+       cat ~/SE-HUTBAY-ESPESADOR-1/config/espesador/kepserver.json
+       cat ~/SE-HUTBAY-ESPESADOR-1/config/espesador/postgres.json
+
+  Los dos JSON sobreviven a reinicios porque ./config esta bind-montado.
+
+
+7. MODOS DE OPERACION
+---------------------
+
+  En la seccion "Tags KEPserver" hay un toggle "Modo de Entrada":
+
+    * TAGS REALES:
+        El SE lee RETO.PV.* y RETO.CRUDA.* directamente del KEPserver.
+        Usar cuando hay PLC + KEPserver + tags reales configurados.
+
+    * SIMULACION:
+        El Generador de Datos interno inventa valores (3 fases: estable,
+        alerta, recuperacion) y los escribe al KEPserver como si vinieran
+        del proceso. Ideal para demos sin PLC real.
+
+  Convencion de tags (definida en config/espesador/tags.json):
+
+    RETO.PV.*      -> Entradas (Process Variables: torque, bed_mass, ...)
+    RETO.CRUDA.*   -> Entradas aguas arriba (tonelaje SAG, presiones)
+    RETO.SP.*      -> Salidas: setpoints calculados por el motor difuso
+                      (sp_tonelaje, sp_floculante, sp_vel_bomba)
+
+  Flujo por tick del SE:
+    KEPserver  ->  PV/CRUDA  ->  filtro Exp-Q  ->  fuzzificacion  ->
+    reglas  ->  defuzzificacion Sugeno  ->  RETO.SP.*  ->  KEPserver  ->  PLC
+
+
+8. COMANDOS UTILES DEL DIA A DIA
+--------------------------------
+
+  Ver logs en vivo:
+       docker compose logs -f se-espesador
+
+  Reiniciar (mantiene config):
+       docker compose restart
+
+  Detener sin borrar:
+       docker compose stop
+       docker compose start
+
+  Borrar el contenedor (config/ se mantiene por el volumen):
+       docker compose down
+
+  Estado del healthcheck:
+       docker inspect --format='{{.State.Health.Status}}' se-espesador
+
+  Actualizar el codigo (despues de scp o git pull):
+       docker compose build
+       docker compose up -d       # reemplaza el contenedor
+
+  Entrar al contenedor para debug:
+       docker exec -it se-espesador sh
+
+
+9. SOLUCION DE PROBLEMAS
+------------------------
+
+  Sintoma                                 |  Causa probable            |  Fix
+  ----------------------------------------+---------------------------+---------
+  permission denied al correr docker      |  usuario no esta en grupo | sudo usermod -aG docker $USER && newgrp docker
+  el navegador no abre :5000              |  ufw bloqueando           | sudo ufw allow 5000/tcp
+  contenedor no llega al KEPserver        |  IP cambio o firewall     | Volver al paso 3
+  healthcheck queda en "starting"          |  todavia cargando (~20s)  | Esperar y consultar docker compose ps
+  cambios de reglas se pierden al reboot  |  bind mount ./config no   | Correr docker compose desde la carpeta correcta
+                                          |    esta activo            |
+  timestamps en logs con hora rara        |  TZ del host mal          | sudo timedatectl set-timezone America/Santiago
+  licencia se marca como "manipulada"     |  reloj del host retrocedio | sudo timedatectl set-ntp true
+
+
+10. ESTRUCTURA DEL VOLUMEN PERSISTENTE
+--------------------------------------
+
+  Todo lo que persiste vive en ./config (bind-mount en el docker-compose.yml):
+
+    ~/SE-HUTBAY-ESPESADOR-1/config/espesador/
+      kepserver.json     <- host + puerto OPC-UA (nuevo)
+      postgres.json      <- credenciales BD
+      licencia.json      <- firma HMAC + checkpoint
+      tags.json          <- catalogo de tags KEPserver
+      reglas.json        <- reglas del motor difuso
+      fuzzy.json         <- funciones de membresia
+      defuzzy.json       <- tablas Sugeno
+      variables.json     <- variables crudas y calculadas
+      permisivos.json    <- condiciones de permisivos
+      estados.json       <- estados y subestados
+      waits.json         <- catalogo de waits (cooldowns)
+      filtros.json       <- parametros filtro Exp-Q
+      tracking.json      <- config de tracking
+
+  Backup rapido antes de una prueba invasiva:
+       cd ~/SE-HUTBAY-ESPESADOR-1
+       tar -czf config-backup-$(date +%Y%m%d-%H%M).tar.gz config/
+
+  Restore:
+       tar -xzf config-backup-YYYYMMDD-HHMM.tar.gz
+
+
+11. NOTAS FINALES
+-----------------
+
+  - Esta version es de DEMO. La API/UI no tiene autenticacion; cualquiera
+    en la red puede editar reglas o parar el SE. Para produccion agregar
+    Basic Auth o reverse proxy con TLS.
+  - El SE corre con 1 solo worker de Gunicorn porque el motor mantiene
+    estado en memoria y una unica conexion OPC-UA. NO subir workers en
+    gunicorn.conf.py sin refactor previo.
+  - La licencia esta capada al 2026-10-12 con firma HMAC + checkpoint
+    monotonico. Cambiar la hora del sistema atras no la revive.

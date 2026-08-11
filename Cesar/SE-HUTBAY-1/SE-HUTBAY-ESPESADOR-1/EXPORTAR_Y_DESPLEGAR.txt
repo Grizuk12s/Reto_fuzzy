@@ -1,0 +1,391 @@
+================================================================================
+  SE-HUTBAY-ESPESADOR-1  --  Exportar y desplegar por USB (Windows -> Linux)
+  Guia paso a paso para regenerar el paquete y levantarlo en la VM
+================================================================================
+
+
+RESUMEN DEL FLUJO
+-----------------
+
+  [Windows dev] --> docker build --> docker save --> paquete/*.tar
+       |
+       v
+   [USB]
+       |
+       v
+  [Windows destino] --> scp --> [VM Linux Docker] --> docker load --> compose up
+
+
+CONTENIDO DEL PAQUETE FINAL (en C:\...\Test-conexion-Entornos\)
+--------------------------------------------------------------
+
+  se-espesador-1.0.tar     Imagen Docker autocontenida (~200 MB)
+  docker-compose.yml       Orquestacion (referencia a la imagen cargada)
+  config/                  JSONs actuales (reglas, tags, licencia, etc.)
+  LEEME.txt                Instrucciones para el que reciba el USB
+
+
+REQUISITOS EN LA WINDOWS DE DESARROLLO
+--------------------------------------
+
+  - Docker Desktop instalado y corriendo (icono en la barra activo)
+  - PowerShell 5.1+ (Windows 10/11 lo trae por default)
+  - ~2 GB libres para las imagenes
+
+
+================================================================================
+  PARTE A -- REGENERAR EL PAQUETE EN WINDOWS (PowerShell)
+================================================================================
+
+  Ejecutar todo desde PowerShell (NO cmd), en la carpeta del proyecto.
+
+
+A.1  Ir al proyecto y verificar Docker
+--------------------------------------
+
+  cd C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-1
+  docker --version
+  docker compose version
+
+
+A.2  (Opcional) Limpiar imagenes viejas
+---------------------------------------
+
+  docker images | Select-String "se-espesador"
+
+  # Si aparecen versiones viejas y quieres liberar espacio:
+  docker rmi se-espesador:latest
+  docker rmi se-hutbay-espesador-1-se-espesador:latest
+
+
+A.3  Construir la imagen con tag limpio
+---------------------------------------
+
+  # Nota: subir el numero de version cada vez (1.0, 1.1, 1.2, ...)
+  docker build -t se-espesador:1.0 .
+
+  # Verificar
+  docker images | Select-String "se-espesador"
+
+
+A.4  Preparar carpeta destino del paquete
+-----------------------------------------
+
+  $dest = "C:\Users\cvall\OneDrive\Desktop\Test-conexion-Entornos"
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+
+A.5  Exportar la imagen a .tar
+------------------------------
+
+  docker save -o "$dest\se-espesador-1.0.tar" se-espesador:1.0
+
+  # Ver tamano
+  Get-Item "$dest\se-espesador-1.0.tar" |
+      Select-Object Name, @{N='Size(MB)'; E={[math]::Round($_.Length/1MB,1)}}
+
+
+A.6  Copiar carpeta config/ (para preservar JSONs personalizados)
+----------------------------------------------------------------
+
+  # Si no la copias, la app genera defaults en el primer arranque.
+  # Si la copias, arranca con TUS reglas/tags/licencia actuales.
+
+  Copy-Item -Recurse -Force `
+      "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-1\config" `
+      "$dest\"
+
+
+A.7  Generar docker-compose.yml en la carpeta destino
+-----------------------------------------------------
+
+  @'
+services:
+  se-espesador:
+    image: se-espesador:1.0
+    container_name: se-espesador
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - KEPSERVER_URL=opc.tcp://192.168.137.1:49320
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+'@ | Set-Content -Encoding UTF8 "$dest\docker-compose.yml"
+
+
+A.8  Generar LEEME.txt breve en la carpeta destino
+--------------------------------------------------
+
+  @'
+SE-HUTBAY-ESPESADOR-1 -- Paquete offline
+
+DESPLIEGUE EN LA VM LINUX
+-------------------------
+  1. Copiar todo a /root/se-demo/ (o /home/operador/se-demo/)
+  2. cd /root/se-demo
+  3. docker load -i se-espesador-1.0.tar
+  4. docker compose up -d
+  5. Verificar: curl http://127.0.0.1:5000/health
+  6. Desde Windows: http://192.168.137.94:5000/
+
+CONFIGURACION EN LA UI
+----------------------
+  Panel "Conexion KEPserver":
+    IP     : 192.168.137.1
+    Puerto : 49320   (o el que acepto KEPserver)
+
+  Vista Postgres:
+    Host   : 192.168.137.1
+    Puerto : 5432
+    User/Password/DB: segun instalacion Postgres
+
+Los cambios persisten en ./config/ del host (bind mount).
+'@ | Set-Content -Encoding UTF8 "$dest\LEEME.txt"
+
+
+A.9  Verificar el paquete completo
+----------------------------------
+
+  Get-ChildItem $dest -Recurse |
+      Select-Object FullName, @{N='Size(MB)'; E={[math]::Round($_.Length/1MB,2)}}
+
+  # Debe listar 4 elementos:
+  #   se-espesador-1.0.tar    (~200 MB)
+  #   docker-compose.yml      (<0.01 MB)
+  #   LEEME.txt               (<0.01 MB)
+  #   config/                 (~1 MB con todos los JSON)
+
+
+================================================================================
+  PARTE B -- COPIAR AL USB
+================================================================================
+
+  # Reemplazar E: por la letra real del pendrive
+  $usb = "E:\se-demo"
+
+  New-Item -ItemType Directory -Force -Path $usb | Out-Null
+  Copy-Item -Recurse -Force "$dest\*" $usb
+
+  # Verificar
+  Get-ChildItem $usb -Recurse |
+      Select-Object FullName, @{N='Size(MB)'; E={[math]::Round($_.Length/1MB,2)}}
+
+  # Expulsar el USB de forma segura desde el explorador de Windows.
+
+
+================================================================================
+  PARTE C -- COPIAR DEL USB A LA VM LINUX (Windows destino)
+================================================================================
+
+  Insertar el USB en el Windows destino (adadministrator@10.0.10.155).
+
+
+C.1  Copiar del USB a una carpeta local
+---------------------------------------
+
+  # Desde CMD o PowerShell en el Windows destino, reemplazar E: por la letra real:
+  xcopy /E /I /Y E:\se-demo C:\Deploy\se-demo
+
+
+C.2  Transferir a la VM Linux
+-----------------------------
+
+  # Opcion 1 -- desde CMD del Windows destino usando scp (Windows 10+ lo trae):
+  scp -r C:\Deploy\se-demo root@192.168.137.94:/root/
+
+  # Opcion 2 -- si Windows destino NO tiene scp:
+  #   - Compartir la carpeta C:\Deploy\se-demo por red SMB
+  #   - Montar en la VM Linux con:
+  #     sudo mkdir -p /mnt/win
+  #     sudo mount -t cifs //10.0.10.155/se-demo /mnt/win -o username=adadministrator
+  #     cp -r /mnt/win /root/se-demo
+
+  # Opcion 3 -- el USB directamente en la VM Linux (si tiene puerto fisico):
+  #   sudo mkdir -p /mnt/usb
+  #   sudo mount /dev/sdX1 /mnt/usb        (identificar el device con lsblk)
+  #   cp -r /mnt/usb /root/se-demo
+
+
+================================================================================
+  PARTE D -- CARGAR Y LEVANTAR EN LA VM LINUX
+================================================================================
+
+  Todo esto se ejecuta EN LA VM LINUX (192.168.137.94), como root o con sudo.
+
+
+D.1  Ubicarse en la carpeta del paquete
+---------------------------------------
+
+  cd /root/se-demo
+  ls -la
+  # Debe mostrar los 4 items: .tar, docker-compose.yml, config/, LEEME.txt
+
+
+D.2  Cargar la imagen
+---------------------
+
+  docker load -i se-espesador-1.0.tar
+
+  # Debe imprimir:
+  #   Loaded image: se-espesador:1.0
+
+  # Verificar
+  docker images | grep se-espesador
+
+
+D.3  Arrancar el contenedor
+---------------------------
+
+  docker compose up -d
+  docker compose ps
+  docker compose logs -f se-espesador     # Ctrl+C para salir
+
+
+D.4  Verificar salud
+--------------------
+
+  curl http://127.0.0.1:5000/health
+
+  docker inspect --format='{{.State.Health.Status}}' se-espesador
+  # Debe salir "healthy" (puede tardar ~20 s en pasar de "starting")
+
+
+D.5  Acceder desde Windows
+--------------------------
+
+  Navegador: http://192.168.137.94:5000/
+
+
+D.6  Configurar KEPserver + Postgres desde la UI
+------------------------------------------------
+
+  Panel "Conexion KEPserver":
+    IP     : 192.168.137.1
+    Puerto : 49320       (o el que este configurado en KEPserver)
+    -> Probar conexion  -> Guardar
+
+  Vista Postgres:
+    Host   : 192.168.137.1
+    Puerto : 5432
+    User / Password / Database
+    -> Probar conexion  -> Guardar configuracion
+
+
+================================================================================
+  PARTE E -- ACTUALIZAR A UNA NUEVA VERSION (segunda vez y siguientes)
+================================================================================
+
+
+E.1  En Windows: rebuild con nueva version
+------------------------------------------
+
+  cd C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-1
+  docker build -t se-espesador:1.1 .
+
+  $dest = "C:\Users\cvall\OneDrive\Desktop\Test-conexion-Entornos"
+  docker save -o "$dest\se-espesador-1.1.tar" se-espesador:1.1
+
+
+E.2  Editar docker-compose.yml en la carpeta destino
+----------------------------------------------------
+
+  # Cambiar la linea:
+  #   image: se-espesador:1.0
+  # Por:
+  #   image: se-espesador:1.1
+
+
+E.3  Copiar SOLO el nuevo tar y el compose editado al USB
+---------------------------------------------------------
+
+  # No hace falta reenviar config/ ni LEEME.txt si no cambiaron.
+  Copy-Item -Force "$dest\se-espesador-1.1.tar" "E:\se-demo\"
+  Copy-Item -Force "$dest\docker-compose.yml"   "E:\se-demo\"
+
+
+E.4  En la VM Linux
+-------------------
+
+  cd /root/se-demo
+  docker load -i se-espesador-1.1.tar
+
+  docker compose down          # detiene el contenedor viejo
+  docker compose up -d         # levanta con la imagen 1.1
+
+  # La carpeta config/ NO se toca -> la config guardada se preserva
+
+  # (Opcional) Borrar la imagen vieja para liberar espacio
+  docker rmi se-espesador:1.0
+
+
+================================================================================
+  PARTE F -- COMANDOS UTILES EN LA VM LINUX
+================================================================================
+
+  Logs en vivo:
+       docker compose logs -f se-espesador
+
+  Reiniciar sin borrar:
+       docker compose restart
+
+  Detener sin borrar:
+       docker compose stop
+       docker compose start
+
+  Borrar contenedor (config/ se mantiene):
+       docker compose down
+
+  Estado del healthcheck:
+       docker inspect --format='{{.State.Health.Status}}' se-espesador
+
+  Entrar al contenedor para debug:
+       docker exec -it se-espesador sh
+
+  Ver imagenes cargadas:
+       docker images
+
+  Borrar imagen vieja:
+       docker rmi se-espesador:1.0
+
+  Backup de config antes de una prueba invasiva:
+       tar -czf config-backup-$(date +%Y%m%d-%H%M).tar.gz config/
+
+
+================================================================================
+  PARTE G -- SOLUCION DE PROBLEMAS COMUNES
+================================================================================
+
+  Sintoma                              |  Causa                    |  Fix
+  -------------------------------------+---------------------------+-------------
+  "no such image se-espesador:1.0"     |  El load no se ejecuto    |  docker load -i *.tar
+  Contenedor arranca y muere           |  Bind mount ./config      |  Ejecutar desde la
+  (Restarting)                         |    apuntando a nada       |  carpeta correcta
+  Navegador: sin respuesta             |  ufw activo en la VM      |  sudo ufw allow 5000/tcp
+  UI no ve KEPserver                   |  Endpoint OPC-UA          |  En KEPserver: endpoint
+                                       |    escucha en 127.0.0.1   |  en 192.168.137.1 +
+                                       |                           |  Security None (Insecure)
+  UI no ve Postgres                    |  postgresql.conf en       |  listen_addresses='*' +
+                                       |    localhost              |  pg_hba.conf +
+                                       |                           |  restart service
+  Timestamps con hora rara             |  TZ del host mal          |  sudo timedatectl
+                                       |                           |  set-timezone America/Lima
+  Licencia "manipulada"                |  Reloj retrocedio         |  sudo timedatectl
+                                       |                           |  set-ntp true
+
+
+================================================================================
+  NOTAS FINALES
+================================================================================
+
+  - La imagen es autocontenida: NO necesita internet en la VM Linux.
+  - config/ del host es la fuente de verdad (bind mount). Backup periodico.
+  - Cada version debe usar un tag distinto (1.0, 1.1, ...) para no confundirse.
+  - En la maquina Windows destino conviene tener siempre 2 versiones cargadas
+    (la actual y la anterior) por si hay que hacer rollback.

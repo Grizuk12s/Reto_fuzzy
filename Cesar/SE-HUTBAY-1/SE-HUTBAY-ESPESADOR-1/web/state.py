@@ -17,12 +17,15 @@ NO importa nada de web/api/*.py (sin dependencias circulares).
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import threading
 import time
 import traceback
 from collections import deque
+from datetime import date, datetime, timedelta
 
 from config import (
     SETPOINT_KEYS,
@@ -82,6 +85,7 @@ class AlertCollector:
         "se_engine": {"label": "Motor SE",              "color": "#a855f7", "icon": "S"},
         "generator": {"label": "Generador de Datos",    "color": "#6366f1", "icon": "G"},
         "heartbeat": {"label": "Heartbeat KEPserver",   "color": "#14b8a6", "icon": "H"},
+        "licencia":  {"label": "Licencia demo",          "color": "#dc2626", "icon": "L"},
         "config":    {"label": "Configuracion / JSON",  "color": "#ec4899", "icon": "C"},
         "general":   {"label": "Error General",         "color": "#64748b", "icon": "?"},
     }
@@ -295,8 +299,10 @@ def _definiciones_lista_a_dict(definiciones_lista: list) -> dict:
 
 import connectors.kepserver as _kep
 
-# Mantener KEPSERVER_URL como alias para compatibilidad con código existente
-KEPSERVER_URL = _kep.URL
+# Alias legacy: `KEPSERVER_URL` era una constante. Ahora se resuelve dinamicamente
+# desde el JSON de configuracion via `_kep.get_url()`.
+def KEPSERVER_URL() -> str:  # noqa: N802
+    return _kep.get_url()
 
 def _load_tags() -> dict:
     if not os.path.exists(TAGS_JSON):
@@ -308,6 +314,193 @@ def _load_tags() -> dict:
 def _save_tags(data: dict) -> None:
     with open(TAGS_JSON, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+# ============================================================
+# Licencia — helper compartido (guardas de escritura / edicion)
+# ============================================================
+# Fecha maxima duplicada aqui para evitar import circular con web/api/config.py
+# Debe coincidir con LICENCIA_FECHA_MAXIMA en web/api/config.py.
+_LICENCIA_FECHA_MAXIMA_ISO = "2026-10-12"
+
+# Clave HMAC embebida en el binario. No es "cripto real" (esta en el codigo),
+# pero previene edicion manual del JSON: cualquier cambio rompe la firma.
+_LICENSE_SECRET = b"SE-HUTBAY-ESPESADOR-PROTOTIPO-2026-K7v3PqL2xMz9NwR-h"
+_LICENSE_SIGNED_FIELDS = (
+    "active", "months", "activated_at", "expires_at",
+    "last_seen_at", "consumed_seconds", "duration_seconds",
+)
+# Tolerancia (segundos) para el retroceso del reloj. Cubre reajustes NTP normales.
+_LICENSE_CLOCK_GRACE_SEC = 60
+# Rate-limit para persistir el checkpoint (evita I/O en cada tick).
+_LICENSE_PERSIST_MIN_INTERVAL_SEC = 30
+_license_lock = threading.Lock()
+_license_last_persist_ts = 0.0
+
+
+def _license_sign(cfg: dict) -> str:
+    payload = "|".join(str(cfg.get(k, "")) for k in _LICENSE_SIGNED_FIELDS)
+    return hmac.new(_LICENSE_SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _license_verify(cfg: dict) -> bool:
+    stored = cfg.get("signature")
+    if not stored:
+        return False
+    try:
+        return hmac.compare_digest(str(stored), _license_sign(cfg))
+    except (TypeError, ValueError):
+        return False
+
+
+def _license_now_iso() -> str:
+    return datetime.now().replace(microsecond=0).isoformat()
+
+
+def _license_parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _license_check() -> dict:
+    """Estado de licencia con checkpoint monotono, contador de uso y firma HMAC.
+
+    Devuelve:
+      {"valid": bool, "expired": bool, "tampered": bool, "reason": str,
+       "expires_at": str|None, "remaining_seconds": float|None,
+       "consumed_seconds": float|None, "duration_seconds": float|None,
+       "last_seen_at": str|None}
+    """
+    global _license_last_persist_ts
+    default = {
+        "valid": False, "expired": False, "tampered": False,
+        "reason": "Sin licencia activa", "expires_at": None,
+        "remaining_seconds": None, "consumed_seconds": None,
+        "duration_seconds": None, "last_seen_at": None,
+    }
+
+    with _license_lock:
+        try:
+            if not os.path.exists(LICENCIA_JSON):
+                return default
+            with open(LICENCIA_JSON, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {**default, "reason": "Error leyendo licencia"}
+
+        if not isinstance(cfg, dict) or not cfg.get("active"):
+            return default
+
+        expires_at_str = cfg.get("expires_at")
+        activated_at_str = cfg.get("activated_at")
+        if not expires_at_str or not activated_at_str:
+            return {**default, "reason": "Licencia incompleta"}
+
+        # Migracion de formato antiguo (sin firma): computar campos faltantes y firmar.
+        if not cfg.get("signature"):
+            months = cfg.get("months")
+            if not cfg.get("duration_seconds") and isinstance(months, int) and months > 0:
+                cfg["duration_seconds"] = float(months) * 30.0 * 86400.0
+            if cfg.get("consumed_seconds") is None:
+                cfg["consumed_seconds"] = 0.0
+            if not cfg.get("last_seen_at"):
+                cfg["last_seen_at"] = _license_now_iso()
+            cfg["signature"] = _license_sign(cfg)
+            try:
+                with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2, ensure_ascii=False)
+                _license_last_persist_ts = time.time()
+            except OSError:
+                pass
+
+        # 1) Verificar firma HMAC (deteccion de edicion manual del JSON).
+        if not _license_verify(cfg):
+            return {
+                **default, "tampered": True,
+                "reason": "Firma de licencia invalida (archivo manipulado)",
+                "expires_at": expires_at_str,
+            }
+
+        try:
+            expires_dt = datetime.strptime(str(expires_at_str), "%Y-%m-%d").date()
+        except ValueError:
+            return {**default, "tampered": True, "reason": "Fecha invalida", "expires_at": expires_at_str}
+
+        now = datetime.now()
+        today = now.date()
+        activated_dt = datetime.strptime(str(activated_at_str), "%Y-%m-%d")
+        last_seen = _license_parse_dt(cfg.get("last_seen_at")) or activated_dt
+
+        # 2) Detectar retroceso del reloj del sistema.
+        if now < last_seen - timedelta(seconds=_LICENSE_CLOCK_GRACE_SEC):
+            return {
+                **default, "tampered": True,
+                "reason": (
+                    f"Reloj del sistema retrocedido: ultimo checkpoint "
+                    f"{last_seen.isoformat()}, ahora {now.replace(microsecond=0).isoformat()}"
+                ),
+                "expires_at": expires_at_str,
+                "last_seen_at": cfg.get("last_seen_at"),
+            }
+
+        # 3) Contador monotono de segundos consumidos.
+        elapsed = max(0.0, (now - last_seen).total_seconds())
+        consumed = float(cfg.get("consumed_seconds") or 0.0) + elapsed
+        duration = float(cfg.get("duration_seconds") or 0.0)
+        remaining = max(0.0, duration - consumed) if duration else None
+
+        expired_by_date = expires_dt < today
+        expired_by_usage = duration > 0 and consumed >= duration
+
+        # 4) Actualizar checkpoint + refirmar. Persistir con rate-limit.
+        cfg["last_seen_at"] = _license_now_iso()
+        cfg["consumed_seconds"] = round(consumed, 1)
+        cfg["signature"] = _license_sign(cfg)
+
+        now_ts = time.time()
+        if (now_ts - _license_last_persist_ts) >= _LICENSE_PERSIST_MIN_INTERVAL_SEC:
+            try:
+                with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2, ensure_ascii=False)
+                _license_last_persist_ts = now_ts
+            except OSError:
+                pass
+
+        if expired_by_date or expired_by_usage:
+            reason = "Licencia demo expirada por fecha" if expired_by_date else "Licencia demo expirada por uso"
+            return {
+                "valid": False, "expired": True, "tampered": False,
+                "reason": f"{reason} (expira {expires_at_str})",
+                "expires_at": expires_at_str, "remaining_seconds": 0.0,
+                "consumed_seconds": consumed, "duration_seconds": duration,
+                "last_seen_at": cfg["last_seen_at"],
+            }
+
+        return {
+            "valid": True, "expired": False, "tampered": False,
+            "reason": "", "expires_at": expires_at_str,
+            "remaining_seconds": remaining, "consumed_seconds": consumed,
+            "duration_seconds": duration, "last_seen_at": cfg["last_seen_at"],
+        }
+
+
+def _license_sign_and_save(cfg: dict) -> dict:
+    """Firma cfg y lo persiste. Usado por el flujo de activacion."""
+    global _license_last_persist_ts
+    with _license_lock:
+        cfg["signature"] = _license_sign(cfg)
+        with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        _license_last_persist_ts = time.time()
+    return cfg
+
+
+def _license_is_valid() -> bool:
+    return _license_check()["valid"]
 
 
 def _read_kepserver_tags_batch(tag_names: list[str]) -> dict[str, dict]:
@@ -473,6 +666,12 @@ class TagGenerator:
 
         _record_tag_values(tags_to_write)
 
+        lic = _license_check()
+        if not lic["valid"]:
+            self._last_error = f"Generador bloqueado: {lic['reason']}"
+            _alerts.add("licencia", f"Generador bloqueado: {lic['reason']}")
+            return
+
         try:
             _kep.write_float_batch(tags_to_write)  # IT-8: OPC-UA → connectors/kepserver.py
             self._last_error = None
@@ -585,6 +784,17 @@ class HeartbeatManager:
     def _worker(self):
         while not self._stop_event.is_set():
             try:
+                lic = _license_check()
+                if not lic["valid"]:
+                    self._last_error = f"Heartbeat bloqueado: {lic['reason']}"
+                    self._last_write_ok = False
+                    self._last_echo_ok = False
+                    _alerts.add("licencia", f"Heartbeat bloqueado: {lic['reason']}")
+                    self._last_ts = time.time()
+                    self._tick += 1
+                    self._stop_event.wait(max(0.2, float(self._cfg.get("intervalo_s", 2.0))))
+                    continue
+
                 val_out = self._next_value()
                 dtype = self._cfg.get("data_type", "Float")
                 res = _kep.write_tag(self._cfg["tag_out"], val_out, dtype)
@@ -795,6 +1005,11 @@ class SEEngine:
         """Escribe setpoints actuales al KEPserver (IT-8: OPC-UA → connectors/kepserver.py)."""
         sp_vals = {tag: float(self._setpoints.get(sp_key, 0.0)) for sp_key, tag in SP_TO_TAG.items()}
         _record_tag_values(sp_vals)
+        lic = _license_check()
+        if not lic["valid"]:
+            self._last_error = f"SE bloqueado: {lic['reason']}"
+            _alerts.add("licencia", f"Escritura SP bloqueada: {lic['reason']}")
+            return
         try:
             _kep.write_float_batch(sp_vals)
         except Exception as e:
@@ -1011,7 +1226,7 @@ def _startup_checks():
         if "no instalado" in err:
             _alerts.add("import", err, "pip install opcua")
         else:
-            _alerts.add("kep", f"KEPserver no accesible en {_kep.URL}", err)
+            _alerts.add("kep", f"KEPserver no accesible en {_kep.get_url()}", err)
 
     # 2. JSONs de configuración
     for name, path in [

@@ -17,6 +17,7 @@ from web.api.config import bp_config
 from web.api.tags import bp_tags
 from web.api.se import bp_se
 from web.api.postgres import bp_postgres
+from web.api.kepserver import bp_kep
 from web.api.views import bp_views
 
 app = Flask(__name__)
@@ -29,6 +30,7 @@ app.register_blueprint(bp_config)
 app.register_blueprint(bp_tags)
 app.register_blueprint(bp_se)
 app.register_blueprint(bp_postgres)
+app.register_blueprint(bp_kep)
 app.register_blueprint(bp_views)
 
 # Health checks al arrancar (puebla _alerts)

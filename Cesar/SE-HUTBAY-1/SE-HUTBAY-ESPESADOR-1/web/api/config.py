@@ -47,6 +47,7 @@ from web.state import (
     _load_estados, _save_estados, _defaults_estados,
     _load_waits, _save_waits, _defaults_waits,
     _definiciones_lista_a_dict,
+    _license_check, _license_sign_and_save, _license_now_iso,
 )
 
 bp_config = Blueprint("config", __name__)
@@ -77,6 +78,8 @@ def api_meta():
 
 LICENCIA_DURACIONES_VALIDAS = (3, 6, 9, 12)
 LICENCIA_CODIGO_PROTOTIPO = "HUTBAY-LIC-PROTOTIPO-2026"
+# Tope duro de vigencia: ninguna licencia puede expirar despues de esta fecha.
+LICENCIA_FECHA_MAXIMA = date(2026, 10, 12)
 
 
 def _defaults_licencia() -> dict:
@@ -86,6 +89,7 @@ def _defaults_licencia() -> dict:
         "type": "Sin licencia activa",
         "activated_at": None,
         "expires_at": None,
+        "history": [],
     }
 
 
@@ -106,7 +110,10 @@ def _load_licencia() -> dict:
         return _defaults_licencia()
     if not isinstance(data, dict):
         return _defaults_licencia()
-    return {**_defaults_licencia(), **data}
+    merged = {**_defaults_licencia(), **data}
+    if not isinstance(merged.get("history"), list):
+        merged["history"] = []
+    return merged
 
 
 def _add_months(base_date: date, months: int) -> date:
@@ -139,36 +146,87 @@ def _tipo_licencia(months: int | None) -> str:
 
 
 def _serializar_licencia(cfg: dict) -> dict:
+    # _license_check() actualiza checkpoint + consumo y persiste. Recargar para
+    # tomar los valores frescos.
+    check = _license_check()
+    cfg = _load_licencia()
+
     today = date.today()
     months = cfg.get("months")
     activated_at = _parse_iso_date(cfg.get("activated_at"))
     expires_at = _parse_iso_date(cfg.get("expires_at"))
-    active = bool(cfg.get("active")) and months in LICENCIA_DURACIONES_VALIDAS and activated_at is not None and expires_at is not None
-    expired = bool(active and expires_at < today)
+    tampered = bool(check.get("tampered"))
+    active = (
+        bool(cfg.get("active"))
+        and not tampered
+        and months in LICENCIA_DURACIONES_VALIDAS
+        and activated_at is not None
+        and expires_at is not None
+    )
+    expired = bool(check.get("expired")) or bool(active and expires_at < today)
     remaining_days = None
     remaining_text = "Sin licencia activa"
 
-    if active:
+    if active and not expired:
         delta_days = (expires_at - today).days
         remaining_days = max(delta_days, 0)
-        if expired:
-            remaining_text = "Expirada"
-        elif delta_days == 0:
+        if delta_days == 0:
             remaining_text = "Vence hoy"
         else:
             remaining_text = f"{remaining_days} dia(s)"
+    elif expired:
+        remaining_text = "Expirada"
+    elif tampered:
+        remaining_text = "Manipulada"
+
+    capped = bool(active and expires_at == LICENCIA_FECHA_MAXIMA and activated_at
+                  and _add_months(activated_at, months or 0) > LICENCIA_FECHA_MAXIMA)
+
+    history = cfg.get("history") or []
+    if not isinstance(history, list):
+        history = []
+
+    duration_seconds = float(cfg.get("duration_seconds") or 0.0)
+    consumed_seconds = float(cfg.get("consumed_seconds") or 0.0)
+    remaining_seconds = check.get("remaining_seconds")
+    if remaining_seconds is None and duration_seconds:
+        remaining_seconds = max(0.0, duration_seconds - consumed_seconds)
+    usage_percent = (
+        round(min(100.0, 100.0 * consumed_seconds / duration_seconds), 2)
+        if duration_seconds > 0 else None
+    )
+
+    if tampered:
+        status_label = "Manipulada"
+    elif active and not expired:
+        status_label = "Activa"
+    elif expired:
+        status_label = "Expirada"
+    else:
+        status_label = "Inactiva"
 
     return {
         "active": active and not expired,
         "expired": expired,
+        "tampered": tampered,
         "months": months if months in LICENCIA_DURACIONES_VALIDAS else None,
         "type": _tipo_licencia(months if active else None),
         "activated_at": _fmt_date(activated_at),
         "expires_at": _fmt_date(expires_at),
         "remaining_days": remaining_days,
         "remaining_text": remaining_text,
-        "status_label": "Activa" if active and not expired else ("Expirada" if expired else "Inactiva"),
+        "status_label": status_label,
         "requires_code": True,
+        "max_expires_at": _fmt_date(LICENCIA_FECHA_MAXIMA),
+        "capped": capped,
+        "history": history,
+        "duration_seconds": duration_seconds or None,
+        "consumed_seconds": consumed_seconds if duration_seconds else None,
+        "remaining_seconds": remaining_seconds,
+        "usage_percent": usage_percent,
+        "last_seen_at": cfg.get("last_seen_at"),
+        "signed": bool(cfg.get("signature")),
+        "reason": check.get("reason") or "",
     }
 
 
@@ -193,16 +251,64 @@ def api_activate_licencia():
         return jsonify({"error": "Activacion fallida: codigo de licencia invalido para este prototipo."}), 400
 
     activated_at = date.today()
-    expires_at = _add_months(activated_at, months)
+    if activated_at > LICENCIA_FECHA_MAXIMA:
+        return jsonify({
+            "error": f"No se pueden activar nuevas licencias despues de {LICENCIA_FECHA_MAXIMA.isoformat()}."
+        }), 400
+
+    solicited_expires = _add_months(activated_at, months)
+    effective_expires = min(solicited_expires, LICENCIA_FECHA_MAXIMA)
+    capped = solicited_expires > LICENCIA_FECHA_MAXIMA
+
+    prev = _load_licencia()
+    history = list(prev.get("history") or [])
+    if prev.get("active") and prev.get("expires_at"):
+        for h in history:
+            if h.get("status") == "Activa":
+                h["status"] = "Reemplazada"
+        history.append({
+            "activated_at": prev.get("activated_at"),
+            "months": prev.get("months"),
+            "expires_at": prev.get("expires_at"),
+            "capped": bool(prev.get("capped")),
+            "status": "Reemplazada",
+            "code_masked": "HUTBAY-***-2026",
+        })
+
+    history.append({
+        "activated_at": _fmt_date(activated_at),
+        "months": months,
+        "expires_at": _fmt_date(effective_expires),
+        "capped": capped,
+        "status": "Activa",
+        "code_masked": "HUTBAY-***-2026",
+    })
+
+    if len(history) > 50:
+        history = history[-50:]
+
+    duration_seconds = float((effective_expires - activated_at).days) * 86400.0
+
     cfg = {
         "active": True,
         "months": months,
         "type": _tipo_licencia(months),
         "activated_at": _fmt_date(activated_at),
-        "expires_at": _fmt_date(expires_at),
+        "expires_at": _fmt_date(effective_expires),
+        "capped": capped,
+        "history": history,
+        "duration_seconds": duration_seconds,
+        "consumed_seconds": 0.0,
+        "last_seen_at": _license_now_iso(),
     }
-    _save_licencia(cfg)
-    return jsonify({"ok": True, "license": _serializar_licencia(cfg)})
+    _license_sign_and_save(cfg)
+    payload = _serializar_licencia(cfg)
+    return jsonify({
+        "ok": True,
+        "license": payload,
+        "capped": capped,
+        "max_expires_at": _fmt_date(LICENCIA_FECHA_MAXIMA),
+    })
 
 
 # ============================================================

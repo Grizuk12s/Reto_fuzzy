@@ -15,6 +15,8 @@ IT-7: extraído de app.py.
 """
 from __future__ import annotations
 
+from functools import wraps
+
 from flask import Blueprint, jsonify, request
 
 from web.state import (
@@ -23,9 +25,26 @@ from web.state import (
     _record_tag_values, _get_tag_history,
     _tag_generator,
     _heartbeat,
+    _license_check,
 )
 
 bp_tags = Blueprint("tags", __name__)
+
+
+def _require_license(fn):
+    """Bloquea mutaciones (crear/editar/escribir tags) si la licencia demo expiro."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        lic = _license_check()
+        if not lic["valid"]:
+            return jsonify({
+                "error": "Licencia demo expirada o inactiva. Solo se permite lectura de tags.",
+                "license_expired": True,
+                "reason": lic["reason"],
+                "expires_at": lic["expires_at"],
+            }), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 @bp_tags.route("/api/tags", methods=["GET"])
@@ -38,6 +57,7 @@ def api_get_tags():
 
 
 @bp_tags.route("/api/tags", methods=["POST"])
+@_require_license
 def api_create_tag():
     body = request.get_json(force=True)
     name = (body.get("name") or "").strip()
@@ -59,6 +79,7 @@ def api_create_tag():
 
 
 @bp_tags.route("/api/tags/<int:tag_id>", methods=["PUT"])
+@_require_license
 def api_update_tag(tag_id: int):
     body = request.get_json(force=True)
     store = _load_tags()
@@ -85,6 +106,7 @@ def api_update_tag(tag_id: int):
 
 
 @bp_tags.route("/api/tags/<int:tag_id>", methods=["DELETE"])
+@_require_license
 def api_delete_tag(tag_id: int):
     store = _load_tags()
     before = len(store["tags"])
@@ -96,6 +118,7 @@ def api_delete_tag(tag_id: int):
 
 
 @bp_tags.route("/api/tags/<int:tag_id>/write", methods=["POST"])
+@_require_license
 def api_write_tag(tag_id: int):
     body = request.get_json(force=True)
     store = _load_tags()
@@ -126,6 +149,7 @@ def api_get_catalogs():
 
 
 @bp_tags.route("/api/tags/catalogs/<catalog_type>", methods=["POST"])
+@_require_license
 def api_manage_catalog(catalog_type: str):
     if catalog_type not in _CATALOG_TYPES:
         return jsonify({"error": "Tipo de catalogo invalido."}), 400
@@ -167,6 +191,7 @@ def api_get_simulation_mode():
 
 
 @bp_tags.route("/api/tags/simulation", methods=["PUT"])
+@_require_license
 def api_set_simulation_mode():
     body = request.get_json(force=True)
     mode = bool(body.get("simulation_mode", True))
@@ -182,6 +207,7 @@ def api_get_generator():
 
 
 @bp_tags.route("/api/tags/generator", methods=["PUT"])
+@_require_license
 def api_put_generator():
     body = request.get_json(force=True)
     _tag_generator.update_config(
@@ -193,6 +219,7 @@ def api_put_generator():
 
 
 @bp_tags.route("/api/tags/generator/start", methods=["POST"])
+@_require_license
 def api_start_generator():
     _tag_generator.start()
     return jsonify({"ok": True, "running": True})
@@ -214,6 +241,7 @@ def api_get_heartbeat():
 
 
 @bp_tags.route("/api/tags/heartbeat", methods=["PUT"])
+@_require_license
 def api_put_heartbeat():
     body = request.get_json(force=True) or {}
     tag_out = (body.get("tag_out") or "").strip()
@@ -235,6 +263,7 @@ def api_put_heartbeat():
 
 
 @bp_tags.route("/api/tags/heartbeat/start", methods=["POST"])
+@_require_license
 def api_start_heartbeat():
     _heartbeat.start()
     return jsonify({"ok": True, "running": True, **_heartbeat.status()})
