@@ -1,0 +1,17 @@
+{
+  "sp_tonelaje": {
+    "pv_key": "pv_tonelaje",
+    "rango": 1.0,
+    "habilitado": true
+  },
+  "sp_floculante": {
+    "pv_key": "pv_floculante",
+    "rango": 0.05,
+    "habilitado": true
+  },
+  "sp_vel_bomba": {
+    "pv_key": "pv_vel_bomba",
+    "rango": 0.1,
+    "habilitado": true
+  }
+}

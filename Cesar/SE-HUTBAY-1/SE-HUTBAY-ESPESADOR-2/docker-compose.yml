@@ -1,0 +1,24 @@
+services:
+  se-espesador:
+    build: .
+    container_name: se-espesador
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      # Conexión OPC-UA hacia KEPserver (en el host)
+      - KEPSERVER_URL=opc.tcp://host.docker.internal:49320
+      # Overrides opcionales de Gunicorn (los defaults viven en gunicorn.conf.py)
+      # - GUNICORN_THREADS=4
+      # - GUNICORN_TIMEOUT=120
+      # - GUNICORN_LOGLEVEL=info
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

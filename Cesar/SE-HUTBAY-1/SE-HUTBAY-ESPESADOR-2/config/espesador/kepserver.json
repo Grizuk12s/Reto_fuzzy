@@ -1,0 +1,6 @@
+{
+  "host": "host.docker.internal",
+  "port": 49320,
+  "last_status": "connected",
+  "last_message": "Conexion verificada en opc.tcp://host.docker.internal:49320"
+}

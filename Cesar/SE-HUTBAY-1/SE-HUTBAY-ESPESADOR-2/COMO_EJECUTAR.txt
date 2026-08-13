@@ -1,0 +1,194 @@
+================================================================================
+  SE-HUTBAY-ESPESADOR-1 — Guía de ejecución
+  Sistema Experto Difuso para control de Espesador
+================================================================================
+
+
+REQUISITOS
+----------
+  - Python 3.10 o superior
+  - Windows 10/11 (probado) o Linux
+  - KEPserver EX v6+ con canal RETO configurado (opcional — la app
+    arranca sin él y avisa con una alerta en la interfaz)
+
+
+1. CONFIGURAR EL ENTORNO VIRTUAL (primera vez)
+----------------------------------------------
+
+  Abrir una terminal en la carpeta del proyecto:
+    C:\...\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-1\
+
+  Crear el .venv:
+    python -m venv .venv
+
+  Activar el entorno (Windows):
+    .venv\Scripts\activate
+
+  Activar el entorno (Linux / macOS):
+    source .venv/bin/activate
+
+  Instalar dependencias:
+    pip install -r requirements.txt
+
+  Nota: el módulo 'opcua' puede tardar en compilar. Si no se necesita
+  conectar al KEPserver en este momento, puede omitirse con:
+    pip install numpy pandas flask
+
+
+2. EJECUTAR LA APLICACIÓN
+--------------------------
+
+  Con el entorno activado (.venv):
+    python app.py
+
+  La app queda disponible en:
+    http://127.0.0.1:5000/              — Editor de reglas + simulación
+    http://127.0.0.1:5000/entrada       — Entrada de datos / tags live
+    http://127.0.0.1:5000/graficos      — Gráficos en tiempo real
+    http://127.0.0.1:5000/diagrama      — Diagrama de flujo del SE
+
+
+3. EJECUCIONES POSTERIORES (entorno ya creado)
+----------------------------------------------
+
+  Windows:
+    .venv\Scripts\activate
+    python app.py
+
+  Linux / macOS:
+    source .venv/bin/activate
+    python app.py
+
+
+4. COMANDOS ÚTILES
+-------------------
+
+  Verificar que todo importa correctamente (sin lanzar el servidor):
+    python -c "import app; print('OK —', len(list(app.app.url_map.iter_rules())), 'rutas')"
+
+  Correr una simulación rápida desde consola (sin Flask):
+    python runner.py
+
+  Actualizar dependencias:
+    pip install -r requirements.txt --upgrade
+
+  Desactivar el entorno virtual:
+    deactivate
+
+
+5. ESTRUCTURA DE CARPETAS RELEVANTE
+-------------------------------------
+
+  SE-HUTBAY-ESPESADOR-1/
+  ├── app.py                    ← Punto de entrada Flask
+  ├── requirements.txt          ← Dependencias pip
+  ├── config/espesador/         ← JSONs de configuración en vivo
+  │   ├── reglas.json               Reglas del motor difuso
+  │   ├── filtros.json              Parámetros filtro Exp-Q
+  │   ├── defuzzy.json              Tablas de defuzzificación Sugeno
+  │   ├── fuzzy.json                Funciones de membresía
+  │   ├── variables.json            Variables crudas y calculadas
+  │   ├── permisivos.json           Condiciones de permisivos
+  │   ├── tags.json                 Tags KEPserver configurados
+  │   ├── estados.json              Estados y subestados del proceso
+  │   └── waits.json                Catálogo de waits (cooldowns)
+  ├── connectors/kepserver.py   ← Toda la lógica OPC-UA
+  ├── core/                     ← Motor genérico (reutilizable)
+  ├── processes/espesador/      ← Datos específicos del proceso
+  └── web/                      ← Capa Flask (blueprints + templates)
+
+
+6. CONEXIÓN CON KEPSERVER (opcional)
+--------------------------------------
+
+  El servidor OPC-UA se espera en:
+    opc.tcp://127.0.0.1:49320
+
+  Para cambiar la URL editar:
+    connectors/kepserver.py  →  URL = "opc.tcp://<host>:<puerto>"
+
+  Sin KEPserver activo la app funciona en modo simulación:
+    - Los tags muestran connected=False
+    - El Generador de Datos puede usarse para escribir valores sintéticos
+    - El SE Engine no arrancará (necesita leer PVs reales)
+
+
+7. NOTAS
+--------
+  - Los JSONs en config/espesador/ se crean automáticamente con valores
+    por defecto la primera vez que se accede a cada endpoint de la API.
+  - Los cambios en los JSONs se aplican en la siguiente simulación o
+    tick del SE Engine (sin reiniciar la app).
+  - Para resetear cualquier configuración a sus defaults usar el endpoint
+    POST /api/<recurso>/reset desde la interfaz web.
+
+
+8. DESPLIEGUE EN PRODUCCIÓN (Ubuntu + Docker + Gunicorn)
+---------------------------------------------------------
+
+  IMPORTANTE — dos entornos, dos servidores:
+
+    * Desarrollo (Windows):
+        python app.py         → Flask dev server (mono-hilo, debug ON)
+        Sin cambios respecto a la sección 2 de este documento.
+
+    * Producción (Ubuntu, contenedor):
+        gunicorn -c gunicorn.conf.py app:app   → WSGI robusto
+        El contenedor lo lanza automáticamente al hacer 'docker compose up'.
+
+  Nota: Gunicorn NO se ejecuta en Windows nativo (usa fork() de Unix).
+  Por eso el pip install de gunicorn está limitado a Linux/macOS mediante
+  el marker 'sys_platform != "win32"' en requirements.txt.
+
+  8.1  Construir y levantar el contenedor (en Ubuntu)
+  ---------------------------------------------------
+    cd /ruta/al/proyecto/SE-HUTBAY-ESPESADOR-1
+    docker compose build
+    docker compose up -d
+
+  8.2  Ver logs de Gunicorn en vivo
+  ----------------------------------
+    docker compose logs -f se-espesador
+
+  8.3  Acceder desde Windows
+  ---------------------------
+    http://<IP-del-servidor-Ubuntu>:5000/
+
+    Para obtener la IP del Ubuntu:  ip addr  o  hostname -I
+
+  8.4  Detener / reiniciar
+  -------------------------
+    docker compose stop
+    docker compose restart
+    docker compose down            (elimina el contenedor, conserva volumen)
+
+  8.5  Configuración de Gunicorn
+  -------------------------------
+    Todos los parámetros viven en:  gunicorn.conf.py
+
+    Defaults elegidos para este proyecto:
+      workers      = 1     (obligatorio: SEEngine mantiene estado en memoria
+                            y una única conexión OPC-UA hacia KEPserver)
+      worker_class = gthread
+      threads      = 4     (concurrencia HTTP dentro del único worker)
+      timeout      = 120s  (margen para ticks del SE)
+
+    Overrides puntuales por variable de entorno (docker-compose.yml):
+      GUNICORN_BIND       (default 0.0.0.0:5000)
+      GUNICORN_THREADS    (default 4)
+      GUNICORN_TIMEOUT    (default 120)
+      GUNICORN_LOGLEVEL   (default info)
+
+  8.6  Healthcheck
+  -----------------
+    Docker consulta cada 30s:  GET http://127.0.0.1:5000/health
+    Ver estado:
+      docker inspect --format='{{.State.Health.Status}}' se-espesador
+
+  8.7  KEPserver desde el contenedor
+  -----------------------------------
+    Se usa la URL:  opc.tcp://host.docker.internal:49320
+    (definida en docker-compose.yml + extra_hosts). Esto redirige al
+    KEPserver corriendo en el host Ubuntu. Si KEPserver corre en otra
+    máquina, cambiar el valor de KEPSERVER_URL en docker-compose.yml.
+

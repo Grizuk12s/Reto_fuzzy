@@ -1,0 +1,9 @@
+{
+  "host": "localhost",
+  "port": 5432,
+  "database": "ReTO",
+  "user": "ReTO_admin",
+  "password": "reto_123456",
+  "last_status": "connected",
+  "last_message": "Conexion verificada"
+}

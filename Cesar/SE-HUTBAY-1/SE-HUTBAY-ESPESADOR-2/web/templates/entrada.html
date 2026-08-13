@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prueba/Demo -- Entrada de Datos</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{display:flex;gap:8px;padding:12px 20px;background:#0b1322;border-bottom:1px solid #1e293b}
+nav a{color:#94a3b8;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:1520px;margin:0 auto;padding:24px}
+
+.page-header{margin-bottom:28px}
+.page-header h1{font-size:1.6rem;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.process-accent{background:linear-gradient(135deg,#0ea5e9,#38bdf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{color:#64748b;font-size:.85rem;line-height:1.5;max-width:800px}
+
+.stats-row{display:flex;gap:14px;margin-bottom:24px;flex-wrap:wrap}
+.stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 20px;min-width:120px;flex:1;max-width:180px}
+.stat-value{font-size:1.5rem;font-weight:800;display:block;line-height:1.2}
+.stat-label{font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.stat-value.blue{color:#38bdf8}.stat-value.green{color:#22c55e}.stat-value.amber{color:#f59e0b}.stat-value.purple{color:#a855f7}
+
+.filters-wrap{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 20px;margin-bottom:18px}
+.filter-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.filter-label{font-size:.75rem;color:#64748b;font-weight:600;min-width:65px;text-transform:uppercase;letter-spacing:.3px}
+.filter-btn{padding:5px 14px;border-radius:16px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.78rem;transition:.15s}
+.filter-btn:hover{border-color:#38bdf8;color:#e2e8f0}
+.filter-btn.active{background:#1e3a5f;border-color:#38bdf8;color:#38bdf8;font-weight:600}
+.search-box{padding:6px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.82rem;width:240px;transition:.2s}
+.search-box:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.1)}
+.search-box::placeholder{color:#475569}
+
+.tag-count{color:#64748b;font-size:.78rem;margin-bottom:8px}
+
+/* Table */
+.tbl-wrap{overflow-x:auto;border-radius:12px;border:1px solid #1e293b;background:#0f172a}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+thead{background:#0b1322;position:sticky;top:0;z-index:10}
+th{text-align:left;padding:10px 12px;color:#64748b;font-weight:600;border-bottom:1px solid #1e293b;white-space:nowrap;font-size:.72rem;text-transform:uppercase;letter-spacing:.3px}
+th.act-col{width:60px;text-align:center}
+td{padding:8px 12px;border-bottom:1px solid #1e293b15;transition:background .15s}
+tr:hover td{background:#1e293b40}
+tr.disabled-row td{opacity:.5}
+tr.disabled-row:hover td{opacity:.7}
+tr.clickable{cursor:pointer}
+
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#334155;border-radius:22px;transition:.25s}
+.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#64748b;border-radius:50%;transition:.25s}
+input:checked+.slider{background:#0ea5e9}
+input:checked+.slider:before{transform:translateX(18px);background:#fff}
+
+.tag-name-cell{font-family:'Cascadia Code','Fira Code',monospace;font-weight:600;font-size:.8rem;color:#e2e8f0}
+.edit-icon{color:#475569;margin-left:6px;font-size:.7rem;opacity:0;transition:.15s}
+tr:hover .edit-icon{opacity:1;color:#38bdf8}
+
+.proc-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.65rem;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.proc-espesadores{background:rgba(14,165,233,.12);color:#0ea5e9;border:1px solid rgba(14,165,233,.25)}
+
+.meta-cell{font-size:.78rem;color:#94a3b8;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.meta-cell.has-val{color:#e2e8f0;font-weight:500}
+.meta-badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:.68rem;font-weight:600}
+.meta-badge.inst{background:rgba(251,146,60,.1);color:#fb923c;border:1px solid rgba(251,146,60,.2)}
+.meta-badge.unit{background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.2)}
+.meta-badge.eqp{background:rgba(20,184,166,.1);color:#14b8a6;border:1px solid rgba(20,184,166,.2)}
+.meta-empty{color:#334155;font-size:.72rem;font-style:italic}
+
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.status-dot.ok{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.4)}
+.status-dot.missing{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.4)}
+.status-dot.off{background:#475569}
+.status-text{font-size:.73rem;color:#94a3b8}
+.val-cell{font-family:'Cascadia Code','Fira Code',monospace;font-weight:600;font-size:.83rem}
+.val-cell.no-data{color:#475569;font-style:italic;font-weight:400;font-size:.76rem}
+
+/* Modal */
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:500;display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#1e293b;border:1px solid #334155;border-radius:16px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid #334155}
+.modal-header h3{font-size:1rem;color:#e2e8f0;font-weight:700}
+.modal-close{background:none;border:none;color:#64748b;font-size:1.4rem;cursor:pointer;padding:4px 8px;border-radius:6px;transition:.15s}
+.modal-close:hover{background:#334155;color:#e2e8f0}
+.modal-body{padding:20px 24px}
+.modal-footer{padding:16px 24px 20px;border-top:1px solid #334155;display:flex;justify-content:flex-end;gap:10px}
+
+.field{margin-bottom:18px}
+.field-label{display:block;font-size:.75rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px}
+.field-tag-name{font-family:'Cascadia Code','Fira Code',monospace;font-size:.9rem;color:#38bdf8;font-weight:700;padding:8px 0}
+
+.field input[type="text"]{width:100%;padding:8px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.85rem;transition:.2s}
+.field input[type="text"]:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.1)}
+.field-hint{font-size:.68rem;color:#475569;margin-top:4px}
+.field-error{font-size:.7rem;color:#ef4444;margin-top:4px;display:none}
+
+.cat-field{display:flex;gap:8px;align-items:stretch}
+.cat-select{flex:1;padding:8px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.85rem;appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2364748b'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.cat-select:focus{outline:none;border-color:#38bdf8}
+.cat-select option{background:#0f172a;color:#e2e8f0}
+.cat-btn{padding:8px 12px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.78rem;transition:.15s;white-space:nowrap;font-weight:600}
+.cat-btn:hover{border-color:#38bdf8;color:#e2e8f0;background:#0f172a}
+.cat-btn.add{color:#22c55e;border-color:rgba(34,197,94,.3)}
+.cat-btn.add:hover{background:rgba(34,197,94,.1);border-color:#22c55e}
+.cat-btn.del{color:#f87171;border-color:rgba(239,68,68,.3)}
+.cat-btn.del:hover{background:rgba(239,68,68,.1);border-color:#ef4444}
+
+.add-inline{display:none;gap:6px;margin-top:8px;align-items:center}
+.add-inline.show{display:flex}
+.add-inline input{flex:1;padding:7px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.82rem}
+.add-inline input:focus{outline:none;border-color:#38bdf8}
+.add-inline button{padding:7px 14px;border-radius:6px;border:none;cursor:pointer;font-size:.78rem;font-weight:600}
+.add-inline .ok-btn{background:#22c55e;color:#fff}
+.add-inline .ok-btn:hover{background:#16a34a}
+.add-inline .cancel-btn{background:#334155;color:#94a3b8}
+.add-inline .cancel-btn:hover{background:#475569;color:#e2e8f0}
+
+.cat-items{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.cat-item-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:.68rem;color:#94a3b8;background:#0f172a;border:1px solid #1e293b}
+.cat-item-count{font-weight:700;color:#64748b}
+
+.modal-btn{padding:8px 20px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:.82rem;font-weight:600;transition:.15s}
+.modal-btn:hover{border-color:#475569;color:#e2e8f0}
+.modal-btn.primary{background:#0ea5e9;border-color:#0ea5e9;color:#fff}
+.modal-btn.primary:hover{background:#0284c7}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 20px;font-size:.82rem;color:#e2e8f0;box-shadow:0 8px 32px rgba(0,0,0,.4);transition:transform .3s,opacity .3s;opacity:0;z-index:600;display:flex;align-items:center;gap:8px}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada" class="active">Entrada de Datos</a>
+  <a href="/espesador/graficos">Explorador de Series</a>
+  <a href="/espesador/diagrama">Diagrama de Flujo</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
+</nav>
+<div class="container">
+
+<div class="page-header">
+  <h1>Entrada de datos <span class="process-accent">PRUEBA DEMO</span></h1>
+  <p class="subtitle">Selecciona y configura los tags del proceso. Haz click en un tag para asignar pseudonimo, instrumento, unidad de ingenieria y equipo.</p>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card"><span class="stat-value blue" id="statTotal">0</span><span class="stat-label">Tags totales</span></div>
+  <div class="stat-card"><span class="stat-value green" id="statActive">0</span><span class="stat-label">Activos</span></div>
+  <div class="stat-card"><span class="stat-value amber" id="statNamed">0</span><span class="stat-label">Con pseudonimo</span></div>
+  <div class="stat-card"><span class="stat-value purple" id="statEquip">0</span><span class="stat-label">Con equipo</span></div>
+</div>
+
+<div class="filters-wrap">
+  <div class="filter-row">
+    <span class="filter-label">Proceso:</span>
+    <button class="filter-btn active" data-pf="all" onclick="setFilter('pf','all',this)">Todos</button>
+    <button class="filter-btn" data-pf="espesadores" onclick="setFilter('pf','espesadores',this)">Prueba/Demo</button>
+    <button class="filter-btn" data-pf="compartido" onclick="setFilter('pf','compartido',this)">Compartido</button>
+    <span style="color:#334155;margin:0 4px">|</span>
+    <span class="filter-label" style="min-width:auto">Estado:</span>
+    <button class="filter-btn active" data-ef="all" onclick="setFilter('ef','all',this)">Todos</button>
+    <button class="filter-btn" data-ef="active" onclick="setFilter('ef','active',this)">Activos</button>
+    <button class="filter-btn" data-ef="inactive" onclick="setFilter('ef','inactive',this)">Inactivos</button>
+    <span style="flex:1"></span>
+    <input type="text" class="search-box" id="searchBox" placeholder="Buscar tag o pseudonimo..." oninput="applyFilters()">
+  </div>
+</div>
+<div class="tag-count" id="tagCount"></div>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr>
+  <th class="act-col">Activo</th>
+  <th>Variable</th>
+  <th>Proceso</th>
+  <th>Instrumento</th>
+  <th>Unidad Ing.</th>
+  <th>Equipo</th>
+  <th>Estado</th>
+  <th>Valor</th>
+</tr></thead>
+<tbody id="tagsBody"></tbody>
+</table>
+</div>
+</div>
+
+<!-- Edit modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+<div class="modal">
+  <div class="modal-header">
+    <h3 id="modalTitle">Editar Tag</h3>
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+  </div>
+  <div class="modal-body">
+    <div class="field">
+      <span class="field-label">Tag</span>
+      <div class="field-tag-name" id="mTagName"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Pseudonimo</span>
+      <input type="text" id="mPseudonimo" placeholder="Nombre fantasia unico...">
+      <div class="field-hint">Debe ser unico entre todos los tags</div>
+      <div class="field-error" id="mPseudErr"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Instrumento</span>
+      <div class="cat-field">
+        <select class="cat-select" id="mInstrumento"><option value="">— Sin asignar —</option></select>
+        <button class="cat-btn add" onclick="showAddInline('inst')">+ Nuevo</button>
+        <button class="cat-btn del" onclick="removeCatalogItem('instrumentos','mInstrumento')">Eliminar</button>
+      </div>
+      <div class="add-inline" id="addInst">
+        <input type="text" id="addInstVal" placeholder="Nuevo instrumento..." onkeydown="if(event.key==='Enter')addCatalogItem('instrumentos','addInstVal','mInstrumento','addInst')">
+        <button class="ok-btn" onclick="addCatalogItem('instrumentos','addInstVal','mInstrumento','addInst')">Crear</button>
+        <button class="cancel-btn" onclick="hideAddInline('addInst')">X</button>
+      </div>
+      <div class="cat-items" id="catInstItems"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Unidad de Ingenieria</span>
+      <div class="cat-field">
+        <select class="cat-select" id="mUnidadIng"><option value="">— Sin asignar —</option></select>
+        <button class="cat-btn add" onclick="showAddInline('unit')">+ Nuevo</button>
+        <button class="cat-btn del" onclick="removeCatalogItem('unidades_ing','mUnidadIng')">Eliminar</button>
+      </div>
+      <div class="add-inline" id="addUnit">
+        <input type="text" id="addUnitVal" placeholder="Nueva unidad..." onkeydown="if(event.key==='Enter')addCatalogItem('unidades_ing','addUnitVal','mUnidadIng','addUnit')">
+        <button class="ok-btn" onclick="addCatalogItem('unidades_ing','addUnitVal','mUnidadIng','addUnit')">Crear</button>
+        <button class="cancel-btn" onclick="hideAddInline('addUnit')">X</button>
+      </div>
+      <div class="cat-items" id="catUnitItems"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Equipo</span>
+      <div class="cat-field">
+        <select class="cat-select" id="mEquipo"><option value="">— Sin asignar —</option></select>
+        <button class="cat-btn add" onclick="showAddInline('eqp')">+ Nuevo</button>
+        <button class="cat-btn del" onclick="removeCatalogItem('equipos','mEquipo')">Eliminar</button>
+      </div>
+      <div class="add-inline" id="addEqp">
+        <input type="text" id="addEqpVal" placeholder="Nuevo equipo..." onkeydown="if(event.key==='Enter')addCatalogItem('equipos','addEqpVal','mEquipo','addEqp')">
+        <button class="ok-btn" onclick="addCatalogItem('equipos','addEqpVal','mEquipo','addEqp')">Crear</button>
+        <button class="cancel-btn" onclick="hideAddInline('addEqp')">X</button>
+      </div>
+      <div class="cat-items" id="catEqpItems"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="modal-btn" onclick="closeModal()">Cancelar</button>
+    <button class="modal-btn primary" onclick="saveTag()">Guardar</button>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"><span id="toastIcon"></span><span id="toastMsg"></span></div>
+
+<script>
+let allTags = [];
+let catalogs = {instrumentos:[], unidades_ing:[], equipos:[]};
+let filters = {pf:'all', ef:'all'};
+let editingTag = null;
+let pollTimer = null;
+let toastTimeout = null;
+
+function displayName(tag) {
+  return tag.pseudonimo || tag.name;
+}
+
+function showToast(msg, icon) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  document.getElementById('toastIcon').textContent = icon || '';
+  t.classList.add('show');
+  if (toastTimeout) clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+async function fetchData() {
+  const [tagsRes, catRes] = await Promise.all([fetch('/api/entrada'), fetch('/api/tags/catalogs')]);
+  allTags = await tagsRes.json();
+  catalogs = await catRes.json();
+  renderTable();
+  updateStats();
+}
+
+function updateStats() {
+  document.getElementById('statTotal').textContent = allTags.length;
+  document.getElementById('statActive').textContent = allTags.filter(t => t.enabled).length;
+  document.getElementById('statNamed').textContent = allTags.filter(t => t.pseudonimo).length;
+  document.getElementById('statEquip').textContent = allTags.filter(t => t.equipo).length;
+}
+
+function setFilter(type, val, btn) {
+  filters[type] = val;
+  document.querySelectorAll('[data-' + type + ']').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  let visible = 0;
+  document.querySelectorAll('#tagsBody tr').forEach(row => {
+    const name = row.dataset.name.toLowerCase();
+    const pseudo = (row.dataset.pseudo || '').toLowerCase();
+    const procs = (row.dataset.procs || '').split(',');
+    const enabled = row.dataset.enabled === 'true';
+    let show = true;
+    if (filters.pf === 'compartido' && procs.length < 2) show = false;
+    else if (filters.pf !== 'all' && filters.pf !== 'compartido' && !procs.includes(filters.pf)) show = false;
+    if (filters.ef === 'active' && !enabled) show = false;
+    if (filters.ef === 'inactive' && enabled) show = false;
+    if (search && !name.includes(search) && !pseudo.includes(search)) show = false;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('tagCount').textContent = visible + ' de ' + allTags.length + ' tags';
+}
+
+function countUsage(field, val) {
+  if (!val) return 0;
+  return allTags.filter(t => t[field] === val).length;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tagsBody');
+  tbody.innerHTML = '';
+  allTags.forEach(tag => {
+    const tr = document.createElement('tr');
+    tr.className = 'clickable' + (tag.enabled ? '' : ' disabled-row');
+    tr.dataset.name = tag.name;
+    tr.dataset.pseudo = tag.pseudonimo || '';
+    tr.dataset.procs = tag.processes.join(',');
+    tr.dataset.enabled = tag.enabled;
+    tr.dataset.id = tag.id;
+
+    const valStr = (tag.value != null) ? parseFloat(tag.value).toFixed(3) : 'Sin datos';
+    const valCls = (tag.value != null) ? 'val-cell' : 'val-cell no-data';
+    let stDot, stTxt;
+    if (!tag.enabled) { stDot = 'off'; stTxt = 'Inactivo'; }
+    else if (tag.exists) { stDot = 'ok'; stTxt = 'Conectado'; }
+    else { stDot = 'missing'; stTxt = 'No encontrado'; }
+
+    const proc = tag.enabled ? '<span class="proc-badge proc-espesadores">PD</span>' : '<span class="meta-empty">—</span>';
+    const inst = tag.instrumento ? '<span class="meta-badge inst">' + tag.instrumento + '</span>' : '<span class="meta-empty">—</span>';
+    const unit = tag.unidad_ing ? '<span class="meta-badge unit">' + tag.unidad_ing + '</span>' : '<span class="meta-empty">—</span>';
+    const eqp = tag.equipo ? '<span class="meta-badge eqp">' + tag.equipo + '</span>' : '<span class="meta-empty">—</span>';
+
+    const dName = displayName(tag);
+    const tagSubtitle = tag.pseudonimo ? '<div style="font-size:.68rem;color:#64748b;font-weight:400;font-family:\'Cascadia Code\',\'Fira Code\',monospace;margin-top:2px">' + tag.name + '</div>' : '';
+
+    tr.innerHTML =
+      '<td style="text-align:center" onclick="event.stopPropagation()"><label class="switch"><input type="checkbox" ' + (tag.enabled ? 'checked' : '') + ' onchange="toggleTag(' + tag.id + ',this.checked,this)"><span class="slider"></span></label></td>' +
+      '<td class="tag-name-cell">' + dName + tagSubtitle + '<span class="edit-icon">&#9998;</span></td>' +
+      '<td class="proc-cell">' + proc + '</td>' +
+      '<td>' + inst + '</td>' +
+      '<td>' + unit + '</td>' +
+      '<td>' + eqp + '</td>' +
+      '<td><span class="status-dot ' + stDot + '"></span><span class="status-text">' + stTxt + '</span></td>' +
+      '<td class="' + valCls + '">' + valStr + '</td>';
+
+    tr.addEventListener('click', () => openModal(tag.id));
+    tbody.appendChild(tr);
+  });
+  applyFilters();
+}
+
+/* Toggle enabled */
+async function toggleTag(tagId, enabled, el) {
+  try {
+    const res = await fetch('/api/tags/' + tagId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled})});
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    const tag = allTags.find(t => t.id === tagId);
+    if (tag) tag.enabled = enabled;
+    renderTable();
+    updateStats();
+    showToast(enabled ? 'Tag activado' : 'Tag desactivado', enabled ? '✔' : '✖');
+  } catch (e) { el.checked = !enabled; showToast('Error: ' + e.message, '⚠'); }
+}
+
+/* Modal */
+function populateSelect(selectId, items, currentVal) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '<option value="">— Sin asignar —</option>';
+  items.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item; opt.textContent = item;
+    if (item === currentVal) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function renderCatalogUsage(containerId, catalogType, field) {
+  const container = document.getElementById(containerId);
+  const items = catalogs[catalogType] || [];
+  if (items.length === 0) { container.innerHTML = ''; return; }
+  container.innerHTML = items.map(item => {
+    const cnt = countUsage(field, item);
+    return '<span class="cat-item-badge">' + item + ' <span class="cat-item-count">(' + cnt + ')</span></span>';
+  }).join('');
+}
+
+function openModal(tagId) {
+  editingTag = allTags.find(t => t.id === tagId);
+  if (!editingTag) return;
+  document.getElementById('modalTitle').textContent = 'Editar: ' + displayName(editingTag);
+  document.getElementById('mTagName').textContent = editingTag.name;
+  document.getElementById('mPseudonimo').value = editingTag.pseudonimo || '';
+  document.getElementById('mPseudErr').style.display = 'none';
+
+  populateSelect('mInstrumento', catalogs.instrumentos || [], editingTag.instrumento);
+  populateSelect('mUnidadIng', catalogs.unidades_ing || [], editingTag.unidad_ing);
+  populateSelect('mEquipo', catalogs.equipos || [], editingTag.equipo);
+
+  renderCatalogUsage('catInstItems', 'instrumentos', 'instrumento');
+  renderCatalogUsage('catUnitItems', 'unidades_ing', 'unidad_ing');
+  renderCatalogUsage('catEqpItems', 'equipos', 'equipo');
+
+  document.querySelectorAll('.add-inline').forEach(el => el.classList.remove('show'));
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  editingTag = null;
+}
+
+async function saveTag() {
+  if (!editingTag) return;
+  const pseudo = document.getElementById('mPseudonimo').value.trim();
+  const errEl = document.getElementById('mPseudErr');
+
+  if (pseudo) {
+    const dup = allTags.find(t => t.id !== editingTag.id && t.pseudonimo && t.pseudonimo.toLowerCase() === pseudo.toLowerCase());
+    if (dup) { errEl.textContent = 'Ya existe: "' + pseudo + '" en ' + displayName(dup); errEl.style.display = 'block'; return; }
+  }
+  errEl.style.display = 'none';
+
+  const body = {
+    pseudonimo: pseudo,
+    instrumento: document.getElementById('mInstrumento').value,
+    unidad_ing: document.getElementById('mUnidadIng').value,
+    equipo: document.getElementById('mEquipo').value
+  };
+
+  try {
+    const res = await fetch('/api/tags/' + editingTag.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    Object.assign(editingTag, body);
+    renderTable();
+    updateStats();
+    closeModal();
+    showToast('Tag actualizado: ' + displayName(editingTag), '✔');
+  } catch (e) { showToast('Error: ' + e.message, '⚠'); }
+}
+
+/* Catalog management */
+function showAddInline(type) {
+  const ids = {inst:'addInst', unit:'addUnit', eqp:'addEqp'};
+  document.getElementById(ids[type]).classList.add('show');
+  const inputIds = {inst:'addInstVal', unit:'addUnitVal', eqp:'addEqpVal'};
+  document.getElementById(inputIds[type]).focus();
+}
+function hideAddInline(id) { document.getElementById(id).classList.remove('show'); }
+
+async function addCatalogItem(catalogType, inputId, selectId, inlineId) {
+  const input = document.getElementById(inputId);
+  const val = input.value.trim();
+  if (!val) return;
+  try {
+    const res = await fetch('/api/tags/catalogs/' + catalogType, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add', value:val})});
+    const data = await res.json();
+    if (data.error) { showToast(data.error, '⚠'); return; }
+    catalogs[catalogType] = data.items;
+    input.value = '';
+    hideAddInline(inlineId);
+
+    const currentVal = document.getElementById(selectId).value;
+    populateSelect(selectId, catalogs[catalogType], val);
+
+    const fieldMap = {instrumentos:'instrumento', unidades_ing:'unidad_ing', equipos:'equipo'};
+    const containerMap = {instrumentos:'catInstItems', unidades_ing:'catUnitItems', equipos:'catEqpItems'};
+    renderCatalogUsage(containerMap[catalogType], catalogType, fieldMap[catalogType]);
+    showToast('Creado: ' + val, '✔');
+  } catch (e) { showToast('Error al crear', '⚠'); }
+}
+
+async function removeCatalogItem(catalogType, selectId) {
+  const sel = document.getElementById(selectId);
+  const val = sel.value;
+  if (!val) { showToast('Selecciona un item para eliminar', '⚠'); return; }
+  const fieldMap = {instrumentos:'instrumento', unidades_ing:'unidad_ing', equipos:'equipo'};
+  const cnt = countUsage(fieldMap[catalogType], val);
+  if (cnt > 0 && !confirm('Se eliminara "' + val + '" y se quitara de ' + cnt + ' tag(s). Continuar?')) return;
+  try {
+    const res = await fetch('/api/tags/catalogs/' + catalogType, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'remove', value:val})});
+    const data = await res.json();
+    if (data.error) { showToast(data.error, '⚠'); return; }
+    catalogs[catalogType] = data.items;
+    allTags.forEach(t => { if (t[fieldMap[catalogType]] === val) t[fieldMap[catalogType]] = ''; });
+    populateSelect(selectId, catalogs[catalogType], '');
+    const containerMap = {instrumentos:'catInstItems', unidades_ing:'catUnitItems', equipos:'catEqpItems'};
+    renderCatalogUsage(containerMap[catalogType], catalogType, fieldMap[catalogType]);
+    renderTable();
+    updateStats();
+    showToast('Eliminado: ' + val, '✖');
+  } catch (e) { showToast('Error al eliminar', '⚠'); }
+}
+
+/* Polling */
+async function pollUpdate() {
+  try {
+    const res = await fetch('/api/entrada');
+    const data = await res.json();
+    const rows = document.querySelectorAll('#tagsBody tr');
+    data.forEach((tag, i) => {
+      if (!rows[i]) return;
+      allTags[i].value = tag.value;
+      allTags[i].exists = tag.exists;
+      allTags[i].enabled = tag.enabled;
+      const valTd = rows[i].querySelector('.val-cell');
+      if (valTd) {
+        if (tag.value != null) { valTd.textContent = parseFloat(tag.value).toFixed(3); valTd.classList.remove('no-data'); }
+        else { valTd.textContent = 'Sin datos'; valTd.classList.add('no-data'); }
+      }
+    });
+  } catch (e) {}
+}
+
+fetchData().then(() => { pollTimer = setInterval(pollUpdate, 3000); });
+
+const _ACATS = ALERT_CATEGORIES_JSON;
+async function _pollAlerts() {
+  try {
+    const r = await fetch('/api/alerts'); const d = await r.json();
+    const el = document.getElementById('alertFloat'); const cnt = d.alerts.length;
+    el.querySelector('.af-count').textContent = cnt;
+    el.style.borderColor = cnt > 0 ? '#ef4444' : '#22c55e';
+    el.querySelector('.af-count').style.background = cnt > 0 ? '#ef4444' : '#22c55e';
+    const body = el.querySelector('.af-body');
+    body.innerHTML = cnt === 0 ? '<div style="color:#22c55e;font-size:.8rem;padding:8px">Sin alertas</div>'
+      : d.alerts.map(a => { const cat = _ACATS[a.category]||_ACATS.general; return '<div style="padding:6px 0;border-bottom:1px solid #1e293b;font-size:.78rem"><span style="color:'+cat.color+';font-weight:600">'+cat.icon+'</span> '+a.message+'</div>'; }).join('');
+  } catch(e){}
+}
+_pollAlerts(); setInterval(_pollAlerts, 10000);
+</script>
+
+<div id="alertFloat" style="position:fixed;bottom:16px;right:16px;background:#0b1322;border:2px solid #22c55e;border-radius:12px;z-index:200;cursor:pointer;min-width:36px;transition:.2s" onclick="this.classList.toggle('open')">
+  <div style="display:flex;align-items:center;gap:6px;padding:6px 10px">
+    <span class="af-count" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#22c55e;color:#fff;font-size:.72rem;font-weight:700">0</span>
+    <span style="color:#94a3b8;font-size:.78rem">Alertas</span>
+  </div>
+  <div class="af-body" style="display:none;padding:4px 12px 8px 12px;max-height:250px;overflow-y:auto"></div>
+</div>
+<style>#alertFloat.open{width:320px}#alertFloat.open .af-body{display:block}</style>
+</body>
+</html>
