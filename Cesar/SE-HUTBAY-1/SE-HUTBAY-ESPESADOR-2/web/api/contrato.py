@@ -65,12 +65,15 @@ def contrato_vigente() -> dict:
             "variables_proceso": list(cfg_mod.VARIABLES_PROCESO_DEFAULT),
             "setpoints": list(cfg_mod.SETPOINT_KEYS_DEFAULT),
             "descripciones": {},
+            "limites_sp": {},
         }
     return {
         "variables_proceso": list(data.get("variables_proceso")
                                   or cfg_mod.VARIABLES_PROCESO_DEFAULT),
         "setpoints": list(data.get("setpoints") or cfg_mod.SETPOINT_KEYS_DEFAULT),
         "descripciones": data.get("descripciones") or {},
+        # Limites de ingenieria por SP: es lo que clipea la escritura al DCS.
+        "limites_sp": data.get("limites_sp") or {},
     }
 
 
@@ -178,10 +181,17 @@ def analizar_impacto(nuevo: dict) -> dict:
     if not nuevo["setpoints"]:
         errores.append("El contrato debe tener al menos un setpoint.")
 
+    # Un SP sin limites declarados no se clipea al escribir al DCS. No es
+    # bloqueante para guardar el contrato (la UI todavia no edita el campo),
+    # pero el motor se niega a arrancar asi.
+    sp_sin_limites = [s for s in nuevo["setpoints"]
+                      if s not in (nuevo.get("limites_sp") or {})]
+
     return {
         "quitadas": quitadas_detalle,
         "agregadas": {"pv": sorted(agregadas_pv), "sp": sorted(agregadas_sp)},
         "faltantes_nuevas": faltantes_nuevas,
+        "sp_sin_limites": sp_sin_limites,
         "reglas_impactadas": total_reglas,
         "n_reglas_impactadas": len(total_reglas),
         "errores": errores,
@@ -217,6 +227,35 @@ def _normalizar(data: dict) -> tuple[dict | None, str | None]:
     out["descripciones"] = {
         str(k): str(v) for k, v in (data.get("descripciones") or {}).items()
     }
+
+    # Limites de SP. Se validan aqui y no en el motor porque un limite mal
+    # puesto (invertido, no numerico) se traduce en escrituras sin tope al
+    # DCS; mejor rechazar el guardado que descubrirlo en planta.
+    # Si el payload NO trae la clave, se conserva lo guardado. La UI todavia
+    # no edita este campo, y sin esto cualquier guardado desde la pagina
+    # borraria los limites en silencio — que es justo el modo de falla
+    # peligroso: el SE seguiria corriendo, pero escribiendo sin tope.
+    if "limites_sp" not in data:
+        limites = contrato_vigente().get("limites_sp") or {}
+    else:
+        limites = data.get("limites_sp") or {}
+    if not isinstance(limites, dict):
+        return None, "'limites_sp' debe ser un objeto { <setpoint>: [min, max] }."
+    lim_out = {}
+    for sp, par in limites.items():
+        sp = str(sp).strip()
+        if sp not in out["setpoints"]:
+            return None, f"'{sp}' tiene limites pero no es un setpoint del contrato."
+        if not isinstance(par, (list, tuple)) or len(par) != 2:
+            return None, f"'{sp}': los limites deben ser [min, max]."
+        try:
+            lo, hi = float(par[0]), float(par[1])
+        except (TypeError, ValueError):
+            return None, f"'{sp}': los limites deben ser numericos."
+        if lo >= hi:
+            return None, f"'{sp}': el minimo ({lo}) debe ser menor que el maximo ({hi})."
+        lim_out[sp] = [lo, hi]
+    out["limites_sp"] = lim_out
     return out, None
 
 
@@ -240,8 +279,17 @@ def api_get_contrato():
         if problemas:
             salud.append({"variable": v, "problemas": problemas})
 
+    # Que le falta a cada PV/SP del contrato para ser usable de verdad
+    filtros = _leer_json(FILTROS_JSON, {}) or {}
+    defuzzy = _leer_json(os.path.join(_CFG_DIR, "defuzzy.json"), {}) or {}
+    sug = _sugerencia_desde_tags()
+
     return jsonify({
         "actual": actual,
+        "sugerido": {"variables_proceso": sug["variables_proceso"],
+                     "setpoints": sug["setpoints"]},
+        "colisiones": sug["colisiones"],
+        "sin_defuzzy": [s for s in actual["setpoints"] if s not in defuzzy],
         "defaults": {
             "variables_proceso": list(cfg_mod.VARIABLES_PROCESO_DEFAULT),
             "setpoints": list(cfg_mod.SETPOINT_KEYS_DEFAULT),
@@ -250,6 +298,127 @@ def api_get_contrato():
         "salud": salud,
         "crudas": list(cfg_mod.VARIABLES_CRUDAS_REQUERIDAS),
         "aviso_reinicio": True,
+    })
+
+
+def _sugerencia_desde_tags() -> dict:
+    """Propone el contrato leyendo los tags PV y SP.
+
+    El contrato sigue siendo una lista MANUAL y editable — puede cambiar por
+    cliente, o desaparecer del producto. Pero llenarlo a mano contra nombres
+    de otra planta no tiene sentido, asi que se ofrece esta propuesta como
+    punto de partida: PV = identificadores de los tags PV, SP = idem con SP.
+    """
+    from web.api.config import entradas_pv_disponibles, salidas_sp_disponibles
+
+    pv_items, colisiones = entradas_pv_disponibles()
+    sp_items = salidas_sp_disponibles()
+    pv = list(dict.fromkeys(i["identificador"] for i in pv_items))
+    sp = list(dict.fromkeys(s["identificador"] for s in sp_items))
+
+    # Cruce PV/SP: el mismo identificador en ambos lados. Pasa cuando dos
+    # tags distintos (la medicion y el setpoint) comparten pseudonimo.
+    # Es bloqueante: el motor no sabria si esa variable se lee o se escribe.
+    cruce = {}
+    for ident in set(pv) & set(sp):
+        cruce[ident] = {
+            "pv": [i["tag"] for i in pv_items if i["identificador"] == ident],
+            "sp": [s["tag"] for s in sp_items if s["identificador"] == ident],
+        }
+
+    return {
+        "variables_proceso": pv,
+        "setpoints": sp,
+        "descripciones": {**{i["identificador"]: i["pseudonimo"] for i in pv_items},
+                          **{s["identificador"]: s["pseudonimo"] for s in sp_items}},
+        "colisiones": colisiones,
+        "cruce_pv_sp": cruce,
+    }
+
+
+def _asignar_roles_automaticos(contrato: dict) -> list[dict]:
+    """Pone rol = su propio identificador a los tags PV y SP del contrato.
+
+    Solo PV y SP: para un tag de esas categorias, el rol es el identificador
+    que el mismo genera, asi que pedirlo a mano seria burocracia.
+    Los LIM se dejan en paz a proposito: cual PV acota un limite es
+    informacion real que nadie puede adivinar del nombre.
+    """
+    from web.api.config import entradas_pv_disponibles, salidas_sp_disponibles
+
+    ident_por_tag = {}
+    pv_items, _ = entradas_pv_disponibles()
+    for i in pv_items:
+        ident_por_tag[i["tag"]] = ("pv", i["identificador"])
+    for s in salidas_sp_disponibles():
+        ident_por_tag[s["tag"]] = ("sp", s["identificador"])
+
+    validos = {"pv": set(contrato["variables_proceso"]), "sp": set(contrato["setpoints"])}
+
+    store = _load_tags()
+    asignados = []
+    for t in store.get("tags", []):
+        par = ident_por_tag.get(t.get("name"))
+        if not par:
+            continue
+        cat, ident = par
+        if ident in validos[cat] and t.get("rol") != ident:
+            t["rol"] = ident
+            asignados.append({"tag": t["name"], "rol": ident})
+    if asignados:
+        _save_tags(store)
+    return asignados
+
+
+@bp_contrato.route("/api/contrato/sincronizar", methods=["POST"])
+def api_sincronizar_contrato():
+    """Propone (o aplica) el contrato derivado de los tags PV y SP.
+
+    Sin `confirmar` devuelve la propuesta y su impacto para revisar.
+    Con `confirmar=true` lo guarda y asigna los roles de PV y SP.
+    """
+    body = request.get_json(force=True) if request.data else {}
+    sug = _sugerencia_desde_tags()
+
+    if sug["cruce_pv_sp"]:
+        detalle = []
+        for ident, quienes in sug["cruce_pv_sp"].items():
+            detalle.append(f"'{ident}': PV {quienes['pv']} y SP {quienes['sp']}")
+        return jsonify({
+            "error": ("Hay tags de PV y de SP que generan el mismo identificador, "
+                      "asi que el motor no sabria si esa variable se lee o se escribe. "
+                      "Cambia el pseudonimo de uno de ellos y vuelve a sincronizar. "
+                      + " | ".join(detalle)),
+            "cruce_pv_sp": sug["cruce_pv_sp"],
+            "colisiones": sug["colisiones"],
+        }), 409
+
+    propuesta = {
+        "variables_proceso": sug["variables_proceso"],
+        "setpoints": sug["setpoints"],
+        "descripciones": sug["descripciones"],
+    }
+    norm, error = _normalizar(propuesta)
+    if error:
+        return jsonify({"error": error}), 400
+
+    impacto = analizar_impacto(norm)
+    if not (body or {}).get("confirmar"):
+        return jsonify({"propuesta": norm, "impacto": impacto,
+                        "colisiones": sug["colisiones"], "aplicado": False})
+
+    if impacto["errores"]:
+        return jsonify({"error": " ".join(impacto["errores"]), "impacto": impacto}), 400
+
+    _guardar_contrato(norm)
+    asignados = _asignar_roles_automaticos(norm)
+    return jsonify({
+        "aplicado": True, "contrato": norm, "impacto": impacto,
+        "roles_asignados": asignados,
+        "colisiones": sug["colisiones"],
+        "aviso": ("Contrato sincronizado y roles de PV/SP asignados. "
+                  "Los LIM siguen requiriendo enlace manual. "
+                  "Reinicia la aplicacion para que el nucleo tome la nueva lista."),
     })
 
 

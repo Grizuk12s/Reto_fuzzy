@@ -30,7 +30,7 @@ from config import (
     VARIABLES_PROCESO,
     VARIABLES_CRUDAS_REQUERIDAS,
 )
-from core.filters.exp_q import CONFIG_FILTRO_ESPESADOR_DEFAULT
+from core.filters.exp_q import CONFIG_FILTRO_ESPESADOR_DEFAULT, PERIODO_LEGACY_S
 from fuzzys_models_espesador import FUZZY_MODELOS
 from calculos_variables import DEFINICIONES_CALCULADAS, VARIABLES_CRUDAS
 from permisivos import PERMISIVOS
@@ -43,7 +43,9 @@ from web.state import (
     VARIABLES_DISPONIBLES, ETIQUETAS_DISPONIBLES, ACCIONES_DISPONIBLES,
     BLOQUES_DISPONIBLES, PERMISIVOS_DISPONIBLES, WAITS_CATALOGO_DISPONIBLES,
     VARIABLES_VALIDAS, ETIQUETAS_VALIDAS, ACCIONES_VALIDAS, BLOQUES_VALIDOS,
-    ESTADOS_SERIALIZADOS, DEFUZZY_POR_FAMILIA,
+    etiquetas_disponibles, etiquetas_validas,
+    acciones_disponibles, acciones_validas,
+    ESTADOS_SERIALIZADOS,
     _load_estados, _save_estados, _defaults_estados,
     _load_waits, _save_waits, _defaults_waits,
     _definiciones_lista_a_dict,
@@ -62,8 +64,12 @@ def api_meta():
     from web.state import _load_waits as _lw
     return jsonify({
         "variables":   VARIABLES_DISPONIBLES,
-        "etiquetas":   ETIQUETAS_DISPONIBLES,
-        "acciones":    ACCIONES_DISPONIBLES,
+        # Incluye las filas de fuzzy.json: el editor de reglas tiene que
+        # ofrecer las etiquetas que el operador acaba de crear.
+        "etiquetas":   etiquetas_disponibles(),
+        # Mismo criterio que las etiquetas: salen de defuzzy.json en cada
+        # request, para que una accion recien creada aparezca sin reiniciar.
+        "acciones":    acciones_disponibles(),
         "bloques":     BLOQUES_DISPONIBLES,
         "permisivos":  PERMISIVOS_DISPONIBLES,
         "setpoints":   list(SETPOINT_KEYS),
@@ -364,7 +370,7 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
             l = str(leaf[1]).strip().upper()
             if v not in VARIABLES_VALIDAS:
                 return None, f"{ctx}: variable invalida '{v}'."
-            if l not in ETIQUETAS_VALIDAS:
+            if l not in etiquetas_validas():
                 return None, f"{ctx}: etiqueta invalida '{l}'."
             return [v, l], None
 
@@ -404,7 +410,7 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
         etiqueta = str(leaf[1]).strip().upper()
         if variable not in VARIABLES_VALIDAS:
             return None, f"{ctx}: variable invalida '{variable}'."
-        if etiqueta not in ETIQUETAS_VALIDAS:
+        if etiqueta not in etiquetas_validas():
             return None, f"{ctx}: etiqueta invalida '{etiqueta}'."
         return [variable, etiqueta], None
 
@@ -450,18 +456,67 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
     acciones = regla.get("then")
     if not isinstance(acciones, list) or not acciones:
         return None, "Campo 'then' debe ser una lista no vacia."
+    # Las acciones se validan contra defuzzy.json en cada guardado, no contra
+    # una foto del import: si el operador acaba de crear la columna, la regla
+    # que la usa tiene que poder guardarse sin reiniciar el servicio.
+    validas = acciones_validas()
+
+    def _validar_accion(nombre_crudo, idx: int) -> tuple[str | None, str | None]:
+        nombre = str(nombre_crudo or "").strip().upper()
+        if not nombre:
+            return None, (f"Accion sin asignar en then #{idx}. Elegi una accion del "
+                          "defuzzy antes de guardar la regla.")
+        if nombre not in validas:
+            if not validas:
+                return None, (f"Accion invalida en then #{idx}: '{nombre}'. No hay ninguna "
+                              "accion definida: creala primero en la pagina Defuzzy.")
+            return None, (f"Accion invalida en then #{idx}: '{nombre}'. No existe en el "
+                          f"defuzzy. Disponibles: {sorted(validas)}.")
+        return nombre, None
+
+    def _validar_waits(accion: dict, idx: int) -> str | None:
+        """Un wait sin wait_id o sin duracion revienta el motor en cada tick.
+
+        El motor ahora aisla la regla rota, pero igual queda muerta. Se valida
+        aca para que no se pueda guardar de entrada.
+        """
+        for campo in ("waits", "reiniciar_waits"):
+            lista = accion.get(campo) or []
+            if isinstance(lista, dict):
+                lista = [lista]
+            if not isinstance(lista, list):
+                return f"then #{idx}: '{campo}' debe ser una lista de waits."
+            for j, w in enumerate(lista, start=1):
+                if not isinstance(w, dict):
+                    return f"then #{idx}, {campo} #{j}: cada wait es un objeto."
+                if not str(w.get("wait_id") or "").strip():
+                    return f"then #{idx}, {campo} #{j}: falta 'wait_id'."
+                try:
+                    dur = float(w.get("duracion_s"))
+                except (TypeError, ValueError):
+                    return (f"then #{idx}, {campo} #{j} ('{w.get('wait_id')}'): "
+                            "falta 'duracion_s' o no es numerica. Sin duracion el "
+                            "motor no puede evaluar la regla.")
+                if dur < 0:
+                    return (f"then #{idx}, {campo} #{j}: 'duracion_s' debe ser >= 0 "
+                            f"(valor recibido: {dur}).")
+        return None
+
     acciones_norm = []
     for idx, accion in enumerate(acciones, start=1):
         if isinstance(accion, dict) and "accion" in accion:
-            accion_nombre = str(accion["accion"]).strip().upper()
-            if accion_nombre not in ACCIONES_VALIDAS:
-                return None, f"Accion invalida en then #{idx}: '{accion_nombre}'."
+            accion_nombre, err = _validar_accion(accion["accion"], idx)
+            if err is not None:
+                return None, err
+            err = _validar_waits(accion, idx)
+            if err is not None:
+                return None, err
             accion["accion"] = accion_nombre
             acciones_norm.append(accion)
         else:
-            accion_norm = str(accion).strip().upper()
-            if accion_norm not in ACCIONES_VALIDAS:
-                return None, f"Accion invalida en then #{idx}: '{accion_norm}'."
+            accion_norm, err = _validar_accion(accion, idx)
+            if err is not None:
+                return None, err
             acciones_norm.append(accion_norm)
     regla["then"] = acciones_norm
 
@@ -554,6 +609,12 @@ def api_toggle_regla(regla_id: str):
 VARIABLES_FILTRO = list(VARIABLES_PROCESO)
 VARIABLES_FILTRO_SET = set(VARIABLES_FILTRO)
 
+# La ventana del filtro se mide en SEGUNDOS DE PROCESO, no en muestras: con
+# el SEEngine en ciclo libre el numero de muestras por segundo lo fija la
+# latencia de OPC-UA y cambia tick a tick.
+VENTANA_S_MIN = 0.1
+VENTANA_S_MAX = 3600.0
+
 
 def _defaults_filtros() -> dict:
     return {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
@@ -565,6 +626,7 @@ def _save_filtros(cfg: dict) -> None:
 
 
 def _load_filtros() -> dict:
+    """Config de filtros. Un objeto vacio es un estado VALIDO (sin PV aun)."""
     if not os.path.exists(FILTROS_JSON):
         cfg = _defaults_filtros()
         _save_filtros(cfg)
@@ -574,34 +636,77 @@ def _load_filtros() -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         return _defaults_filtros()
-    if not isinstance(data, dict) or not data:
+    if not isinstance(data, dict):
         return _defaults_filtros()
-    return data
+    return _migrar_filtros(data)
+
+
+def _migrar_filtros(data: dict) -> dict:
+    """Traduce entradas viejas {q, window_size} a {q, ventana_s}.
+
+    No reescribe el archivo: la migracion se persiste recien cuando el
+    operador guarda desde la pagina. Asi un rollback del codigo se sigue
+    encontrando el filtros.json que dejo.
+    """
+    out: dict = {}
+    for var, cfg in data.items():
+        if not isinstance(cfg, dict):
+            out[var] = cfg
+            continue
+        if "ventana_s" in cfg or "window_size" not in cfg:
+            out[var] = cfg
+            continue
+        nuevo = {k: v for k, v in cfg.items() if k != "window_size"}
+        try:
+            nuevo["ventana_s"] = int(cfg["window_size"]) * PERIODO_LEGACY_S
+        except (TypeError, ValueError):
+            out[var] = cfg
+            continue
+        nuevo["migrado_de_window_size"] = int(cfg["window_size"])
+        out[var] = nuevo
+    return out
 
 
 def _normalizar_filtros_payload(data: dict) -> tuple[dict | None, str | None]:
-    if not isinstance(data, dict) or not data:
-        return None, "El payload debe ser un objeto no vacio { var: {q, window_size}, ... }."
+    """Valida la config de filtros.
+
+    Las variables filtrables salen de los tags de categoria PV, que cambian
+    por cliente; ya no se exigen contra una lista fija del espesador.
+    Un payload vacio es valido.
+    """
+    if not isinstance(data, dict):
+        return None, "El payload debe ser un objeto { var: {q, ventana_s}, ... }."
+
+    items, _ = entradas_pv_disponibles()
+    validas = {i["identificador"] for i in items} | set(VARIABLES_FILTRO_SET)
+
     norm: dict = {}
     for var, cfg in data.items():
         var_s = str(var).strip()
-        if var_s not in VARIABLES_FILTRO_SET:
-            return None, f"Variable '{var_s}' no es filtrable. Validas: {sorted(VARIABLES_FILTRO_SET)}."
+        if validas and var_s not in validas:
+            return None, (f"'{var_s}' no corresponde a ningun tag de categoria PV. "
+                          f"Validas: {sorted(validas)}.")
         if not isinstance(cfg, dict):
-            return None, f"'{var_s}': la entrada debe ser un objeto con campos 'q' y 'window_size'."
+            return None, f"'{var_s}': la entrada debe ser un objeto con campos 'q' y 'ventana_s'."
         try:
             q = float(cfg.get("q"))
-            ws = int(cfg.get("window_size"))
+            # Se sigue aceptando `window_size` para que un payload viejo no
+            # rompa; se traduce a segundos con el periodo de aquel lazo.
+            if cfg.get("ventana_s") is not None:
+                ventana_s = float(cfg.get("ventana_s"))
+            elif cfg.get("window_size") is not None:
+                ventana_s = int(cfg.get("window_size")) * PERIODO_LEGACY_S
+            else:
+                return None, f"'{var_s}': falta 'ventana_s' (segundos de proceso)."
         except (TypeError, ValueError):
-            return None, f"'{var_s}': 'q' debe ser numerico y 'window_size' entero."
+            return None, f"'{var_s}': 'q' y 'ventana_s' deben ser numericos."
         if not (0.0 <= q <= 1.0):
             return None, f"'{var_s}': 'q' fuera de [0.0, 1.0] (valor recibido: {q})."
-        if ws < 1 or ws > 1000:
-            return None, f"'{var_s}': 'window_size' fuera de [1, 1000] (valor recibido: {ws})."
-        norm[var_s] = {"q": q, "window_size": ws}
-    faltantes = VARIABLES_FILTRO_SET - set(norm.keys())
-    if faltantes:
-        return None, f"Faltan variables en el payload: {sorted(faltantes)}."
+        if not (VENTANA_S_MIN <= ventana_s <= VENTANA_S_MAX):
+            return None, (f"'{var_s}': 'ventana_s' fuera de "
+                          f"[{VENTANA_S_MIN}, {VENTANA_S_MAX}] segundos "
+                          f"(valor recibido: {ventana_s}).")
+        norm[var_s] = {"q": q, "ventana_s": ventana_s}
     return norm, None
 
 
@@ -610,7 +715,17 @@ _load_filtros()  # seed perezoso
 
 @bp_config.route("/api/filtros", methods=["GET"])
 def api_get_filtros():
-    return jsonify({"variables": VARIABLES_FILTRO, "defaults": _defaults_filtros(), "actual": _load_filtros()})
+    """Filtros + catalogo de PV, para no escribir nombres a mano."""
+    items, _ = entradas_pv_disponibles()
+    actual = _load_filtros()
+    idents = {i["identificador"] for i in items}
+    return jsonify({
+        "variables": [i["identificador"] for i in items],
+        "pv": items,
+        "huerfanas": [v for v in actual if v not in idents],
+        "defaults": _defaults_filtros(),
+        "actual": actual,
+    })
 
 
 @bp_config.route("/api/filtros", methods=["PUT"])
@@ -625,16 +740,51 @@ def api_put_filtros():
 
 @bp_config.route("/api/filtros/reset", methods=["POST"])
 def api_reset_filtros():
-    cfg = _defaults_filtros()
-    _save_filtros(cfg)
-    return jsonify({"ok": True, "actual": cfg})
+    """Vacia los filtros. Ya no repuebla la plantilla del espesador."""
+    _save_filtros({})
+    return jsonify({"ok": True, "actual": {}})
+
+
+# Sintonizacion inicial de un filtro nuevo: balance entre suavizado y lag.
+# El operador la ajusta despues viendo crudo vs filtrado en la traza.
+FILTRO_NUEVO_DEFAULT = {"q": 0.15, "ventana_s": 50.0}
+
+
+@bp_config.route("/api/filtros/sincronizar", methods=["POST"])
+def api_sincronizar_filtros():
+    """Alinea las variables filtradas con los tags PV.
+
+    Importante: el filtro Exp-Q lanza KeyError si recibe una variable que no
+    esta configurada, o sea que una PV sin filtro rompe el tick. Por eso las
+    nuevas entran con una sintonizacion por defecto y no vacias.
+    """
+    actual = _load_filtros()
+    items, _ = entradas_pv_disponibles()
+    idents = [i["identificador"] for i in items]
+
+    agregadas = [i for i in idents if i not in actual]
+    quitadas = [v for v in actual if v not in idents]
+
+    nuevo = {v: c for v, c in actual.items() if v in idents}
+    for i in agregadas:
+        nuevo[i] = dict(FILTRO_NUEVO_DEFAULT)
+
+    _save_filtros(nuevo)
+    return jsonify({"ok": True, "actual": nuevo,
+                    "agregadas": agregadas, "quitadas": quitadas,
+                    "default_aplicado": FILTRO_NUEVO_DEFAULT})
 
 
 # ============================================================
 # Helpers — Defuzzy
 # ============================================================
 
-DEFUZZY_FAMILIAS = ("sp_floculante", "sp_vel_bomba", "sp_tonelaje")
+# Ya no hay familias precargadas. Las tablas del espesador antiguo
+# (sp_floculante / sp_vel_bomba / sp_tonelaje) pertenecen a otra operacion y
+# se sembraban solas cada vez que faltaba defuzzy.json, arrastrando 18
+# acciones inexistentes al editor de reglas. Las familias salen ahora de los
+# tags de categoria SP y las acciones, de las columnas que el operador crea.
+DEFUZZY_FAMILIAS: tuple = ()
 DEFUZZY_ACCIONES_KEYS = (
     "AUMENTAR_FUERTE", "AUMENTAR", "AUMENTAR_SUAVE",
     "DISMINUIR_SUAVE", "DISMINUIR", "DISMINUIR_FUERTE",
@@ -642,14 +792,8 @@ DEFUZZY_ACCIONES_KEYS = (
 
 
 def _defaults_defuzzy() -> dict:
-    out = {}
-    for fam in DEFUZZY_FAMILIAS:
-        tabla = DEFUZZY_POR_FAMILIA.get(fam, {})
-        out[fam] = {
-            "belief_axis": list(tabla.get("belief_axis", [])),
-            "steps_por_accion": {k: list(v) for k, v in tabla.get("steps_por_accion", {}).items()},
-        }
-    return out
+    """Sin plantilla: arrancar vacio es el estado correcto para un cliente nuevo."""
+    return {}
 
 
 def _save_defuzzy(cfg: dict) -> None:
@@ -658,6 +802,7 @@ def _save_defuzzy(cfg: dict) -> None:
 
 
 def _load_defuzzy() -> dict:
+    """Tablas Sugeno. Un objeto vacio es un estado VALIDO (sin familias aun)."""
     if not os.path.exists(DEFUZZY_JSON):
         cfg = _defaults_defuzzy()
         _save_defuzzy(cfg)
@@ -667,59 +812,156 @@ def _load_defuzzy() -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         return _defaults_defuzzy()
-    if not isinstance(data, dict) or not data:
+    if not isinstance(data, dict):
         return _defaults_defuzzy()
     return data
 
 
+# Nombre de accion: mayusculas, numeros y guion bajo. Es la etiqueta que
+# usan las reglas en su `then`, asi que se valida con cuidado.
+ACCION_RE = _re.compile(r"^[A-Z][A-Z0-9_]{1,60}$")
+
+# Tabla de arranque de una familia nueva: eje de belief y una accion neutra.
+DEFUZZY_NUEVA = {
+    "belief_axis": [0.0, 0.5, 1.0],
+    "steps_por_accion": {"AUMENTAR": [0.0, 0.5, 1.0]},
+}
+
+
 def _normalizar_defuzzy_payload(data: dict) -> tuple[dict | None, str | None]:
-    if not isinstance(data, dict) or not data:
-        return None, "El payload debe ser un objeto no vacio { <familia>: {...} }."
-    actual = _load_defuzzy()
-    out = _defaults_defuzzy()
-    for fam in DEFUZZY_FAMILIAS:
-        if fam in actual:
-            out[fam] = {
-                "belief_axis": list(actual[fam].get("belief_axis", out[fam]["belief_axis"])),
-                "steps_por_accion": {k: list(v) for k, v in actual[fam].get("steps_por_accion", out[fam]["steps_por_accion"]).items()},
-            }
+    """Valida las tablas Sugeno.
+
+    Las familias salen de los tags de categoria SP y los nombres de accion
+    son libres: el motor los busca directo en la tabla, ya no los parsea.
+    Un payload vacio es valido.
+    """
+    if not isinstance(data, dict):
+        return None, "El payload debe ser un objeto { <familia>: {belief_axis, steps_por_accion} }."
+
+    validas = {s["identificador"] for s in salidas_sp_disponibles()} | set(DEFUZZY_FAMILIAS)
+
+    out = {}
     for fam, tabla in data.items():
-        if fam not in DEFUZZY_FAMILIAS:
-            return None, f"Familia desconocida: '{fam}'. Validas: {list(DEFUZZY_FAMILIAS)}."
+        if validas and fam not in validas:
+            return None, (f"'{fam}' no corresponde a ningun tag de categoria SP. "
+                          f"Validas: {sorted(validas)}.")
         if not isinstance(tabla, dict):
             return None, f"'{fam}': debe ser un objeto con 'belief_axis' y 'steps_por_accion'."
+
+        # --- Eje del belief: acotado a [0,1] y creciente ---
+        # El belief es la CONVICCION con que disparo la regla, no una magnitud
+        # de proceso: por definicion va de 0.0 a 1.0. Y tiene que crecer de
+        # izquierda a derecha porque el motor interpola sobre el (np.interp
+        # con un eje desordenado devuelve basura en silencio).
         axis = tabla.get("belief_axis")
-        steps = tabla.get("steps_por_accion")
         if not isinstance(axis, list) or len(axis) < 2:
             return None, f"'{fam}': 'belief_axis' debe ser una lista con al menos 2 puntos."
         try:
             axis_f = [float(x) for x in axis]
         except (TypeError, ValueError):
             return None, f"'{fam}': 'belief_axis' contiene valores no numericos."
-        if any(x < 0.0 or x > 1.0 for x in axis_f):
-            return None, f"'{fam}': 'belief_axis' fuera de [0.0, 1.0]."
-        if any(axis_f[i] >= axis_f[i+1] for i in range(len(axis_f)-1)):
-            return None, f"'{fam}': 'belief_axis' no es estrictamente creciente."
-        n = len(axis_f)
-        if not isinstance(steps, dict):
-            return None, f"'{fam}': 'steps_por_accion' debe ser un objeto."
-        faltan = set(DEFUZZY_ACCIONES_KEYS) - set(steps.keys())
-        sobran = set(steps.keys()) - set(DEFUZZY_ACCIONES_KEYS)
-        if faltan:
-            return None, f"'{fam}': faltan acciones: {sorted(faltan)}."
-        if sobran:
-            return None, f"'{fam}': acciones desconocidas: {sorted(sobran)}."
+        for i, x in enumerate(axis_f):
+            if x < 0.0 or x > 1.0:
+                return None, (f"'{fam}': el belief va de 0.0 a 1.0 y P{i + 1} vale {x}. "
+                              "Es una conviccion, no una magnitud de proceso.")
+        for i in range(len(axis_f) - 1):
+            if axis_f[i] >= axis_f[i + 1]:
+                return None, (f"'{fam}': los puntos del belief van de menor a mayor, de "
+                              f"izquierda a derecha: P{i + 1}={axis_f[i]} y "
+                              f"P{i + 2}={axis_f[i + 1]} rompen el orden.")
+
+        steps = tabla.get("steps_por_accion")
+        if not isinstance(steps, dict) or not steps:
+            return None, f"'{fam}': 'steps_por_accion' debe tener al menos una accion."
+
         steps_norm = {}
-        for k in DEFUZZY_ACCIONES_KEYS:
-            arr = steps[k]
-            if not isinstance(arr, list) or len(arr) != n:
-                return None, f"'{fam}.{k}': debe ser una lista de {n} valores."
+        for accion, arr in steps.items():
+            acc = str(accion).strip().upper()
+            if not ACCION_RE.match(acc):
+                return None, (f"'{fam}': nombre de accion invalido '{accion}'. "
+                              "Usa mayusculas, numeros y guion bajo (ej: SUBIR_VELOCIDAD).")
+            if acc in steps_norm:
+                return None, f"'{fam}': accion duplicada '{acc}'."
+            if not isinstance(arr, list) or len(arr) != len(axis_f):
+                return None, f"'{fam}.{acc}': debe tener {len(axis_f)} valores, uno por punto del belief."
             try:
-                steps_norm[k] = [float(x) for x in arr]
+                # A DIFERENCIA del eje, los pasos NO tienen tope: estan en
+                # unidades de ingenieria del setpoint (%, t/h, g/t) y pueden
+                # ser negativos (bajar el SP). Quien acota el resultado es
+                # `limites_sp` del contrato, al clipear la escritura al DCS.
+                steps_norm[acc] = [float(x) for x in arr]
             except (TypeError, ValueError):
-                return None, f"'{fam}.{k}': contiene valores no numericos."
+                return None, f"'{fam}.{acc}': contiene valores no numericos."
         out[fam] = {"belief_axis": axis_f, "steps_por_accion": steps_norm}
+
+    # Una misma accion en dos familias haria ambiguo a que SP afecta.
+    vistos = {}
+    for fam, tabla in out.items():
+        for acc in tabla["steps_por_accion"]:
+            vistos.setdefault(acc, []).append(fam)
+    dup = {a: f for a, f in vistos.items() if len(f) > 1}
+    if dup:
+        detalle = "; ".join(f"'{a}' en {sorted(f)}" for a, f in dup.items())
+        return None, ("Una accion no puede estar en dos familias: el motor no sabria "
+                      f"que setpoint mover. {detalle}.")
+
     return out, None
+
+
+def enlaces_defuzzy() -> dict:
+    """Por familia: que reglas usan sus acciones y que fuzzys leen esas reglas.
+
+    La tabla de defuzzy es el punto donde una decision difusa se convierte en
+    un movimiento de setpoint, pero la pagina no mostraba ninguno de los dos
+    extremos del enlace: ni el tag SP que termina moviendo, ni las variables
+    difusas que lo disparan. Esto arma ese mapa:
+
+        familia (SP)  <--  accion  <--  regla  <--  variables fuzzy
+
+    Es solo para mostrar; no participa de ninguna decision.
+    """
+    from core.engine.motor import pares_de_regla
+
+    cfg = _load_defuzzy()
+    try:
+        reglas = _load_reglas()
+    except Exception:
+        reglas = []
+
+    # accion -> familia. El validador ya garantiza que una accion no este en
+    # dos familias, asi que este mapeo es univoco.
+    familia_de_accion = {}
+    for fam, tabla in cfg.items():
+        for acc in (tabla or {}).get("steps_por_accion", {}):
+            familia_de_accion[str(acc).upper()] = fam
+
+    out = {fam: {"reglas": [], "fuzzys": []} for fam in cfg}
+    for r in reglas or []:
+        rid = str(r.get("id", "?"))
+        acciones = {(a.get("accion") if isinstance(a, dict) else a)
+                    for a in (r.get("then") or [])}
+        acciones = {str(a).upper() for a in acciones if a}
+        familias = {familia_de_accion[a] for a in acciones if a in familia_de_accion}
+        if not familias:
+            continue
+        try:
+            variables = sorted({v for v, _ in pares_de_regla(r)})
+        except Exception:
+            variables = []
+        for fam in familias:
+            entrada = out.setdefault(fam, {"reglas": [], "fuzzys": []})
+            entrada["reglas"].append({
+                "id": rid,
+                "bloque": r.get("bloque", ""),
+                "acciones": sorted(a for a in acciones if familia_de_accion.get(a) == fam),
+                "variables": variables,
+            })
+            for v in variables:
+                if v not in entrada["fuzzys"]:
+                    entrada["fuzzys"].append(v)
+    for entrada in out.values():
+        entrada["fuzzys"].sort()
+    return out
 
 
 _load_defuzzy()
@@ -727,8 +969,68 @@ _load_defuzzy()
 
 @bp_config.route("/api/defuzzy", methods=["GET"])
 def api_get_defuzzy():
-    return jsonify({"familias": list(DEFUZZY_FAMILIAS), "acciones": list(DEFUZZY_ACCIONES_KEYS),
-                    "defaults": _defaults_defuzzy(), "actual": _load_defuzzy()})
+    """Tablas Sugeno + catalogo de familias SP, para no escribir nombres a mano."""
+    from config import LIMITES_SP_CONTRATO
+
+    salidas = salidas_sp_disponibles()
+    actual = _load_defuzzy()
+    idents = {s["identificador"] for s in salidas}
+    # El tag SP concreto al que escribe cada familia. La familia ES el
+    # identificador del SP, pero el operador razona en tags y pseudonimos.
+    sp_por_familia = {s["identificador"]: dict(s, limites=list(
+        LIMITES_SP_CONTRATO.get(s["identificador"], []) or []))
+        for s in salidas}
+    return jsonify({
+        "familias": sorted(actual.keys()),
+        "salidas": salidas,
+        "sin_tabla": [s["identificador"] for s in salidas if s["identificador"] not in actual],
+        "huerfanas": [f for f in actual if f not in idents],
+        "plantilla": DEFUZZY_NUEVA,
+        "acciones": list(DEFUZZY_ACCIONES_KEYS),   # sugerencias, ya no obligatorias
+        "sp_por_familia": sp_por_familia,
+        "enlaces": enlaces_defuzzy(),
+        "defaults": _defaults_defuzzy(),
+        "actual": actual,
+    })
+
+
+@bp_config.route("/api/defuzzy/<familia>", methods=["POST"])
+def api_crear_defuzzy(familia: str):
+    """Crea la tabla de una familia SP con una plantilla minima."""
+    if familia not in {s["identificador"] for s in salidas_sp_disponibles()}:
+        return jsonify({"error": f"'{familia}' no corresponde a ningun tag de categoria SP."}), 400
+    cfg = _load_defuzzy()
+    if familia in cfg:
+        return jsonify({"error": f"'{familia}' ya tiene tabla."}), 409
+    cfg[familia] = {
+        "belief_axis": list(DEFUZZY_NUEVA["belief_axis"]),
+        "steps_por_accion": {k: list(v) for k, v in DEFUZZY_NUEVA["steps_por_accion"].items()},
+    }
+    _save_defuzzy(cfg)
+    return jsonify({"ok": True, "familia": familia, "actual": cfg,
+                    "aviso": "Creada con una accion de ejemplo. Renombrala y calibra los pasos."}), 201
+
+
+@bp_config.route("/api/defuzzy/<familia>", methods=["DELETE"])
+def api_borrar_defuzzy(familia: str):
+    """Borra la tabla de una familia, informando que reglas usan sus acciones."""
+    from runner import cargar_reglas_json
+
+    cfg = _load_defuzzy()
+    if familia not in cfg:
+        return jsonify({"error": f"'{familia}' no tiene tabla."}), 404
+    acciones = set(cfg[familia].get("steps_por_accion") or {})
+    try:
+        reglas = []
+        for r in cargar_reglas_json():
+            usadas = {a["accion"] if isinstance(a, dict) else a for a in (r.get("then") or [])}
+            if usadas & acciones:
+                reglas.append(str(r.get("id", "?")))
+    except Exception:
+        reglas = []
+    del cfg[familia]
+    _save_defuzzy(cfg)
+    return jsonify({"ok": True, "actual": cfg, "reglas_afectadas": reglas})
 
 
 @bp_config.route("/api/defuzzy", methods=["PUT"])
@@ -743,9 +1045,9 @@ def api_put_defuzzy():
 
 @bp_config.route("/api/defuzzy/reset", methods=["POST"])
 def api_reset_defuzzy():
-    cfg = _defaults_defuzzy()
-    _save_defuzzy(cfg)
-    return jsonify({"ok": True, "actual": cfg})
+    """Vacia las tablas. Ya no repuebla la plantilla del espesador."""
+    _save_defuzzy({})
+    return jsonify({"ok": True, "actual": {}})
 
 
 # ============================================================
@@ -754,7 +1056,28 @@ def api_reset_defuzzy():
 
 FUZZY_VARIABLES    = tuple(FUZZY_MODELOS.keys())
 FUZZY_TIPO_POR_VAR = {v: FUZZY_MODELOS[v]["type"] for v in FUZZY_VARIABLES}
-FUZZY_LABEL_KEYS   = ("HIGH", "OK", "LOW")
+
+# Etiquetas de la PLANTILLA, no un requisito. Cada variable define sus propias
+# filas: una planta puede querer CRITICO_ALTO/ALTO/NORMAL/BAJO, o solo dos
+# etiquetas. La factory de core/fuzzy/templates.py siempre acepto conjuntos
+# arbitrarios; el limite a HIGH/OK/LOW vivia aca y en la UI.
+FUZZY_LABEL_KEYS = ("HIGH", "OK", "LOW")
+
+FUZZY_LABEL_RE = _re.compile(r"^[A-Z][A-Z0-9_]*$")
+FUZZY_LABEL_MAX = 30
+
+# Nombres que el nucleo genera o interpreta solo: si una fila se llamara asi,
+# pisaria una etiqueta derivada y la regla que la nombre no querria decir lo
+# que parece.
+#   NO-<X>                    -> lo genera expandir_etiquetas_compuestas
+#   CERCA_ALTO / CERCA_BAJO   -> idem, desde OK+HIGH y OK+LOW
+#   INC / DEC / STABLE        -> etiquetas de pendiente (pend_<var>)
+#   ON / OFF                  -> estados de permisivo
+FUZZY_LABELS_RESERVADAS = {
+    "CERCA_ALTO", "CERCA_BAJO",
+    "INC", "DEC", "STABLE",
+    "ON", "OFF",
+}
 
 
 def _defaults_fuzzy() -> dict:
@@ -775,6 +1098,7 @@ def _save_fuzzy(cfg: dict) -> None:
 
 
 def _load_fuzzy() -> dict:
+    """Config difusa. Un objeto vacio es un estado VALIDO (sin fuzzys aun)."""
     if not os.path.exists(FUZZY_JSON):
         cfg = _defaults_fuzzy()
         _save_fuzzy(cfg)
@@ -784,62 +1108,162 @@ def _load_fuzzy() -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         return _defaults_fuzzy()
-    if not isinstance(data, dict) or not data:
+    if not isinstance(data, dict):
         return _defaults_fuzzy()
     return data
 
 
-def _normalizar_fuzzy_payload(data: dict) -> tuple[dict | None, str | None]:
-    if not isinstance(data, dict) or not data:
-        return None, "El payload debe ser un objeto no vacio { <var>: {...} }."
-    actual = _load_fuzzy()
-    out = _defaults_fuzzy()
-    for var in FUZZY_VARIABLES:
-        if var in actual:
-            a = actual[var]
-            out[var] = {
-                "type":   FUZZY_TIPO_POR_VAR[var],
-                "offset": list(a.get("offset", out[var]["offset"])),
-                "labels": {k: list(a.get("labels", out[var]["labels"]).get(k, out[var]["labels"][k]))
-                           for k in FUZZY_LABEL_KEYS},
-            }
-    for var, cfg in data.items():
-        if var not in FUZZY_VARIABLES:
-            return None, f"Variable desconocida: '{var}'. Validas: {list(FUZZY_VARIABLES)}."
-        if not isinstance(cfg, dict):
-            return None, f"'{var}': debe ser un objeto con 'offset' y 'labels'."
-        offset = cfg.get("offset")
-        labels = cfg.get("labels")
-        if not isinstance(offset, list) or len(offset) < 3:
-            return None, f"'{var}': 'offset' debe ser una lista con al menos 3 puntos."
+FUZZY_TIPOS = ("high", "low", "norm")
+
+# Plantilla de arranque para un fuzzy nuevo: tres puntos, triangulo simetrico.
+# Es deliberadamente neutra; se calibra despues mirando la traza.
+FUZZY_NUEVO = {
+    "offset": [0.0, 0.5, 1.0],
+    "labels": {"HIGH": [1.0, 0.5, 0.0],
+               "OK":   [0.0, 1.0, 0.0],
+               "LOW":  [0.0, 0.5, 1.0]},
+}
+
+
+def _validar_fuzzy_spec(var: str, cfg: dict) -> tuple[dict | None, str | None]:
+    """Valida un fuzzy suelto: type, offset creciente y labels 0..1 del mismo largo."""
+    if not isinstance(cfg, dict):
+        return None, f"'{var}': debe ser un objeto con 'type', 'offset' y 'labels'."
+    tipo = str(cfg.get("type", "")).lower()
+    if tipo not in FUZZY_TIPOS:
+        return None, f"'{var}': 'type' invalido '{tipo}'. Validos: {list(FUZZY_TIPOS)}."
+    offset = cfg.get("offset")
+    if not isinstance(offset, list) or len(offset) < 3:
+        return None, f"'{var}': 'offset' debe ser una lista con al menos 3 puntos."
+    try:
+        offset_f = [float(x) for x in offset]
+    except (TypeError, ValueError):
+        return None, f"'{var}': 'offset' contiene valores no numericos."
+    if any(offset_f[i] >= offset_f[i + 1] for i in range(len(offset_f) - 1)):
+        return None, f"'{var}': 'offset' no es estrictamente creciente."
+
+    # --- Etiquetas: nombres libres, una fila cada una ---
+    labels = cfg.get("labels")
+    if not isinstance(labels, dict):
+        return None, f"'{var}': 'labels' debe ser un objeto {{ETIQUETA: [grados]}}."
+    if not labels:
+        return None, (f"'{var}': hace falta al menos una etiqueta. "
+                      "Una variable sin filas no se puede evaluar.")
+
+    labels_norm = {}
+    vistas = set()
+    for k_raw, arr in labels.items():
+        k = str(k_raw).strip().upper()
+        if not FUZZY_LABEL_RE.match(k):
+            return None, (f"'{var}': nombre de etiqueta invalido '{k_raw}'. "
+                          "Usa mayusculas, digitos y guion bajo, empezando por letra "
+                          "(ej. ALTO, CRITICO_ALTO).")
+        if len(k) > FUZZY_LABEL_MAX:
+            return None, (f"'{var}': la etiqueta '{k}' supera "
+                          f"{FUZZY_LABEL_MAX} caracteres.")
+        if k.startswith("NO_") or k.startswith("NO-"):
+            return None, (f"'{var}': '{k}' choca con las etiquetas NO-<X>, que el "
+                          "nucleo genera solo para cada etiqueta que definas.")
+        if k in FUZZY_LABELS_RESERVADAS:
+            return None, (f"'{var}': '{k}' es una etiqueta reservada del nucleo "
+                          f"(reservadas: {sorted(FUZZY_LABELS_RESERVADAS)}).")
+        if k in vistas:
+            return None, f"'{var}': etiqueta duplicada '{k}'."
+        vistas.add(k)
+
+        if not isinstance(arr, list) or len(arr) != len(offset_f):
+            return None, (f"'{var}.{k}': debe tener {len(offset_f)} valores, "
+                          "uno por punto del eje.")
         try:
-            offset_f = [float(x) for x in offset]
+            arr_f = [float(x) for x in arr]
         except (TypeError, ValueError):
-            return None, f"'{var}': 'offset' contiene valores no numericos."
-        if any(offset_f[i] >= offset_f[i+1] for i in range(len(offset_f)-1)):
-            return None, f"'{var}': 'offset' no es estrictamente creciente."
-        n = len(offset_f)
-        if not isinstance(labels, dict):
-            return None, f"'{var}': 'labels' debe ser un objeto con HIGH/OK/LOW."
-        faltan = set(FUZZY_LABEL_KEYS) - set(labels.keys())
-        sobran = set(labels.keys()) - set(FUZZY_LABEL_KEYS)
-        if faltan:
-            return None, f"'{var}': faltan etiquetas: {sorted(faltan)}."
-        if sobran:
-            return None, f"'{var}': etiquetas desconocidas: {sorted(sobran)}."
-        labels_norm = {}
-        for k in FUZZY_LABEL_KEYS:
-            arr = labels[k]
-            if not isinstance(arr, list) or len(arr) != n:
-                return None, f"'{var}.{k}': debe ser una lista de {n} valores."
-            try:
-                arr_f = [float(x) for x in arr]
-            except (TypeError, ValueError):
-                return None, f"'{var}.{k}': contiene valores no numericos."
-            if any(x < 0.0 or x > 1.0 for x in arr_f):
-                return None, f"'{var}.{k}': valores fuera de [0.0, 1.0]."
-            labels_norm[k] = arr_f
-        out[var] = {"type": FUZZY_TIPO_POR_VAR[var], "offset": offset_f, "labels": labels_norm}
+            return None, f"'{var}.{k}': contiene valores no numericos."
+        if any(x < 0.0 or x > 1.0 for x in arr_f):
+            return None, f"'{var}.{k}': los grados deben estar en [0.0, 1.0]."
+        labels_norm[k] = arr_f
+
+    return {"type": tipo, "offset": offset_f, "labels": labels_norm}, None
+
+
+def etiquetas_usadas_por_reglas() -> dict:
+    """{(variable, etiqueta): [ids de regla]} segun reglas.json.
+
+    Es lo que permite negarse a borrar o renombrar una fila que alguna regla
+    nombra, en vez de dejarla muerta en silencio.
+    """
+    from core.engine.motor import pares_de_regla
+
+    uso: dict = {}
+    try:
+        # `_load_reglas` y no `cargar_reglas_json`: hay que mirar el MISMO
+        # archivo que esta API escribe, sin el fallback a las reglas del
+        # espesador que aplica el runner cuando reglas.json no existe.
+        reglas = _load_reglas()
+    except Exception:
+        return uso
+    for r in reglas or []:
+        rid = str(r.get("id", "?"))
+        try:
+            pares = pares_de_regla(r)
+        except Exception:
+            continue
+        for var, etiqueta in pares:
+            uso.setdefault((var, etiqueta), []).append(rid)
+    return uso
+
+
+def _huerfanas_por_guardar(actual: dict, nuevo: dict) -> list[str]:
+    """Etiquetas que dejarian reglas muertas si se guardara `nuevo`.
+
+    Una regla que dice ("nivel_hopper", "OK") deja de ser evaluable si el
+    fuzzy de nivel_hopper pierde la fila OK — la haya perdido por borrado o
+    por renombre, que desde el JSON es lo mismo. Solo se miran variables que
+    el payload realmente toca.
+    """
+    uso = etiquetas_usadas_por_reglas()
+    if not uso:
+        return []
+    problemas = []
+    for var, spec in nuevo.items():
+        if var not in actual:
+            continue
+        antes = set((actual.get(var) or {}).get("labels", {}).keys())
+        despues = set((spec or {}).get("labels", {}).keys())
+        for etiqueta in sorted(antes - despues):
+            reglas = uso.get((var, etiqueta)) or []
+            # Tambien cuenta el uso via NO-<X>, que es derivada de la etiqueta.
+            reglas = reglas + (uso.get((var, f"NO-{etiqueta}")) or [])
+            if reglas:
+                problemas.append(
+                    f"'{var}.{etiqueta}' la usan las reglas: "
+                    + ", ".join(sorted(set(reglas))))
+    return problemas
+
+
+def _normalizar_fuzzy_payload(data: dict) -> tuple[dict | None, str | None]:
+    """Valida la config difusa completa.
+
+    Las variables ya no se exigen contra la lista del espesador: son las que
+    tu definas (identificadores de tags PV). El `type` viaja en el payload,
+    porque con variables arbitrarias no hay tipo hardcodeado que consultar.
+    Un payload vacio es valido.
+    """
+    if not isinstance(data, dict):
+        return None, "El payload debe ser un objeto { <var>: {type, offset, labels} }."
+
+    items, _ = entradas_pv_disponibles()
+    validas = {i["identificador"] for i in items} | set(FUZZY_VARIABLES)
+
+    out = {}
+    for var, cfg in data.items():
+        var_s = str(var).strip()
+        if validas and var_s not in validas:
+            return None, (f"'{var_s}' no corresponde a ningun tag de categoria PV. "
+                          f"Validas: {sorted(validas)}.")
+        spec, error = _validar_fuzzy_spec(var_s, cfg)
+        if error is not None:
+            return None, error
+        out[var_s] = spec
     return out, None
 
 
@@ -848,25 +1272,109 @@ _load_fuzzy()
 
 @bp_config.route("/api/fuzzy", methods=["GET"])
 def api_get_fuzzy():
-    return jsonify({"variables": list(FUZZY_VARIABLES), "tipo_por_var": FUZZY_TIPO_POR_VAR,
-                    "label_keys": list(FUZZY_LABEL_KEYS), "defaults": _defaults_fuzzy(), "actual": _load_fuzzy()})
+    """Config difusa + catalogo de PV, para no escribir nombres a mano."""
+    items, _ = entradas_pv_disponibles()
+    actual = _load_fuzzy()
+    idents = {i["identificador"] for i in items}
+    return jsonify({
+        "variables": sorted(actual.keys()),
+        "pv": items,
+        "sin_fuzzy": [i["identificador"] for i in items if i["identificador"] not in actual],
+        "huerfanas": [v for v in actual if v not in idents],
+        "tipos": list(FUZZY_TIPOS),
+        "plantilla": FUZZY_NUEVO,
+        # `label_keys` queda como la PLANTILLA para filas nuevas. Las
+        # etiquetas reales son por variable: cada fuzzy define las suyas.
+        "label_keys": list(FUZZY_LABEL_KEYS),
+        "labels_por_variable": {v: list((c or {}).get("labels", {}).keys())
+                                for v, c in actual.items()},
+        "reservadas": sorted(FUZZY_LABELS_RESERVADAS),
+        "uso_en_reglas": {f"{var}|{et}": ids
+                          for (var, et), ids in etiquetas_usadas_por_reglas().items()},
+        "defaults": _defaults_fuzzy(),
+        "actual": actual,
+    })
+
+
+@bp_config.route("/api/fuzzy/<var>", methods=["POST"])
+def api_crear_fuzzy(var: str):
+    """Crea el fuzzy de una PV con una plantilla neutra y el tipo elegido.
+
+    El tipo define contra que limite se mide el offset:
+      high -> lmax - pv   |  low -> pv - lmin  |  norm -> (pv-lmin)/(lmax-lmin)
+    """
+    body = request.get_json(force=True) or {}
+    tipo = str(body.get("type", "norm")).lower()
+    if tipo not in FUZZY_TIPOS:
+        return jsonify({"error": f"'type' invalido. Validos: {list(FUZZY_TIPOS)}."}), 400
+
+    items, _ = entradas_pv_disponibles()
+    if var not in {i["identificador"] for i in items}:
+        return jsonify({"error": f"'{var}' no corresponde a ningun tag de categoria PV."}), 400
+
+    cfg = _load_fuzzy()
+    if var in cfg:
+        return jsonify({"error": f"'{var}' ya tiene fuzzy definido."}), 409
+
+    cfg[var] = {"type": tipo,
+                "offset": list(FUZZY_NUEVO["offset"]),
+                "labels": {k: list(v) for k, v in FUZZY_NUEVO["labels"].items()}}
+    _save_fuzzy(cfg)
+    return jsonify({"ok": True, "var": var, "actual": cfg,
+                    "aviso": "Creado con una plantilla neutra. Calibralo antes de usarlo."}), 201
+
+
+@bp_config.route("/api/fuzzy/<var>", methods=["DELETE"])
+def api_borrar_fuzzy(var: str):
+    """Borra el fuzzy de una variable, informando que reglas la nombran."""
+    from core.engine.motor import variables_de_regla
+    from runner import cargar_reglas_json
+
+    cfg = _load_fuzzy()
+    if var not in cfg:
+        return jsonify({"error": f"'{var}' no tiene fuzzy definido."}), 404
+    try:
+        reglas = [str(r.get("id", "?")) for r in cargar_reglas_json()
+                  if var in variables_de_regla(r) or f"pend_{var}" in variables_de_regla(r)]
+    except Exception:
+        reglas = []
+    del cfg[var]
+    _save_fuzzy(cfg)
+    return jsonify({"ok": True, "actual": cfg, "reglas_afectadas": reglas})
 
 
 @bp_config.route("/api/fuzzy", methods=["PUT"])
 def api_put_fuzzy():
     data = request.get_json(force=True)
+    # Se saca ANTES de normalizar: el normalizador rechaza cualquier clave que
+    # no sea una variable PV valida.
+    forzar = bool(data.pop("__forzar__", False)) if isinstance(data, dict) else False
+
     norm, error = _normalizar_fuzzy_payload(data)
     if error is not None:
         return jsonify({"error": error}), 400
+
+    # Fallar ruidoso, nunca adivinar: si el guardado dejaria reglas muertas
+    # porque desaparece una etiqueta que nombran, no se guarda. `__forzar__`
+    # existe para el caso en que se quieran borrar reglas y fuzzy a la vez.
+    if not forzar:
+        problemas = _huerfanas_por_guardar(_load_fuzzy(), norm)
+        if problemas:
+            return jsonify({
+                "error": ("No se guardo: el cambio dejaria reglas sin la etiqueta "
+                          "que nombran. " + " | ".join(problemas)),
+                "huerfanas": problemas,
+            }), 409
+
     _save_fuzzy(norm)
     return jsonify({"ok": True, "actual": norm})
 
 
 @bp_config.route("/api/fuzzy/reset", methods=["POST"])
 def api_reset_fuzzy():
-    cfg = _defaults_fuzzy()
-    _save_fuzzy(cfg)
-    return jsonify({"ok": True, "actual": cfg})
+    """Vacia la config difusa. Ya no repuebla la plantilla del espesador."""
+    _save_fuzzy({})
+    return jsonify({"ok": True, "actual": {}})
 
 
 # ============================================================
@@ -926,11 +1434,16 @@ def _normalizar_variables_payload(data: dict) -> tuple[dict | None, str | None]:
     if not isinstance(defs, list):
         return None, "'definiciones' debe ser una lista ordenada."
     crudas_norm: dict[str, str] = {}
+    # Las entradas se eligen del catalogo de PV registradas, asi que llamarse
+    # como una PV es lo esperado, no un choque. Lo que si sigue prohibido son
+    # los nombres derivados que el nucleo fabrica solo: pend_x, x_lmin, x_lmax
+    # y t_s. Si el usuario definiera uno de esos, pisaria un valor calculado.
+    _reservados_duros = VAR_NOMBRES_RESERVADOS - set(VARIABLES_PROCESO)
     for nombre, descr in crudas.items():
         if not isinstance(nombre, str) or not VAR_NOMBRE_RE.match(nombre):
-            return None, f"crudas: nombre invalido '{nombre}'."
-        if nombre in VAR_NOMBRES_RESERVADOS:
-            return None, f"crudas: '{nombre}' choca con un nombre reservado del nucleo."
+            return None, f"entradas: nombre invalido '{nombre}'."
+        if nombre in _reservados_duros:
+            return None, f"entradas: '{nombre}' choca con un nombre reservado del nucleo."
         crudas_norm[nombre] = str(descr) if descr is not None else ""
     refs_disponibles = set(crudas_norm.keys()) | set(VARIABLES_PROCESO) | {"t_s"}
     defs_norm: list[dict] = []
@@ -983,6 +1496,134 @@ def _normalizar_variables_payload(data: dict) -> tuple[dict | None, str | None]:
 
 
 _load_variables()
+
+
+def slug_identificador(texto: str) -> str:
+    """Convierte una etiqueta libre en un identificador valido para el nucleo.
+
+    El identificador es lo que ven las reglas, los filtros y los modelos
+    difusos. Se genera UNA VEZ al crear la variable y despues queda
+    congelado: si siguiera al pseudonimo, cambiar una etiqueta para que se
+    lea mejor romperia en silencio todas las reglas que la nombran.
+    """
+    s = _re.sub(r"[^a-z0-9]+", "_", (texto or "").strip().lower()).strip("_")
+    if not s:
+        return ""
+    if s[0].isdigit():
+        s = "v_" + s
+    return s[:49]
+
+
+def entradas_pv_disponibles() -> tuple[list[dict], dict]:
+    """Tags de categoria PV, con su identificador derivado del pseudonimo.
+
+    Devuelve (items, colisiones). Dos senales distintas con el mismo
+    identificador se fusionarian silenciosamente en una sola variable, asi
+    que las colisiones se reportan para avisar antes de elegir.
+    """
+    from web.state import _load_tags
+
+    items, vistos = [], {}
+    for t in _load_tags().get("tags", []):
+        if t.get("categoria") != "pv" or not t.get("enabled", True):
+            continue
+        nombre = t["name"]
+        ultimo = nombre.split(".")[-1]
+        pseudo = (t.get("pseudonimo") or "").strip() or ultimo
+        ident = slug_identificador(pseudo) or slug_identificador(ultimo)
+        vistos.setdefault(ident, []).append(nombre)
+        items.append({
+            "tag": nombre,
+            "pseudonimo": pseudo,
+            "unidad": t.get("unidad_ing", ""),
+            "equipo": t.get("equipo", ""),
+            "identificador": ident,
+        })
+
+    colisiones = {k: v for k, v in vistos.items() if len(v) > 1}
+    for it in items:
+        it["colision"] = it["identificador"] in colisiones
+    return items, colisiones
+
+
+@bp_config.route("/api/variables/entradas-disponibles", methods=["GET"])
+def api_entradas_disponibles():
+    """Tags de categoria PV que pueden usarse como entrada del SE."""
+    items, colisiones = entradas_pv_disponibles()
+    ya_usados = set((_load_variables().get("crudas") or {}).keys())
+    for it in items:
+        it["ya_usado"] = it["identificador"] in ya_usados
+    return jsonify({"entradas": items, "colisiones": colisiones})
+
+
+@bp_config.route("/api/variables/renombrar", methods=["POST"])
+def api_renombrar_variable():
+    """Renombra el identificador de una entrada, con reporte de impacto.
+
+    Renombrar SI tiene consecuencias (a diferencia de editar el pseudonimo),
+    asi que es una accion aparte y exige confirmacion explicita.
+    """
+    from core.engine.motor import variables_de_regla
+    from runner import cargar_reglas_json
+
+    body = request.get_json(force=True) or {}
+    viejo = str(body.get("viejo") or "").strip()
+    nuevo = slug_identificador(body.get("nuevo") or "")
+
+    cfg = _load_variables()
+    crudas = cfg.get("crudas") or {}
+    if viejo not in crudas:
+        return jsonify({"error": f"'{viejo}' no existe entre las entradas."}), 404
+    if not nuevo:
+        return jsonify({"error": "El nuevo identificador es invalido."}), 400
+    if nuevo != viejo and nuevo in crudas:
+        return jsonify({"error": f"'{nuevo}' ya esta en uso."}), 409
+    if nuevo in VAR_NOMBRES_RESERVADOS - set(VARIABLES_PROCESO):
+        return jsonify({"error": f"'{nuevo}' es un nombre reservado del nucleo."}), 400
+
+    # Quien lo referencia hoy
+    defs_afectadas = []
+    for d in cfg.get("definiciones", []) or []:
+        refs = set(d.get("args") or [])
+        if d.get("arg"):
+            refs.add(d["arg"])
+        if viejo in refs:
+            defs_afectadas.append(d.get("nombre", "?"))
+    try:
+        reglas_afectadas = [
+            str(r.get("id", "?")) for r in cargar_reglas_json()
+            if viejo in variables_de_regla(r) or f"pend_{viejo}" in variables_de_regla(r)
+        ]
+    except Exception:
+        reglas_afectadas = []
+
+    impacto = {
+        "definiciones": defs_afectadas,
+        "reglas": reglas_afectadas,
+        "requiere_confirmacion": bool(defs_afectadas or reglas_afectadas),
+    }
+    if not body.get("confirmar"):
+        return jsonify({"impacto": impacto, "aplicado": False,
+                        "aviso": "Reenvia con confirmar=true para aplicar."}), 200
+
+    # Aplicar: se renombra en las entradas y en las definiciones. Las REGLAS
+    # no se reescriben solas -- tocar condiciones de reglas automaticamente es
+    # demasiado riesgo; se reportan para que las ajustes tu.
+    nuevas = {(nuevo if k == viejo else k): v for k, v in crudas.items()}
+    for d in cfg.get("definiciones", []) or []:
+        if d.get("args"):
+            d["args"] = [nuevo if a == viejo else a for a in d["args"]]
+        if d.get("arg") == viejo:
+            d["arg"] = nuevo
+    cfg["crudas"] = nuevas
+    _save_variables(cfg)
+
+    return jsonify({
+        "aplicado": True, "impacto": impacto, "nuevo": nuevo,
+        "aviso": ("Renombrado. Las definiciones se actualizaron solas; "
+                  "las reglas listadas hay que ajustarlas a mano.")
+        if reglas_afectadas else "Renombrado.",
+    })
 
 
 @bp_config.route("/api/variables", methods=["GET"])
@@ -1293,11 +1934,12 @@ TRACKING_FAMILIAS = list(SETPOINT_KEYS)
 
 
 def _defaults_tracking() -> dict:
-    return {
-        "sp_tonelaje":   {"pv_key": "pv_tonelaje",   "rango": 1.0,  "habilitado": True},
-        "sp_floculante": {"pv_key": "pv_floculante", "rango": 0.05, "habilitado": True},
-        "sp_vel_bomba":  {"pv_key": "pv_vel_bomba",  "rango": 0.10, "habilitado": True},
-    }
+    """Sin plantilla: las familias se sincronizan desde los tags de categoria SP.
+
+    Igual que en defuzzy, las familias del espesador antiguo se sembraban
+    solas al faltar el archivo y aparecian como huerfanas en la pagina.
+    """
+    return {}
 
 
 def _save_tracking(cfg: dict) -> None:
@@ -1306,6 +1948,7 @@ def _save_tracking(cfg: dict) -> None:
 
 
 def _load_tracking() -> dict:
+    """Config de tracking. Un objeto vacio es un estado VALIDO (sin familias)."""
     if not os.path.exists(TRACKING_JSON):
         cfg = _defaults_tracking()
         _save_tracking(cfg)
@@ -1315,35 +1958,74 @@ def _load_tracking() -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         return _defaults_tracking()
-    if not isinstance(data, dict) or not data:
+    if not isinstance(data, dict):
         return _defaults_tracking()
     return data
 
 
+def salidas_sp_disponibles() -> list[dict]:
+    """Tags de categoria SP, con su identificador derivado del pseudonimo.
+
+    Mismo criterio que las entradas PV: el identificador sale del pseudonimo
+    (o del ultimo segmento del tag) y es lo que ven el motor y el defuzzy.
+    """
+    from web.state import _load_tags
+
+    items, vistos = [], {}
+    for t in _load_tags().get("tags", []):
+        if t.get("categoria") != "sp" or not t.get("enabled", True):
+            continue
+        nombre = t["name"]
+        ultimo = nombre.split(".")[-1]
+        pseudo = (t.get("pseudonimo") or "").strip() or ultimo
+        ident = slug_identificador(pseudo) or slug_identificador(ultimo)
+        vistos.setdefault(ident, []).append(nombre)
+        items.append({
+            "identificador": ident,
+            "tag": nombre,
+            "pseudonimo": pseudo,
+            "unidad": t.get("unidad_ing", ""),
+            "equipo": t.get("equipo", ""),
+        })
+    colisiones = {k for k, v in vistos.items() if len(v) > 1}
+    for it in items:
+        it["colision"] = it["identificador"] in colisiones
+    return items
+
+
 def _normalizar_tracking_payload(data: dict) -> tuple[dict | None, str | None]:
-    if not isinstance(data, dict) or not data:
-        return None, "El payload debe ser un objeto no vacio { <familia>: {pv_key, rango, habilitado} }."
+    """Valida la config de tracking.
+
+    Las familias ya no se exigen contra una lista fija: salen de los tags de
+    categoria SP, que cambian por cliente. Un payload vacio es valido (sin
+    tracking configurado todavia).
+    """
+    if not isinstance(data, dict):
+        return None, "El payload debe ser un objeto { <familia>: {pv_key, rango, habilitado} }."
+
+    validas = {s["identificador"] for s in salidas_sp_disponibles()} | set(SETPOINT_KEYS)
     out = {}
-    for familia in TRACKING_FAMILIAS:
-        if familia not in data:
-            return None, f"Falta la familia '{familia}' en el payload."
-        spec = data[familia]
+    for familia, spec in data.items():
+        if not VAR_NOMBRE_RE.match(str(familia)):
+            return None, f"'{familia}': identificador de familia invalido."
+        if validas and familia not in validas:
+            return None, (f"'{familia}' no corresponde a ningun tag de categoria SP. "
+                          f"Validas: {sorted(validas)}.")
         if not isinstance(spec, dict):
             return None, f"'{familia}': debe ser un objeto con pv_key, rango y habilitado."
-        pv_key = spec.get("pv_key")
-        if not isinstance(pv_key, str) or not pv_key.strip():
-            return None, f"'{familia}': 'pv_key' debe ser un string no vacio."
+        # pv_key vacio = sin readback: el tracking no bloquea esa familia.
+        pv_key = str(spec.get("pv_key") or "").strip()
         try:
             rango = float(spec.get("rango"))
         except (TypeError, ValueError):
             return None, f"'{familia}': 'rango' debe ser numerico."
         if rango < 0.0:
             return None, f"'{familia}': 'rango' debe ser >= 0 (valor recibido: {rango})."
-        habilitado = bool(spec.get("habilitado", True))
-        out[familia] = {"pv_key": pv_key.strip(), "rango": rango, "habilitado": habilitado}
-    extras = set(data.keys()) - set(TRACKING_FAMILIAS)
-    if extras:
-        return None, f"Familias desconocidas: {sorted(extras)}. Validas: {TRACKING_FAMILIAS}."
+        if pv_key and rango == 0.0:
+            return None, (f"'{familia}': con readback definido, 'rango' 0 bloquearia la "
+                          "familia para siempre. Usa un rango > 0 o quita el readback.")
+        out[familia] = {"pv_key": pv_key, "rango": rango,
+                        "habilitado": bool(spec.get("habilitado", True))}
     return out, None
 
 
@@ -1352,10 +2034,26 @@ _load_tracking()
 
 @bp_config.route("/api/tracking", methods=["GET"])
 def api_get_tracking():
+    """Config de tracking + catalogos para no escribir nada a mano.
+
+    Las familias se sincronizan con los tags de categoria SP, y el readback
+    se elige entre las entradas PV ya declaradas en el catalogo de variables.
+    """
+    salidas = salidas_sp_disponibles()
+    entradas_pv = list((_load_variables().get("crudas") or {}).keys())
+    actual = _load_tracking()
+
+    idents = {s["identificador"] for s in salidas}
+    huerfanas = [f for f in actual if f not in idents]
+
     return jsonify({
-        "familias": TRACKING_FAMILIAS,
+        "familias": [s["identificador"] for s in salidas],
+        "salidas": salidas,
+        "entradas_pv": entradas_pv,
+        "huerfanas": huerfanas,
+        "en_contrato": list(SETPOINT_KEYS),
         "defaults": _defaults_tracking(),
-        "actual": _load_tracking(),
+        "actual": actual,
     })
 
 
@@ -1371,6 +2069,29 @@ def api_put_tracking():
 
 @bp_config.route("/api/tracking/reset", methods=["POST"])
 def api_reset_tracking():
-    cfg = _defaults_tracking()
-    _save_tracking(cfg)
-    return jsonify({"ok": True, "actual": cfg})
+    """Vacia el tracking. Ya no repuebla la plantilla del espesador."""
+    _save_tracking({})
+    return jsonify({"ok": True, "actual": {}})
+
+
+@bp_config.route("/api/tracking/sincronizar", methods=["POST"])
+def api_sincronizar_tracking():
+    """Alinea las familias con los tags SP: agrega las que faltan, saca huerfanas.
+
+    Lo que ya estaba configurado se respeta; las nuevas entran sin readback
+    y deshabilitadas, para que nadie quede bloqueado por una config a medias.
+    """
+    actual = _load_tracking()
+    salidas = salidas_sp_disponibles()
+    idents = [s["identificador"] for s in salidas]
+
+    agregadas = [i for i in idents if i not in actual]
+    quitadas = [f for f in actual if f not in idents]
+
+    nuevo = {f: v for f, v in actual.items() if f in idents}
+    for i in agregadas:
+        nuevo[i] = {"pv_key": "", "rango": 0.0, "habilitado": False}
+
+    _save_tracking(nuevo)
+    return jsonify({"ok": True, "actual": nuevo,
+                    "agregadas": agregadas, "quitadas": quitadas})

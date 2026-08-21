@@ -1,4 +1,19 @@
 ================================================================================
+  !! DOCUMENTO DESACTUALIZADO -- NO SEGUIR !!
+
+  Describe el PROTOTIPO del espesador (tags RETO.*, 28 reglas hardcodeadas).
+  El producto cambio: la configuracion vive en config/espesador/*.json y se
+  edita desde la web.
+
+  Documentacion vigente:
+    PUESTA_EN_MARCHA.md   guia operativa + estado de puesta en marcha
+    CLAUDE.md             arquitectura, decisiones y pendientes
+
+  Sigue siendo valido de este archivo: solo la parte de infraestructura
+  (docker, gunicorn, despliegue).
+================================================================================
+
+================================================================================
   SE-HUTBAY-ESPESADOR-1 — Guía de ejecución
   Sistema Experto Difuso para control de Espesador
 ================================================================================

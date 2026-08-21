@@ -1,0 +1,107 @@
+================================================================================
+  SE-HUTBAY ESPESADOR -- Paquete offline v3.0
+================================================================================
+
+CONTENIDO
+---------
+  se-espesador-3.0.tar     Imagen Docker autocontenida (no necesita internet)
+  docker-compose.yml       Orquestacion
+  config/                  Configuracion actual (contrato, tags, licencia)
+  LEEME.txt                Este archivo
+
+
+DESPLIEGUE EN LA VM LINUX
+-------------------------
+  1. Copiar todo a /root/se-demo/
+  2. cd /root/se-demo
+  3. docker load -i se-espesador-3.0.tar     -> "Loaded image: se-espesador:3.0"
+  4. docker compose up -d
+  5. curl http://127.0.0.1:5000/health
+  6. Desde Windows: http://<ip-de-la-vm>:5000/
+
+  Si ya habia una version anterior corriendo:
+     docker compose down
+     docker load -i se-espesador-3.0.tar
+     docker compose up -d
+
+  La carpeta config/ NO se toca, asi que la configuracion se preserva.
+  (Opcional, liberar espacio)  docker rmi se-espesador:2.0
+
+
+CONEXION
+--------
+  KEPserver ya viene apuntado a 192.168.137.1:49320 en
+  config/espesador/kepserver.json. Verificar en la UI, panel
+  "Conexion KEPserver" -> Probar conexion.
+
+  Postgres se configura desde la vista Postgres de la UI.
+
+
+QUE CAMBIO EN LA 3.0
+--------------------
+  - El Explorador de Series ya NO depende de internet. Chart.js y sus plugins
+    viajan dentro de la imagen (static/vendor/) en vez de bajarse de un CDN.
+    En un servidor sin salida a internet la pagina fallaba entera: no cargaba
+    el grafico NI la lista de tags, porque el error de Chart.js cortaba todo
+    el arranque de la pagina.
+  - El Explorador se alimenta de lo que se lee del KEPserver. Antes solo
+    historizaba el generador de datos sinteticos y los SP que escribe el motor.
+  - Los filtros PV / SP / LIM del Explorador usan la categoria del tag. Antes
+    se deducian del prefijo RETO.* y con nombres de planta no filtraban nada.
+
+
+QUE CAMBIO RESPECTO DE LA 1.0
+-----------------------------
+  - El contrato ya no es el del espesador: son 11 variables de proceso de esta
+    planta y 1 setpoint (sp_vel_bomba -> PU009_Exp_Speed_Exp).
+  - Los limites del setpoint salen ahora de contrato.json (limites_sp). Antes
+    estaban hardcodeados: un SP fuera de esa lista se escribia SIN TOPE al DCS.
+  - El filtro Exp-Q se lee de filtros.json. Antes el motor usaba el default del
+    espesador e ignoraba el archivo, lo que reventaba cada tick.
+  - Arranque bumpless: el SE parte del setpoint que el DCS ya tiene, en vez de
+    pisarlo con un valor fijo en el primer tick.
+  - El motor se niega a arrancar y dice que falta: PV sin filtro, PV sin modelo
+    difuso, SP sin limites, o SP que no se pudo leer del DCS.
+
+
+ESTADO DE ESTA VERSION -- LEER ANTES DE PROBAR
+----------------------------------------------
+  El SE TODAVIA NO ARRANCA, y es el comportamiento correcto: se niega a correr
+  con el mapeo incompleto en vez de fuzzificar sobre limites en cero.
+
+  Al pulsar "Iniciar Sistema" va a responder:
+
+     Mapeo de tags incompleto. LIM sin mapear: nivel_hopper_a_lmin, ...
+
+  Faltan 18 tags de limite. El contrato tiene 11 variables de proceso y el
+  nucleo exige _lmin y _lmax por cada una: 22 limites, y planta entrego 6.
+  Es un dato de planta pendiente, no un problema de configuracion.
+
+  Ademas reglas.json, defuzzy.json, permisivos.json, estados.json y waits.json
+  estan vacios: aunque se completen los limites, el motor va a leer, filtrar y
+  fuzzificar correctamente y despues no disparar ninguna regla ni mover ningun
+  setpoint. Esa logica es lo que falta definir en planta.
+
+  O sea: este paquete sirve para validar conexion, lectura de tags y trazas.
+  No para control.
+
+  Detalle completo en CLAUDE.md del proyecto.
+
+
+PERSISTENCIA
+------------
+  config/ del host es la fuente de verdad (bind mount). Todo lo que se edite en
+  la UI queda ahi y sobrevive a reinicios y a cambios de version.
+
+  Backup antes de una prueba invasiva:
+     tar -czf config-backup-$(date +%Y%m%d-%H%M).tar.gz config/
+
+
+COMANDOS UTILES
+---------------
+  Logs en vivo:        docker compose logs -f se-espesador
+  Reiniciar:           docker compose restart
+  Detener:             docker compose stop  /  docker compose start
+  Borrar contenedor:   docker compose down          (config/ se mantiene)
+  Estado del health:   docker inspect --format='{{.State.Health.Status}}' se-hutbay-espesador-3
+  Debug dentro:        docker exec -it se-hutbay-espesador-3 sh

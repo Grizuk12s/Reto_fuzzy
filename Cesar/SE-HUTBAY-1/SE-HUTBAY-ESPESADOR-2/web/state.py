@@ -33,7 +33,6 @@ from config import (
     VARIABLES_EXTERNAS,
     VARIABLES_PROCESO,
 )
-from defuzzy_actions import DEFUZZY_POR_FAMILIA
 from estados_espesador import ESTADOS_ESPESADOR
 from core.filters.exp_q import CONFIG_FILTRO_ESPESADOR_DEFAULT
 from fuzzys_models_espesador import FUZZY_MODELOS
@@ -150,7 +149,9 @@ _alerts = AlertCollector()
 
 BLOQUES_DISPONIBLES = ["critico", "estabilidad", "optimizacion"]
 
-ETIQUETAS_DISPONIBLES = [
+# Etiquetas que el nucleo conoce siempre, sin importar como este configurado
+# el fuzzy: las de pendiente, las de permisivo y las derivadas.
+ETIQUETAS_BASE = [
     "LOW", "OK", "HIGH",
     "NO-LOW", "NO-OK", "NO-HIGH",
     "CERCA_BAJO", "CERCA_ALTO",
@@ -158,6 +159,44 @@ ETIQUETAS_DISPONIBLES = [
     "NO-INC", "NO-DEC",
     "ON", "OFF",
 ]
+
+
+def etiquetas_disponibles() -> list[str]:
+    """Catalogo de etiquetas validas para las reglas.
+
+    Las filas de cada fuzzy ya no son HIGH/OK/LOW fijas: la pagina Fuzzy deja
+    crear, renombrar y borrar filas con nombre libre. Si el catalogo siguiera
+    siendo una constante, el editor de reglas no ofreceria las etiquetas
+    nuevas y la validacion rechazaria una regla perfectamente valida.
+
+    Se lee fuzzy.json en cada llamada a proposito: es un archivo chico y la
+    alternativa (cachear) haria que una etiqueta recien creada no apareciera
+    hasta reiniciar. Por cada etiqueta se agrega tambien su NO-<X>, que el
+    nucleo genera en expandir_etiquetas_compuestas.
+    """
+    out = list(ETIQUETAS_BASE)
+    vistas = set(out)
+    try:
+        with open(FUZZY_JSON, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return out
+    if not isinstance(cfg, dict):
+        return out
+    for spec in cfg.values():
+        if not isinstance(spec, dict):
+            continue
+        for etiqueta in (spec.get("labels") or {}):
+            for nombre in (str(etiqueta).upper(), f"NO-{str(etiqueta).upper()}"):
+                if nombre not in vistas:
+                    vistas.add(nombre)
+                    out.append(nombre)
+    return out
+
+
+# Compatibilidad: sigue siendo la lista base. Los call sites que validan
+# etiquetas deben usar etiquetas_disponibles(), que incluye las del fuzzy.
+ETIQUETAS_DISPONIBLES = ETIQUETAS_BASE
 
 
 def _build_variables_disponibles() -> list[str]:
@@ -170,33 +209,62 @@ def _build_variables_disponibles() -> list[str]:
     return nombres
 
 
-def _build_acciones_disponibles() -> list[str]:
-    nombres: list[str] = []
-    familias_a_sufijo = {
-        "sp_vel_bomba":  "VEL_BOMBA",
-        "sp_tonelaje":   "TONELAJE",
-        "sp_floculante": "FLOCULANTE",
-    }
-    for familia_sp, sufijo in familias_a_sufijo.items():
-        tabla = DEFUZZY_POR_FAMILIA.get(familia_sp, {})
-        keys = list(tabla.get("steps_por_accion", {}).keys())
-        for key in keys:
-            partes = key.split("_")
-            direccion = partes[0]
-            intensidad = "_".join(partes[1:]) if len(partes) > 1 else ""
-            nombre = f"{direccion}_{sufijo}"
-            if intensidad:
-                nombre += f"_{intensidad}"
-            nombres.append(nombre)
-    return nombres
+def acciones_disponibles() -> list[str]:
+    """Catalogo de acciones validas para el `then` de las reglas.
+
+    UNICA fuente de verdad: las columnas de defuzzy.json. Una accion existe
+    porque alguien la definio en una tabla Sugeno; si no esta ahi, el motor no
+    sabria cuanto mover ni que setpoint tocar, asi que ofrecerla en el editor
+    solo produce reglas que fallan al aplicarse.
+
+    Antes esta lista se armaba en codigo a partir de las familias del
+    espesador antiguo (VEL_BOMBA / TONELAJE / FLOCULANTE), que no tienen nada
+    que ver con la operacion configurada hoy: por eso el selector mostraba 18
+    acciones inexistentes y no mostraba las recien creadas.
+
+    Se lee el archivo en cada llamada, igual que etiquetas_disponibles(): es
+    chico y cachearlo haria que una accion nueva no apareciera hasta reiniciar.
+    Sin archivo, archivo corrupto o sin familias, el catalogo es vacio — es un
+    estado valido: significa "todavia no hay defuzzy configurado".
+    """
+    try:
+        with open(DEFUZZY_JSON, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(cfg, dict):
+        return []
+    out: list[str] = []
+    for tabla in cfg.values():
+        if not isinstance(tabla, dict):
+            continue
+        for accion in (tabla.get("steps_por_accion") or {}):
+            nombre = str(accion).strip().upper()
+            if nombre and nombre not in out:
+                out.append(nombre)
+    return sorted(out)
+
+
+def acciones_validas() -> set:
+    """Acciones aceptables en una regla (las columnas de defuzzy.json)."""
+    return set(acciones_disponibles())
 
 
 VARIABLES_DISPONIBLES  = _build_variables_disponibles()
-ACCIONES_DISPONIBLES   = _build_acciones_disponibles()
+# Compatibilidad: foto al importar. Para ofrecer o validar acciones usa
+# acciones_disponibles() / acciones_validas(), que releen defuzzy.json.
+ACCIONES_DISPONIBLES   = acciones_disponibles()
 PERMISIVOS_DISPONIBLES = list(PERMISIVOS.keys())
 
 VARIABLES_VALIDAS = set(VARIABLES_DISPONIBLES)
+# Constante historica: solo las base. Para validar usa etiquetas_validas().
 ETIQUETAS_VALIDAS = set(ETIQUETAS_DISPONIBLES)
+
+
+def etiquetas_validas() -> set:
+    """Etiquetas aceptables en una regla, incluidas las filas de fuzzy.json."""
+    return set(etiquetas_disponibles())
+# Constante historica: foto al importar. Para validar usa acciones_validas().
 ACCIONES_VALIDAS  = set(ACCIONES_DISPONIBLES)
 BLOQUES_VALIDOS   = set(BLOQUES_DISPONIBLES)
 
@@ -367,6 +435,93 @@ def catalogo_roles() -> dict[str, list[str]]:
     }
 
 
+CONTRATO_JSON = os.path.join(_CFG_DIR, "contrato.json")
+
+
+def estado_contrato() -> dict:
+    """Compara el contrato EN DISCO con el que tiene cargado el proceso.
+
+    config.py lee contrato.json una sola vez, al importarse: sus constantes
+    (VARIABLES_PROCESO / SETPOINT_KEYS / crudas) quedan congeladas mientras el
+    servicio vive. Guardar el contrato desde la pagina reescribe el archivo,
+    pero el nucleo — y por lo tanto el catalogo de roles y el chequeo de
+    cobertura — sigue razonando con la lista vieja hasta reiniciar.
+
+    Eso se veia como un bug: el Contrato mostraba 2 PV y el Mapeo seguia
+    exigiendo las 8 de la plantilla. No lo es, pero era invisible. Esto expone
+    la diferencia para que la UI la muestre en vez de dejar al operador
+    adivinando cual de las dos listas es la real.
+    """
+    from config import VARIABLES_PROCESO, VARIABLES_CRUDAS_REQUERIDAS, SETPOINT_KEYS
+
+    nucleo = {
+        "variables_proceso": list(VARIABLES_PROCESO),
+        "setpoints":         list(SETPOINT_KEYS),
+        "crudas":            list(VARIABLES_CRUDAS_REQUERIDAS),
+    }
+
+    try:
+        with open(CONTRATO_JSON, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
+        # Sin archivo legible no hay con que comparar: se informa "en sincro"
+        # antes que inventar una desincronizacion que no se puede probar.
+        return {"desincronizado": False, "nucleo": nucleo, "disco": nucleo,
+                "agregadas": {}, "quitadas": {}}
+
+    disco = {
+        "variables_proceso": [str(v) for v in (data.get("variables_proceso") or [])],
+        "setpoints":         [str(v) for v in (data.get("setpoints") or [])],
+        # Las crudas viven en variables.json, no en el contrato: se copian del
+        # nucleo para no reportar una diferencia que este archivo no describe.
+        "crudas":            list(nucleo["crudas"]),
+    }
+
+    agregadas, quitadas = {}, {}
+    for campo in ("variables_proceso", "setpoints"):
+        en_disco, en_nucleo = disco[campo], nucleo[campo]
+        nuevas = [v for v in en_disco if v not in en_nucleo]
+        viejas = [v for v in en_nucleo if v not in en_disco]
+        if nuevas:
+            agregadas[campo] = nuevas
+        if viejas:
+            quitadas[campo] = viejas
+
+    return {
+        "desincronizado": bool(agregadas or quitadas),
+        "nucleo": nucleo,
+        "disco": disco,
+        "agregadas": agregadas,
+        "quitadas": quitadas,
+    }
+
+
+def roles_huerfanos(tags: list[dict] | None = None) -> list[dict]:
+    """Tags cuyo rol guardado ya no existe en el contrato vigente.
+
+    Pasa cuando el contrato renombra o quita una variable: el rol quedo
+    escrito en tags.json y era valido cuando se asigno, pero hoy no apunta a
+    nada. El motor lo ignora (construir_mapeo lo saltea), asi que el tag
+    figura como "sin asignar" sin decir por que. Esto lo hace explicito.
+    """
+    if tags is None:
+        tags = _load_tags().get("tags", [])
+    catalogo = catalogo_roles()
+    fuera = []
+    for t in tags:
+        cat = t.get("categoria")
+        rol = (t.get("rol") or "").strip()
+        if not rol or cat not in catalogo or cat == "otro":
+            continue
+        if rol not in catalogo[cat]:
+            fuera.append({"tag": t.get("name"), "id": t.get("id"),
+                          "categoria": cat, "rol": rol,
+                          "enabled": bool(t.get("enabled", True))})
+    return fuera
+
+
 def inferir_rol(name: str, categoria: str) -> str:
     """Deduce el rol desde el sufijo de un nombre `RETO.*` (solo migracion)."""
     validos = catalogo_roles().get(categoria, [])
@@ -460,6 +615,10 @@ def _load_tags() -> dict:
         # Idem para el rol: se deduce del sufijo `RETO.*` una sola vez.
         if "rol" not in t:
             t["rol"] = inferir_rol(t.get("name", ""), t["categoria"])
+        # Pseudonimo por defecto = ultimo segmento del tag. El nombre completo
+        # ya lo trae dentro, y asi ninguna variable nace sin etiqueta legible.
+        if not (t.get("pseudonimo") or "").strip():
+            t["pseudonimo"] = (t.get("name", "") or "").split(".")[-1]
 
     return data
 
@@ -677,18 +836,34 @@ def _enrich_tags_with_kepserver(tags: list[dict]) -> list[dict]:
 # 3600 muestras @ 5s = 5 horas de datos. Cubre con margen la ventana
 # máxima de 3h del Explorador de Series (/espesador/graficos).
 _TAG_HISTORY_SIZE = 3600
+
+# Espaciado minimo entre muestras guardadas, en segundos. Con el SEEngine en
+# ciclo libre el motor puede llamar aca decenas de veces por segundo: sin este
+# piso, 3600 muestras se consumirian en unos minutos y el Explorador de Series
+# perderia su ventana de horas. El ring buffer es de observabilidad, no de
+# control: no necesita cada tick, necesita cubrir tiempo.
+_HIST_MIN_INTERVALO_S = 1.0
+
 _tag_history: dict[str, deque[dict]] = {}
 _tag_history_lock = threading.Lock()
 
 
 def _record_tag_values(tag_values: dict[str, float]):
-    """Agrega valores actuales al ring buffer de historial por tag."""
+    """Agrega valores actuales al ring buffer de historial por tag.
+
+    Decima por tiempo: guarda como mucho una muestra por tag cada
+    `_HIST_MIN_INTERVALO_S`. Descartar no pierde informacion de control (el
+    pipeline ya trabajo con el valor); solo raleado del grafico.
+    """
     ts = time.time()
     with _tag_history_lock:
         for tag_name, val in tag_values.items():
-            if tag_name not in _tag_history:
-                _tag_history[tag_name] = deque(maxlen=_TAG_HISTORY_SIZE)
-            _tag_history[tag_name].append({"t": ts, "v": val})
+            buf = _tag_history.get(tag_name)
+            if buf is None:
+                buf = _tag_history[tag_name] = deque(maxlen=_TAG_HISTORY_SIZE)
+            elif buf and (ts - buf[-1]["t"]) < _HIST_MIN_INTERVALO_S:
+                continue
+            buf.append({"t": ts, "v": val})
 
 
 def _get_tag_history() -> dict[str, list]:
@@ -775,7 +950,9 @@ class TagGenerator:
         self._running = False
         self._intervalo_s = 5.0
         self._n_ciclo = 60
-        self._ranges: dict[str, dict] = dict(GENERATOR_DEFAULTS)
+        # Sin semilla: los rangos salen de tags.json y se sincronizan con la
+        # tabla de tags. La plantilla RETO.* pertenecia a otra planta.
+        self._ranges: dict[str, dict] = {}
         self._last_values: dict[str, float] = {}
         self._last_error: str | None = None
         self._load_config()
@@ -816,7 +993,10 @@ class TagGenerator:
         - Aparece: tag habilitado con categoria PV/CRUDA/LIM/SP.
           Entra con `enabled=False` (opt-in) para no pisar por accidente
           una señal que ya viene de planta.
-        - Desaparece: tag eliminado, suspendido, o movido a categoria OTRO.
+        - Deja de corresponder (tag suspendido o pasado a OTRO): se marca
+          `vigente=False` y NO se genera, pero su min/max/ruido se guarda.
+          Antes se borraba la entrada, asi que suspender un tag un rato
+          costaba volver a tipear sus rangos al reactivarlo.
         - Se conserva lo que ya configuraste (min/max/ruido/enabled).
         """
         try:
@@ -831,15 +1011,22 @@ class TagGenerator:
             and t.get("categoria") in self.CATEGORIAS_SIMULABLES
         }
 
-        # Fuera lo que ya no corresponde (borrado, suspendido o pasado a OTRO).
-        for nombre in [n for n in self._ranges if n not in vigentes]:
-            del self._ranges[nombre]
+        # Los tags borrados de verdad si se van; los que solo estan suspendidos
+        # o pasaron a OTRO quedan dormidos, con su configuracion intacta.
+        nombres_tags = {t.get("name") for t in tags}
+        for nombre in list(self._ranges):
+            if nombre not in vigentes:
+                if nombre in nombres_tags:
+                    self._ranges[nombre]["vigente"] = False
+                else:
+                    del self._ranges[nombre]
 
         # Alta de los nuevos, desactivados.
         for nombre, t in vigentes.items():
             if nombre in self._ranges:
                 self._ranges[nombre].setdefault("enabled", True)
                 self._ranges[nombre]["categoria"] = t.get("categoria")
+                self._ranges[nombre]["vigente"] = True
                 continue
             es_lim = t.get("categoria") == "lim"
             self._ranges[nombre] = {
@@ -848,11 +1035,17 @@ class TagGenerator:
                 "noise": 0.0 if es_lim else 1.0,
                 "enabled": False,
                 "categoria": t.get("categoria"),
+                "vigente": True,
             }
+        # Lo sincronizado se persiste: si no, marcar un tag como dormido (o
+        # dar de alta uno nuevo) se perdia al reiniciar el proceso.
+        self._save_config()
 
     def _write_tick(self):
         tags_to_write = {}
         for tag_name, cfg in self._ranges.items():
+            if not cfg.get("vigente", True):
+                continue          # dormido: el tag esta suspendido o es OTRO
             if not cfg.get("enabled", True):
                 continue          # desactivado: lo alimenta la planta, no el generador
             val = _tres_fases_valor(
@@ -920,16 +1113,20 @@ class TagGenerator:
         # Refresca la lista cada vez que la UI consulta: si diste de alta un
         # tag nuevo, aparece aqui solo (desactivado) sin tocar el contenedor.
         self.sincronizar_con_tags()
-        habilitados = sum(1 for c in self._ranges.values() if c.get("enabled", True))
+        # Los dormidos existen en disco pero no se muestran: la tabla de la UI
+        # espeja la tabla de tags, y su configuracion vuelve sola al reactivar.
+        vigentes = {n: c for n, c in self._ranges.items() if c.get("vigente", True)}
+        habilitados = sum(1 for c in vigentes.values() if c.get("enabled", True))
         return {
             "running":     self._running,
             "tick":        self._tick,
             "intervalo_s": self._intervalo_s,
             "intervalo_ms": int(round(self._intervalo_s * 1000)),
             "n_ciclo":     self._n_ciclo,
-            "ranges":      self._ranges,
+            "ranges":      vigentes,
             "habilitados": habilitados,
-            "total":       len(self._ranges),
+            "total":       len(vigentes),
+            "dormidos":    sorted(n for n in self._ranges if n not in vigentes),
             "last_values": self._last_values,
             "last_error":  self._last_error,
         }
@@ -1141,6 +1338,137 @@ SP_TO_TAG = {
 #
 # Es puramente de lectura: no cambia ninguna decision del SE.
 # ============================================================
+# ============================================================
+# Grabadores por regla — historial largo de una regla concreta
+#
+# La traza es un anillo de 60 ticks (segundos, en ciclo libre) y el historial
+# de disparos es global y corto. Para responder "¿por que esta regla no
+# actua?" hace falta seguir UNA regla durante minutos u horas.
+#
+# Se graba por TRANSICION, no por tick: repetir 900 veces "bloqueada por wait"
+# llenaria el buffer en un minuto y no diria nada. Mientras el estado y el
+# motivo no cambian se incrementa un contador de repeticiones; cada disparo,
+# en cambio, es siempre una entrada propia, porque es el evento que interesa
+# contar. Vive a nivel de modulo, asi que sobrevive a stop/start del motor.
+# ============================================================
+_GRABADOR_MAX = 500
+_grabadores: dict[str, deque] = {}
+_grabadores_activos: set[str] = set()
+_grabador_lock = threading.Lock()
+
+
+def grabador_start(regla_id: str) -> dict:
+    """Empieza (o reinicia) la grabacion de una regla. Vacia lo anterior."""
+    rid = str(regla_id)
+    with _grabador_lock:
+        _grabadores[rid] = deque(maxlen=_GRABADOR_MAX)
+        _grabadores_activos.add(rid)
+    return grabador_estado(rid)
+
+
+def grabador_stop(regla_id: str) -> dict:
+    """Detiene la grabacion. Lo grabado se conserva para poder mirarlo."""
+    rid = str(regla_id)
+    with _grabador_lock:
+        _grabadores_activos.discard(rid)
+    return grabador_estado(rid)
+
+
+def grabador_estado(regla_id: str | None = None) -> dict:
+    with _grabador_lock:
+        activos = sorted(_grabadores_activos)
+        buffers = {k: len(v) for k, v in _grabadores.items()}
+    out = {"activos": activos, "buffers": buffers, "max": _GRABADOR_MAX}
+    if regla_id is not None:
+        rid = str(regla_id)
+        out["regla_id"] = rid
+        out["grabando"] = rid in activos
+        out["n"] = buffers.get(rid, 0)
+    return out
+
+
+def grabador_historial(regla_id: str) -> dict:
+    """Historial de una regla + el resumen que contesta 'cuantas veces actuo'."""
+    rid = str(regla_id)
+    with _grabador_lock:
+        entradas = list(_grabadores.get(rid, ()))
+        grabando = rid in _grabadores_activos
+        existe = rid in _grabadores
+
+    disparos = [e for e in entradas if e.get("estado") == "disparo"]
+    evaluaciones = sum(int(e.get("repeticiones", 1)) for e in entradas)
+    return {
+        "regla_id": rid,
+        "grabando": grabando,
+        "existe": existe,
+        "max": _GRABADOR_MAX,
+        "entradas": entradas,
+        "resumen": {
+            "eventos": len(entradas),
+            "evaluaciones": evaluaciones,
+            "disparos": len(disparos),
+            "primer_ts": entradas[0]["ts_wall"] if entradas else None,
+            "ultimo_ts": entradas[-1].get("ts_wall_ultimo", entradas[-1]["ts_wall"])
+                         if entradas else None,
+            "ultimo_disparo_ts": disparos[-1]["ts_wall"] if disparos else None,
+            "truncado": len(entradas) >= _GRABADOR_MAX,
+        },
+    }
+
+
+def _grabar_evaluaciones(evaluadas: list[dict], efectos: dict, tick: int, t_s: float) -> None:
+    """Vuelca al grabador lo que le paso a cada regla vigilada en este tick.
+
+    `efectos` es {regla_id: {"acciones": [...], "setpoints": {...}, "ok": bool}}
+    para las reglas que dispararon: interesa el efecto real, no solo que la
+    regla se cumplio.
+    """
+    with _grabador_lock:
+        if not _grabadores_activos:
+            return
+        ahora = time.time()
+        for r in evaluadas or []:
+            rid = str(r.get("id", ""))
+            if rid not in _grabadores_activos:
+                continue
+            buf = _grabadores.setdefault(rid, deque(maxlen=_GRABADOR_MAX))
+            estado = str(r.get("estado", ""))
+            motivo = str(r.get("motivo", ""))
+
+            if buf and estado != "disparo":
+                ult = buf[-1]
+                if ult.get("estado") == estado and ult.get("motivo") == motivo:
+                    # Misma situacion que el tick anterior: se cuenta, no se apila.
+                    ult["repeticiones"] = int(ult.get("repeticiones", 1)) + 1
+                    ult["ts_wall_ultimo"] = ahora
+                    ult["t_s_ultimo"] = round(float(t_s), 2)
+                    ult["tick_ultimo"] = int(tick)
+                    ult["belief"] = r.get("belief")
+                    continue
+
+            efecto = efectos.get(rid) or {}
+            buf.append({
+                "ts_wall": ahora,
+                "ts_wall_ultimo": ahora,
+                "t_s": round(float(t_s), 2),
+                "t_s_ultimo": round(float(t_s), 2),
+                "tick": int(tick),
+                "tick_ultimo": int(tick),
+                "estado": estado,
+                "motivo": motivo,
+                "belief": r.get("belief"),
+                "mu_activacion": r.get("mu_activacion"),
+                "bloque": r.get("bloque", ""),
+                "variables_faltantes": list(r.get("variables_faltantes") or []),
+                "wait_bloqueante": r.get("wait_bloqueante"),
+                "acciones": list(efecto.get("acciones") or r.get("acciones") or []),
+                "setpoints": efecto.get("setpoints") or {},
+                "aplicada": efecto.get("ok"),
+                "error": efecto.get("error"),
+                "repeticiones": 1,
+            })
+
+
 _TRAZA_SIZE = 60
 _trazas: deque = deque(maxlen=_TRAZA_SIZE)
 _traza_lock = threading.Lock()
@@ -1207,6 +1535,21 @@ def _traza_fuzzy(fuzzy_out: dict, inputs: dict, limites: dict) -> list[dict]:
     return sorted(filas, key=lambda f: (f["es_pendiente"], f["var"]))
 
 
+def _sp_en_limite(valor, lims) -> str | None:
+    """'max' / 'min' si el setpoint esta pegado a su tope del contrato."""
+    if not lims or len(lims) != 2 or lims[0] is None or lims[1] is None:
+        return None
+    try:
+        v, ll, hl = float(valor), float(lims[0]), float(lims[1])
+    except (TypeError, ValueError):
+        return None
+    if v >= hl - 1e-9:
+        return "max"
+    if v <= ll + 1e-9:
+        return "min"
+    return None
+
+
 def _traza_waits(estado_waits: dict, t_s: float) -> list[dict]:
     """Waits actualmente activos y cuanto les falta para liberar."""
     activos = []
@@ -1244,8 +1587,25 @@ def _reset_trazas() -> None:
 # SEEngine — Sistema Experto en tiempo real via KEPserver
 # ============================================================
 
+# Cuanto tiene que moverse un setpoint para que valga la pena reescribirlo al
+# DCS. No es una banda de proceso: es el umbral que separa "cambio real" de
+# "ruido de coma flotante" al recalcular el mismo valor. Si en planta se
+# quiere una banda de verdad (p. ej. 0.1 % de velocidad), este es el lugar.
+SP_DEADBAND = 1e-6
+
+
+class _SaltarPersistencia(Exception):
+    """Corta el armado del payload cuando este tick no toca guardar."""
+
 class SEEngine:
     """Background thread que lee tags, corre el pipeline del SE, escribe SPs."""
+
+    # Piso de periodo por defecto, en segundos. El motor corre en CICLO LIBRE:
+    # apenas termina de escribir los setpoints vuelve a leer. El piso solo
+    # existe para no saturar el CPU ni el KEPserver cuando el pipeline resulta
+    # mas rapido que el proceso que observa; 0.0 lo desactiva del todo.
+    PISO_S_DEFAULT = 0.05
+    PISO_S_MAX = 60.0
 
     def __init__(self):
         self._thread: threading.Thread | None = None
@@ -1253,10 +1613,25 @@ class SEEngine:
         self._running = False
         self._tick = 0
         self._t_s = 0.0
-        self._intervalo_s = 5.0
+        # Origen del reloj monotonico. `_t_s` son segundos REALES desde el
+        # arranque del motor: es lo que hace que un wait de 900 s dure 900 s.
+        self._t0 = time.monotonic()
+        self._piso_s = self.PISO_S_DEFAULT
+
+        # Metricas del lazo (observabilidad; el ciclo libre no tiene periodo
+        # nominal que mostrar, hay que medirlo).
+        self._dur_tick_s = 0.0
+        self._dur_tick_max_s = 0.0
+        self._periodo_s = 0.0          # media movil del periodo real
+        self._dormido_s = 0.0          # cuanto durmio por el piso, ultimo ciclo
 
         self._setpoints: dict = {}
         self._limites_sp: dict = {}
+        # Ultimo valor efectivamente escrito al DCS por SP. Es la referencia
+        # del write-on-change: si el SP no cambio, no se escribe.
+        self._sp_escritos: dict = {}
+        self._sp_escrituras = 0
+        self._sp_omitidos = 0
         self._last_action_time: dict = {}
         self._hist: dict = {}
         self._filtro = None
@@ -1271,28 +1646,162 @@ class SEEngine:
                              "tag_to_lim": {}, "sp_to_tag": {}}
         self._last_read: dict = {}
         self._last_fallas: dict = {"pv": [], "cruda": [], "lim": []}
+        # Lo que impide arrancar, detectado en _init_state y leido por start().
+        self._problemas_arranque: list[str] = []
+        # Lo que degrada pero NO impide arrancar (ej. una PV sin fuzzy).
+        self._advertencias_arranque: list[str] = []
+        # Ultimos disparos, con su hora de reloj. La traza es un anillo de 60
+        # ticks: en ciclo libre eso son pocos segundos, asi que una regla con
+        # wait de 10 min no se ve disparar NUNCA ahi. Este historial sobrevive
+        # al anillo y es lo que contesta "esta funcionando o no".
+        self._historial_disparos: deque = deque(maxlen=50)
+
+    def _leer_sp_actuales(self) -> tuple[dict, list[str]]:
+        """Lee del DCS el valor vigente de cada SP del contrato.
+
+        Arranque bumpless: partir de `SETPOINTS_BASE` (valores fijos del
+        espesador) pisaba en el primer tick el setpoint que el operador tenia
+        puesto. El punto de partida correcto es lo que el DCS ya tiene.
+        """
+        sp_tags = self._mapeo.get("sp_to_tag", {})
+        if not sp_tags:
+            return {}, []
+        try:
+            live = _read_kepserver_tags_batch(list(sp_tags.values()))
+        except Exception as e:                       # KEP caido / sin red
+            return {}, [f"no se pudieron leer los SP actuales del DCS: {e}"]
+
+        vals, malos = {}, []
+        for sp_key, tag in sp_tags.items():
+            info = live.get(tag, {})
+            if info.get("exists") and info.get("value") is not None:
+                vals[sp_key] = float(info["value"])
+            else:
+                malos.append(f"{sp_key} ({tag}, calidad "
+                             f"{info.get('quality', 'Unknown')})")
+        return vals, malos
 
     def _init_state(self):
-        from simulacion import SETPOINTS_BASE, LIMITES_SP
-        from core.filters.exp_q import ExpQFilter, CONFIG_FILTRO_ESPESADOR_DEFAULT
-        from runner import cargar_reglas_json, cargar_permisivos_json
-        import copy
+        from core.filters.exp_q import ExpQFilter
+        from runner import (cargar_reglas_json, cargar_permisivos_json,
+                            cargar_filtros_json)
+        from config import VARIABLES_PROCESO, SETPOINT_KEYS, LIMITES_SP_CONTRATO
 
         self._mapeo = construir_mapeo()
-        self._setpoints = copy.deepcopy(SETPOINTS_BASE)
-        self._limites_sp = copy.deepcopy(LIMITES_SP)
+        # Los modelos difusos salen de fuzzy.json, no del modulo hardcodeado:
+        # asi lo que editas en la pagina Fuzzificacion afecta al motor en vivo.
+        try:
+            from core.fuzzy.templates import construir_registry_fuzzy
+            from runner import cargar_fuzzy_json
+            self._fuzzy_modelos = construir_registry_fuzzy(cargar_fuzzy_json()) or None
+        except Exception:
+            self._fuzzy_modelos = None      # cae a FUZZY_MODELOS del nucleo
+
+        problemas: list[str] = []
+        advertencias: list[str] = []
+
+        # --- Setpoints: del contrato, arrancando en lo que el DCS ya tiene ---
+        sp_vals, sp_malos = self._leer_sp_actuales()
+        if sp_malos:
+            problemas.append("no se pudo leer el valor actual de: "
+                             + ", ".join(sp_malos))
+        # --- Limites de SP: del contrato. Sin ellos no hay clipeo ---
+        self._limites_sp = {k: tuple(v) for k, v in LIMITES_SP_CONTRATO.items()
+                            if k in SETPOINT_KEYS}
+
+        # El valor que trae el DCS puede caer fuera del rango declarado (SP
+        # viejo, limite recien cambiado). Se entra al rango de una vez, para no
+        # arrancar en un punto que las reglas no pueden corregir.
+        def _en_rango(sp_key, valor):
+            lims = self._limites_sp.get(sp_key)
+            if not lims:
+                return valor
+            return min(max(float(valor), float(lims[0])), float(lims[1]))
+
+        self._setpoints = {k: _en_rango(k, sp_vals.get(k, 0.0))
+                           for k in SETPOINT_KEYS}
+
+        sin_limites = [k for k in SETPOINT_KEYS if k not in self._limites_sp]
+        if sin_limites:
+            problemas.append(
+                "setpoints sin limites en contrato.json (se escribirian al DCS "
+                "sin tope): " + ", ".join(sin_limites))
+
         self._last_action_time = {}
         self._hist = {}
+        self._t0 = time.monotonic()
         self._t_s = 0.0
         self._tick = 0
+        self._dur_tick_s = 0.0
+        self._dur_tick_max_s = 0.0
+        self._periodo_s = 0.0
+        self._dormido_s = 0.0
+        # Arranque: el primer tick escribe siempre, aunque el SP no cambie.
+        self._sp_escritos = {}
+        self._sp_escrituras = 0
+        self._sp_omitidos = 0
         self._last_events = []
+        self._historial_disparos.clear()
         self._last_error = None
 
-        self._filtro = ExpQFilter(CONFIG_FILTRO_ESPESADOR_DEFAULT)
-        self._filtro.reset()
+        # --- Filtro Exp-Q: de filtros.json, no del default del espesador ---
+        # Con el default hardcodeado, cualquier contrato que no fuera el del
+        # espesador reventaba con KeyError en TODOS los ticks, porque
+        # ExpQFilter.actualizar() rechaza una variable sin config.
+        filtros_cfg = cargar_filtros_json()
+        cfg_pv = {v: filtros_cfg[v] for v in VARIABLES_PROCESO if v in filtros_cfg}
+        sin_filtro = [v for v in VARIABLES_PROCESO if v not in filtros_cfg]
+        if sin_filtro:
+            problemas.append("PV sin config de filtro en filtros.json: "
+                             + ", ".join(sin_filtro))
+        self._filtro = ExpQFilter(cfg_pv) if cfg_pv else None
+        if self._filtro is not None:
+            self._filtro.reset()
+
+        # --- Modelo difuso por PV: DEGRADA, no impide arrancar ---
+        # No toda PV del contrato tiene por que fuzzificarse: algunas se leen
+        # como readback (tracking), para graficar o para permisivos. La que no
+        # tiene modelo simplemente no se evalua — evaluar_fuzzys recorre el
+        # registry, asi que no aparece en fuzzy_out ni en la traza — y una
+        # regla que la nombre queda "no evaluable", cosa que el motor ya
+        # explica regla por regla. Bloquear el arranque por esto obligaba a
+        # inventar una membresia falsa solo para poder correr.
+        modelos = self._fuzzy_modelos or {}
+        sin_fuzzy = [v for v in VARIABLES_PROCESO if v not in modelos]
+        if sin_fuzzy:
+            advertencias.append("PV sin modelo difuso (no se fuzzifican): "
+                                + ", ".join(sin_fuzzy))
+
+        self._problemas_arranque = problemas
+        self._advertencias_arranque = advertencias
+
+        # --- Tablas Sugeno: del archivo, y en la INSTANCIA ---
+        # Antes el tick usaba defuzzy_actions.DEFUZZY_POR_FAMILIA, un dict de
+        # modulo que nacia con las tablas del espesador de fabrica y que solo
+        # se reemplazaba... al correr una simulacion desde la web. Es decir:
+        # el motor movia los setpoints con las tablas de otra planta, o no los
+        # movia en absoluto, y "se arreglaba" si alguien pulsaba Simular.
+        # Ademas ese clear()+update() pisaba en caliente el dict que este hilo
+        # estaba usando. Ahora cada arranque lee el archivo a su propia copia.
+        from runner import cargar_defuzzy_json
+        self._defuzzy = cargar_defuzzy_json() or {}
+        acciones_tabla = {str(a).upper()
+                          for t in self._defuzzy.values()
+                          for a in (t or {}).get("steps_por_accion", {})}
 
         self._reglas = cargar_reglas_json()
         self._permisivos_config = cargar_permisivos_json()
+
+        # Acciones que las reglas nombran y ninguna tabla sabe traducir: la
+        # regla dispararia, armaria su wait y no moveria nada.
+        sin_tabla = sorted({
+            str(a.get("accion") if isinstance(a, dict) else a).upper()
+            for r in (self._reglas or [])
+            for a in (r.get("then") or [])
+        } - acciones_tabla - {"NONE", ""})
+        if sin_tabla:
+            advertencias.append("acciones sin tabla defuzzy (las reglas que las "
+                                "usan no moveran ningun setpoint): " + ", ".join(sin_tabla))
 
         try:
             from web.api.postgres import ensure_tables
@@ -1344,43 +1853,103 @@ class SEEngine:
             if _ok(info):
                 limites[var][bound] = float(info["value"])
             else:
-                limites[var][bound] = 0.0
+                # Antes se rellenaba con 0.0 y el tick seguia. Un limite en 0
+                # no es "sin dato": es una escala inventada. Con lmin=lmax=0 un
+                # fuzzy `norm` da OK=1.0 perfecto para siempre, y un `high`
+                # mide el offset contra cero. El motor se veia verde mientras
+                # decidia sobre una variable que ya no significaba nada.
                 fallas["lim"].append({"rol": f"{var}_{bound}", "tag": tag,
                                       "quality": info.get("quality", "Unknown")})
 
         self._last_fallas = fallas
 
-        # Sin todos los PV el pipeline no es evaluable: se aborta el tick.
-        # (comportamiento existente; ahora queda registrado el detalle)
-        if fallas["pv"]:
+        # Sin todos los PV —o sin sus limites— el pipeline no es evaluable:
+        # se aborta el tick. Las CRUDA si degradan (valen 0.0 y siguen), porque
+        # solo alimentan permisivos y variables calculadas.
+        if fallas["pv"] or fallas["lim"]:
             return None
 
         return inputs, crudas, limites
 
-    def _write_setpoints(self):
-        """Escribe setpoints actuales al KEPserver (IT-8: OPC-UA → connectors/kepserver.py)."""
+    def _write_setpoints(self) -> dict:
+        """Escribe al KEPserver los setpoints QUE CAMBIARON (write-on-change).
+
+        Con el lazo en ciclo libre, reescribir el mismo valor en cada vuelta
+        significaria golpear el DCS decenas de veces por segundo sin cambiar
+        nada. Se compara contra el ultimo valor efectivamente escrito y solo
+        se manda la diferencia; si la escritura falla, no se marca como
+        escrito, asi el proximo tick lo reintenta.
+
+        La primera pasada tras arrancar escribe todo (`_sp_escritos` vacio),
+        que es lo que deja al DCS alineado con el arranque bumpless.
+
+        Devuelve el detalle para la traza.
+        """
         sp_vals = {tag: float(self._setpoints.get(sp_key, 0.0))
                    for sp_key, tag in self._mapeo["sp_to_tag"].items()}
         _record_tag_values(sp_vals)
+
+        cambiados = {tag: val for tag, val in sp_vals.items()
+                     if tag not in self._sp_escritos
+                     or abs(val - self._sp_escritos[tag]) > SP_DEADBAND}
+        sin_cambio = [t for t in sp_vals if t not in cambiados]
+        self._sp_omitidos += len(sin_cambio)
+
+        if not cambiados:
+            return {"escritos": [], "sin_cambio": sin_cambio, "error": None}
+
         lic = _license_check()
         if not lic["valid"]:
             self._last_error = f"SE bloqueado: {lic['reason']}"
             _alerts.add("licencia", f"Escritura SP bloqueada: {lic['reason']}")
-            return
+            return {"escritos": [], "sin_cambio": sin_cambio,
+                    "error": self._last_error}
         try:
-            _kep.write_float_batch(sp_vals)
+            res = _kep.write_float_batch(cambiados) or {}
         except Exception as e:
             self._last_error = f"Write SP: {e}"
             _alerts.add("kep", f"SE Write SP: {e}", traceback.format_exc())
+            return {"escritos": [], "sin_cambio": sin_cambio,
+                    "error": self._last_error}
+
+        # Solo se mueve la referencia de los tags que el DCS ACEPTO. Los que
+        # fallaron quedan fuera de _sp_escritos, asi que el write-on-change los
+        # ve como pendientes y el proximo tick los reintenta.
+        escritos = list(res.get("escritos", list(cambiados)))
+        fallidos = dict(res.get("fallidos", {}))
+        self._sp_escritos.update({t: cambiados[t] for t in escritos if t in cambiados})
+        self._sp_escrituras += len(escritos)
+
+        error = None
+        if fallidos:
+            detalle = "; ".join(f"{t}: {m}" for t, m in sorted(fallidos.items()))
+            error = f"El DCS rechazo la escritura de {len(fallidos)} setpoint(s). {detalle}"
+            self._last_error = error
+            _alerts.add("kep", f"SE Write SP: {error}")
+
+        return {"escritos": sorted(escritos), "sin_cambio": sin_cambio,
+                "fallidos": sorted(fallidos), "error": error}
 
     def _run_tick(self):
         """Ejecuta un tick del pipeline del SE."""
         from runner import _evaluar_estado_fuzzy, extraer_inputs_desde_row
         from permisivos import evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
         import motor as motor_mod
-        from defuzzy_actions import apply_actions
+        from core.engine.defuzzy import apply_actions_tabla
         from config import VARIABLES_PROCESO, COLUMNAS_ENTRADA
         import pandas as pd
+
+        # Reloj REAL del motor. Antes era `self._t_s += self._intervalo_s`, un
+        # contador ficticio que avanzaba 5.0 por tick sin importar cuanto
+        # habia tardado: los waits de 900 s no duraban 900 s y la ventana de
+        # pendientes no medía 60 s. Con el lazo en ciclo libre eso ya no tiene
+        # ni siquiera un valor que sumar. Se toma UNA vez al principio del
+        # tick para que todas las etapas fechen con el mismo instante.
+        self._t_s = time.monotonic() - self._t0
+        # Lo que salio mal en ESTE tick. Al final se publica en _last_error en
+        # vez de borrarlo a ciegas: el `self._last_error = None` incondicional
+        # borraba, entre otras cosas, los fallos de escritura al DCS.
+        tick_error: str | None = None
 
         # --- Traza del tick (observabilidad; no altera ninguna decision) ---
         tz = _nueva_traza(self._tick, self._t_s, self._mapeo)
@@ -1389,17 +1958,37 @@ class SEEngine:
         tz["lectura"] = _traza_lectura(self._mapeo, self._last_read, self._last_fallas)
 
         if data is None:
-            faltan = ", ".join(f["rol"] for f in self._last_fallas.get("pv", []))
-            self._last_error = f"PV no legibles: {faltan}"
-            _alerts.add("kep", f"No se pudieron leer los PV tags del KEPserver: {faltan}")
+            partes = []
+            for cat, etiqueta in (("pv", "PV"), ("lim", "limites")):
+                roles = [f["rol"] for f in self._last_fallas.get(cat, [])]
+                if roles:
+                    partes.append(f"{etiqueta} no legibles: " + ", ".join(roles))
+            motivo = " | ".join(partes) or "lectura incompleta"
+            self._last_error = motivo
+            _alerts.add("kep", f"Lectura incompleta del KEPserver. {motivo}")
             tz["abortado_en"] = "lectura"
-            tz["motivo_aborto"] = f"PV no legibles: {faltan}"
+            tz["motivo_aborto"] = motivo
             _traza_push(tz)
             return
 
         inputs_raw, crudas, limites = data
-        inputs = self._filtro.actualizar(inputs_raw)
-        self._t_s += self._intervalo_s
+        if self._last_fallas.get("cruda"):
+            roles = ", ".join(f["rol"] for f in self._last_fallas["cruda"])
+            _alerts.add("kep", "Sensores crudos no legibles (valen 0.0 y degradan "
+                               f"permisivos y variables calculadas): {roles}")
+        if self._filtro is None:
+            # start() ya lo impide; esto cubre a quien llame _run_tick directo.
+            msg = ("Filtro Exp-Q sin configurar para las PV del contrato "
+                   "(revisa filtros.json).")
+            self._last_error = msg
+            tz["abortado_en"] = "filtro"
+            tz["motivo_aborto"] = msg
+            _traza_push(tz)
+            return
+        # El filtro pesa cada muestra por su edad en segundos, asi que el
+        # suavizado configurado en filtros.json vale igual corra el lazo a
+        # 5 s o a 50 ms.
+        inputs = self._filtro.actualizar(inputs_raw, t_s=self._t_s)
 
         tz["filtro"] = [
             {"rol": v, "crudo": round(float(inputs_raw[v]), 4),
@@ -1409,7 +1998,11 @@ class SEEngine:
         tz["limites"] = {v: {b: round(float(x), 4) for b, x in bounds.items()}
                          for v, bounds in limites.items()}
 
-        row_data = {**inputs, **crudas}
+        # `inputs` va DESPUES a proposito: si un nombre existe como PV y como
+        # entrada cruda, manda el valor de la PV, que viene filtrado por Exp-Q
+        # y leido de su propio tag. Al reves, un 0.0 de una cruda sin mapear
+        # pisaria silenciosamente la medicion buena.
+        row_data = {**crudas, **inputs}
         for var, bounds in limites.items():
             row_data[f"{var}_lmin"] = bounds.get("lmin", 0)
             row_data[f"{var}_lmax"] = bounds.get("lmax", 0)
@@ -1422,7 +2015,8 @@ class SEEngine:
             row, self._hist,
             columnas_entrada=COLUMNAS_ENTRADA,
             meta_flags=None,
-            inputs_override=inputs
+            inputs_override=inputs,
+            fuzzy_modelos=self._fuzzy_modelos,
         )
 
         tz["derivadas"] = {k: (round(float(v), 4) if isinstance(v, (int, float)) else None)
@@ -1461,10 +2055,24 @@ class SEEngine:
             ev_error = None
             if acciones_con_belief:
                 try:
-                    apply_actions(acciones_con_belief, self._setpoints, self._limites_sp)
+                    # apply_actions NO muta: devuelve una copia con los pasos
+                    # aplicados y clipeados. Antes se llamaba tirando el
+                    # resultado, asi que la regla disparaba, armaba su wait y
+                    # el setpoint no se movia nunca — el DCS jamas veia la
+                    # accion. Hay que reasignar lo que devuelve.
+                    self._setpoints.update(
+                        apply_actions_tabla(acciones_con_belief, self._setpoints,
+                                            self._limites_sp, self._defuzzy)
+                    )
                 except Exception as exc:
                     ev_ok = False
                     ev_error = str(exc)
+                    # Un disparo que no puede aplicarse tiene que doler: antes
+                    # solo quedaba un flag dentro de la traza y /api/se/status
+                    # seguia diciendo running=true, last_error=null mientras el
+                    # SE no movia un solo setpoint.
+                    tick_error = f"Accion no aplicable ({evento.get('id', '?')}): {exc}"
+                    _alerts.add("se_engine", tick_error)
             tick_events.append({
                 "regla_id": evento.get("id", "?"),
                 "bloque":   evento.get("bloque", ""),
@@ -1476,24 +2084,66 @@ class SEEngine:
 
         if tick_events:
             self._last_events = tick_events[-5:]
+            for ev in tick_events:
+                self._historial_disparos.append({
+                    **ev,
+                    "t_s": round(self._t_s, 2),
+                    "ts_wall": time.time(),
+                    "tick": self._tick,
+                    # Efecto real sobre los setpoints: un disparo cuyo SP no se
+                    # movio (por clipeo al limite) se ve igual de claro aca.
+                    "setpoints": {
+                        k: {"antes": round(float(sp_antes.get(k, 0.0)), 3),
+                            "despues": round(float(v), 3),
+                            "delta": round(float(v) - float(sp_antes.get(k, 0.0)), 3)}
+                        for k, v in self._setpoints.items()
+                    },
+                })
 
         tz["disparadas"] = tick_events
+        # Grabadores por regla: se les pasa el efecto real de las que dispararon.
+        _grabar_evaluaciones(
+            tz["reglas"],
+            {str(ev["regla_id"]): {
+                "acciones": ev.get("acciones", []),
+                "ok": ev.get("ok"),
+                "error": ev.get("error"),
+                "setpoints": {
+                    k: {"antes": round(float(sp_antes.get(k, 0.0)), 3),
+                        "despues": round(float(v), 3),
+                        "delta": round(float(v) - float(sp_antes.get(k, 0.0)), 3)}
+                    for k, v in self._setpoints.items()
+                },
+            } for ev in tick_events},
+            self._tick, self._t_s,
+        )
         tz["defuzzy"] = [
             {"sp": k,
              "antes":   round(float(sp_antes.get(k, 0.0)), 4),
              "despues": round(float(v), 4),
              "delta":   round(float(v) - float(sp_antes.get(k, 0.0)), 4),
              "limites": list(self._limites_sp.get(k, (None, None))),
+             # Un SP pegado a su limite absorbe todos los pasos siguientes: la
+             # regla dispara, el defuzzy calcula, y el valor no se mueve. Sin
+             # esta marca, eso se lee como "la regla no funciona".
+             "en_limite": _sp_en_limite(v, self._limites_sp.get(k)),
              "tag":     self._mapeo["sp_to_tag"].get(k)}
             for k, v in self._setpoints.items()
         ]
 
-        self._write_setpoints()
-        tz["escritura"] = {"error": self._last_error}
+        tz["escritura"] = self._write_setpoints()
+        if tz["escritura"].get("error"):
+            tick_error = tz["escritura"]["error"]
         _traza_push(tz)
 
         try:
-            from web.api.postgres import persist_tick
+            from web.api.postgres import persist_tick, persistencia_debida
+            # La persistencia tiene su propio reloj (ver web/api/postgres.py).
+            # Se consulta ANTES de armar el payload porque armarlo implica
+            # releer tags.json del disco: en ciclo libre eso serian decenas de
+            # lecturas por segundo para tirar el resultado a la basura.
+            if not persistencia_debida():
+                raise _SaltarPersistencia
             entrada_vals = {}
             for tag, var in self._mapeo["tag_to_pv"].items():
                 if var in inputs_raw:
@@ -1516,30 +2166,73 @@ class SEEngine:
                     "equipo": t.get("equipo"),
                 }
             persist_tick(entrada_vals, salida_vals, tag_meta, "espesadores")
+        except _SaltarPersistencia:
+            pass                      # tick fuera de fotograma: normal
         except Exception as e:
             _alerts.add("general", f"PostgreSQL: {e}")
 
-        self._last_error = None
-        _alerts.resolve_category("se_engine")
-        _alerts.resolve_category("kep")
+        # Solo se declara "todo bien" si el tick no tuvo problemas. Antes esto
+        # era incondicional y borraba el error de escritura que _write_setpoints
+        # acababa de dejar 40 lineas mas arriba.
+        self._last_error = tick_error
+        if tick_error is None:
+            _alerts.resolve_category("se_engine")
+            _alerts.resolve_category("kep")
 
     def _worker(self):
+        """Ciclo libre: leer -> pipeline -> escribir SP -> volver a empezar.
+
+        Antes habia un `wait(intervalo_s)` fijo despues de cada tick, con dos
+        problemas: el periodo real era `intervalo + duracion del tick` (nunca
+        el que se pedia), y el motor se quedaba dormido aunque el proceso
+        hubiera cambiado. Ahora el unico retardo es el piso, y se DESCUENTA lo
+        que tardo el tick, de modo que el piso es un periodo minimo de verdad
+        y no un tiempo muerto que se suma.
+        """
+        t_prev = time.monotonic()
         while not self._stop_event.is_set():
+            t_ini = time.monotonic()
             try:
                 self._run_tick()
                 self._tick += 1
             except Exception as e:
                 self._last_error = str(e)
                 _alerts.add("se_engine", str(e), traceback.format_exc())
-            self._stop_event.wait(self._intervalo_s)
 
-    def start(self, intervalo_s: float = 5.0) -> dict:
+            self._dur_tick_s = time.monotonic() - t_ini
+            if self._dur_tick_s > self._dur_tick_max_s:
+                self._dur_tick_max_s = self._dur_tick_s
+
+            # Periodo real medido, suavizado: en ciclo libre no hay periodo
+            # nominal que reportar, solo el que se logra.
+            periodo = t_ini - t_prev
+            t_prev = t_ini
+            self._periodo_s = (periodo if self._periodo_s <= 0.0
+                               else 0.9 * self._periodo_s + 0.1 * periodo)
+
+            # Piso: solo se duerme lo que falte para completarlo.
+            restante = self._piso_s - self._dur_tick_s
+            self._dormido_s = max(0.0, restante)
+            if restante > 0:
+                self._stop_event.wait(restante)
+
+    def start(self, piso_s: float | None = None,
+              intervalo_s: float | None = None) -> dict:
         """Arranca el motor. Devuelve {"ok": bool, "error": str|None}.
+
+        `piso_s` es el PERIODO MINIMO entre ticks, no el periodo del lazo: el
+        motor corre libre y solo respeta ese piso. `intervalo_s` es el nombre
+        viejo del parametro, cuando el lazo tenia periodo fijo; se sigue
+        aceptando como alias para no romper llamadas existentes.
 
         No arranca si el mapeo tag<->rol esta incompleto: correr con roles
         sin asignar produce fuzzificacion sobre limites en 0.0 y reglas que
         disparan sobre datos inventados. Mejor negarse y decir que falta.
         """
+        if piso_s is None:
+            piso_s = intervalo_s if intervalo_s is not None else self.PISO_S_DEFAULT
+        piso_s = min(max(0.0, float(piso_s)), self.PISO_S_MAX)
+
         if self._running:
             return {"ok": True, "error": None}
 
@@ -1558,12 +2251,31 @@ class SEEngine:
             _alerts.add("se_engine", msg)
             return {"ok": False, "error": msg}
 
-        self._intervalo_s = intervalo_s
+        self._piso_s = piso_s
         self._init_state()
+
+        # El mapeo puede estar completo y el SE seguir sin poder correr: una PV
+        # sin filtro reventaba cada tick, una PV sin modelo difuso se saltaba en
+        # silencio, y un SP sin limites se escribia al DCS sin tope. Se reporta
+        # todo junto en vez de arrancar y fallar despues.
+        if self._problemas_arranque:
+            msg = "El SE no puede arrancar. " + " | ".join(self._problemas_arranque)
+            self._last_error = msg
+            _alerts.add("se_engine", msg)
+            return {"ok": False, "error": msg}
+
+        # Las advertencias no frenan el arranque, pero tienen que verse: el
+        # operador debe saber que hay una PV que el SE no esta fuzzificando.
+        if self._advertencias_arranque:
+            _alerts.add("se_engine",
+                        "El SE arranco con avisos. " + " | ".join(self._advertencias_arranque))
+
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
         self._running = True
+        self._last_error = None
+        return {"ok": True, "error": None}
 
     def stop(self):
         if not self._running:
@@ -1575,6 +2287,8 @@ class SEEngine:
         self._thread = None
 
     def status(self) -> dict:
+        # En ciclo libre no hay periodo nominal que informar: el periodo es
+        # una MEDICION. `piso_s` es el unico parametro; el resto sale del lazo.
         return {
             "running":      self._running,
             "tick":         self._tick,
@@ -1582,6 +2296,18 @@ class SEEngine:
             "setpoints":    {k: round(v, 3) for k, v in self._setpoints.items()},
             "last_events":  self._last_events,
             "last_error":   self._last_error,
+            # Degradaciones aceptadas (ej. PV sin fuzzy): el SE corre igual.
+            "advertencias": list(self._advertencias_arranque),
+            "ultimos_disparos": list(self._historial_disparos)[-10:],
+            "piso_s":       self._piso_s,
+            "piso_ms":      int(round(self._piso_s * 1000)),
+            "periodo_ms":   round(self._periodo_s * 1000, 1),
+            "ticks_por_s":  round(1.0 / self._periodo_s, 2) if self._periodo_s > 0 else 0.0,
+            "dur_tick_ms":  round(self._dur_tick_s * 1000, 1),
+            "dur_tick_max_ms": round(self._dur_tick_max_s * 1000, 1),
+            "dormido_ms":   round(self._dormido_s * 1000, 1),
+            "sp_escrituras": self._sp_escrituras,
+            "sp_omitidos":   self._sp_omitidos,
         }
 
 
@@ -1621,6 +2347,7 @@ ENTRADA_PAGE    = _load_template("entrada.html")
 POSTGRES_PAGE   = _load_template("postgres.html")
 GRAFICOS_PAGE   = _load_template("graficos.html")
 TRAZA_PAGE      = _load_template("traza.html")
+HISTORIAL_PAGE  = _load_template("historial.html")
 
 # CHART_VARS se mantiene por compatibilidad (usado por otros modulos),
 # pero el nuevo Explorador de Series construye sus datasets desde el

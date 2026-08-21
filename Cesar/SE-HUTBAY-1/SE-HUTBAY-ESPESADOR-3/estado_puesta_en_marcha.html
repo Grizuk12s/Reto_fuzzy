@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SE HUTBAY — Estado de puesta en marcha</title>
+<style>
+:root{
+  --bg:#0f172a; --panel:#1e293b; --panel2:#0f172a; --line:#334155;
+  --tx:#e2e8f0; --tx2:#94a3b8; --tx3:#64748b;
+  --rojo:#ef4444; --ambar:#f59e0b; --verde:#22c55e; --azul:#38bdf8; --morado:#a855f7;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);
+     line-height:1.6;padding:32px 20px 80px}
+.wrap{max-width:1000px;margin:0 auto}
+h1{font-size:1.9rem;font-weight:800;margin-bottom:4px}
+h1 span{background:linear-gradient(135deg,#0ea5e9,#38bdf8);-webkit-background-clip:text;
+        -webkit-text-fill-color:transparent;background-clip:text}
+.sub{color:var(--tx3);font-size:.86rem;margin-bottom:26px}
+
+.veredicto{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);
+  border-radius:14px;padding:22px 26px;margin-bottom:14px}
+.veredicto .t{font-size:1.25rem;font-weight:800;color:var(--rojo);margin-bottom:6px}
+.veredicto p{font-size:.92rem;color:var(--tx2)}
+.nota{font-size:.78rem;color:var(--tx3);margin-bottom:28px;padding-left:4px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:32px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi .v{font-size:1.5rem;font-weight:800;line-height:1.2}
+.kpi .l{font-size:.68rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.kpi.bad .v{color:var(--rojo)} .kpi.warn .v{color:var(--ambar)} .kpi.ok .v{color:var(--verde)}
+
+h2{font-size:1.05rem;font-weight:700;margin:34px 0 12px;padding-bottom:8px;
+   border-bottom:1px solid var(--line)}
+
+.item{background:var(--panel);border:1px solid var(--line);border-left-width:4px;
+      border-radius:10px;padding:16px 20px;margin-bottom:12px}
+.item.bad{border-left-color:var(--rojo)}
+.item.warn{border-left-color:var(--ambar)}
+.item.ok{border-left-color:var(--verde)}
+.item .h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.item .n{font-size:.95rem;font-weight:700}
+.chip{font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+      padding:2px 9px;border-radius:20px;white-space:nowrap}
+.chip.bad{background:rgba(239,68,68,.15);color:var(--rojo);border:1px solid rgba(239,68,68,.35)}
+.chip.warn{background:rgba(245,158,11,.15);color:var(--ambar);border:1px solid rgba(245,158,11,.35)}
+.chip.ok{background:rgba(34,197,94,.15);color:var(--verde);border:1px solid rgba(34,197,94,.35)}
+.chip.who{background:#0f172a;color:var(--tx2);border:1px solid var(--line)}
+.item p{font-size:.85rem;color:var(--tx2);margin-bottom:6px}
+.item p:last-child{margin-bottom:0}
+.item b{color:var(--tx)}
+
+code{font-family:Consolas,'Courier New',monospace;font-size:.8rem;
+     background:var(--panel2);padding:2px 6px;border-radius:4px;color:var(--morado)}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:11px 14px;overflow-x:auto;margin:8px 0;font-size:.76rem;
+    font-family:Consolas,'Courier New',monospace;color:#fca5a5;line-height:1.5}
+
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.82rem}
+th{text-align:left;font-size:.66rem;color:var(--tx3);text-transform:uppercase;
+   letter-spacing:.4px;padding:7px 10px;border-bottom:1px solid var(--line)}
+td{padding:7px 10px;border-bottom:1px solid rgba(51,65,85,.5);color:var(--tx2)}
+td b{color:var(--tx)}
+
+ol.pasos{list-style:none;counter-reset:p}
+ol.pasos li{counter-increment:p;position:relative;padding:11px 0 11px 46px;
+            border-bottom:1px solid rgba(51,65,85,.5);font-size:.87rem;color:var(--tx2)}
+ol.pasos li:before{content:counter(p);position:absolute;left:0;top:11px;width:28px;height:28px;
+  background:var(--panel);border:1px solid var(--line);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:.76rem;
+  font-weight:700;color:var(--azul)}
+ol.pasos li b{color:var(--tx)}
+
+.foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);
+      font-size:.76rem;color:var(--tx3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>SE HUTBAY — <span>Estado de puesta en marcha</span></h1>
+<p class="sub">Espesador · comprobado ejecutando contra la configuración real de esta instalación</p>
+
+<div class="veredicto">
+  <div class="t">No está listo para operar</div>
+  <p>El motor <b>se niega a arrancar</b> por falta de tags de límite. Y aunque arrancara,
+     hay dos defectos que impedirían que sus decisiones lleguen al DCS, más la lógica de
+     control —reglas, protecciones, tablas— que todavía no está escrita.</p>
+</div>
+<p class="nota">Nada de esto sale de leer el código: se verificó llamando a
+   <code>construir_mapeo()</code>, intentando <code>SEEngine.start()</code> y ejecutando
+   <code>apply_actions_tabla()</code> sobre la configuración de esta instalación.</p>
+
+<div class="kpis">
+  <div class="kpi bad"><div class="v">18</div><div class="l">Tags LIM faltantes</div></div>
+  <div class="kpi ok"><div class="v">11 / 11</div><div class="l">PV mapeadas</div></div>
+  <div class="kpi bad"><div class="v">0</div><div class="l">Reglas definidas</div></div>
+  <div class="kpi bad"><div class="v">0</div><div class="l">Permisivos (protecciones)</div></div>
+  <div class="kpi bad"><div class="v">0</div><div class="l">Tablas defuzzy</div></div>
+  <div class="kpi ok"><div class="v">54</div><div class="l">Tests en verde</div></div>
+</div>
+
+<h2>Bloqueadores</h2>
+
+<div class="item bad">
+  <div class="h"><span class="n">1 · El motor no arranca: faltan 18 tags de límite</span>
+    <span class="chip bad">Bloqueante</span><span class="chip who">Planta</span></div>
+  <p>El núcleo exige <code>lmin</code> y <code>lmax</code> por cada PV. Con 11 PV hacen falta
+     22 límites y planta entregó 6.</p>
+  <pre>Mapeo de tags incompleto.
+LIM sin mapear: nivel_hopper_a_lmin, nivel_hopper_a_lmax,
+velocidad_bomba_sp_local_lmin, ... presion_pic2391_lmax   (18)</pre>
+  <p><b>Dos salidas:</b> pedir los tags a planta, o bajar a <b>CRUDA</b> las PV que no tengan
+     sus dos límites — se siguen leyendo y alimentan permisivos, pero no se fuzzifican.</p>
+  <p>Atajo posible: <code>evaluar_fuzzys</code> solo usa <b>ambos</b> límites cuando el modelo
+     es <code>norm</code>. Uno <code>low</code> usa solo <code>lmin</code> y uno <code>high</code>
+     solo <code>lmax</code>. El requisito actual es más estricto que lo que la lógica difusa necesita.</p>
+</div>
+
+<div class="item bad">
+  <div class="h"><span class="n">2 · El motor en vivo nunca lee <code>defuzzy.json</code></span>
+    <span class="chip bad">Bloqueante</span><span class="chip who">Código</span></div>
+  <p><code>SEEngine._init_state()</code> carga reglas, permisivos, filtros y modelos difusos,
+     <b>pero no las tablas de defuzzificación</b>. Usa el <code>DEFUZZY_POR_FAMILIA</code>
+     hardcodeado de la plantilla del espesador.</p>
+  <p><b>Comprobado:</b> con <code>defuzzy.json</code> vacío en disco, el motor igual reporta
+     <code>sp_floculante</code>, <code>sp_tonelaje</code>, <code>sp_vel_bomba</code>.</p>
+  <p>Es <b>el mismo defecto que ya se corrigió con <code>fuzzy.json</code></b> y quedó a medias.
+     Consecuencia: lo que se edite en la página Defuzzificación no llega al motor.</p>
+</div>
+
+<div class="item bad">
+  <div class="h"><span class="n">3 · Dos nomenclaturas para el mismo setpoint</span>
+    <span class="chip bad">Bloqueante</span><span class="chip who">Código</span></div>
+  <table>
+    <tr><th>Origen</th><th>Nombre</th></tr>
+    <tr><td><code>contrato.json</code> → <code>SETPOINT_KEYS</code>, <code>limites_sp</code></td>
+        <td><b>sp_vel_bomba</b></td></tr>
+    <tr><td>Identificador derivado del tag SP</td><td><b>velocidad_salida_del_se</b></td></tr>
+  </table>
+  <p>La página Defuzzificación crea las familias con el segundo nombre; el motor busca los
+     setpoints con el primero:</p>
+  <pre>KeyError: Familia 'velocidad_salida_del_se' no está en setpoints
+          (claves: ['sp_vel_bomba'])</pre>
+  <p>Se ve en la UI: cada tarjeta muestra <i>"sin límites en contrato.json"</i>, porque la
+     búsqueda falla por lo mismo. Y <b>sin límites no hay clipeo</b>: el SP se escribiría sin tope.</p>
+</div>
+
+<div class="item bad">
+  <div class="h"><span class="n">4 · Falta la lógica de control</span>
+    <span class="chip bad">Bloqueante</span><span class="chip who">Ingeniería de proceso</span></div>
+  <table>
+    <tr><th>Archivo</th><th>Estado</th><th>Qué significa</th></tr>
+    <tr><td><code>reglas.json</code></td><td><b>[ ]</b></td><td>Ninguna decisión</td></tr>
+    <tr><td><code>defuzzy.json</code></td><td><b>{ }</b></td><td>Ninguna acción traducible a movimiento</td></tr>
+    <tr><td><code>permisivos.json</code></td><td><b>{ }</b></td><td><b>Ninguna protección</b></td></tr>
+    <tr><td><code>estados.json</code></td><td><b>{ }</b></td><td>Sin agrupaciones reutilizables</td></tr>
+    <tr><td><code>waits.json</code></td><td><b>[ ]</b></td><td>Sin cooldowns</td></tr>
+  </table>
+  <p>El motor leería, filtraría y fuzzificaría las 11 variables correctamente, y después
+     <b>no dispararía nada</b>. Es el trabajo más grande que queda y no lo resuelve el software.</p>
+</div>
+
+<h2>Antes de escribir a un DCS real</h2>
+
+<div class="item warn">
+  <div class="h"><span class="n">Interlock de habilitación</span><span class="chip warn">Seguridad</span></div>
+  <p>El DCS ya provisionó el handshake (<code>Exp_Enable_Ext</code>, <code>Enable_FBK</code>,
+     <code>Exp_HB</code>, <code>LIC_Auto/Manual</code>), pero el motor <b>no lo consulta</b>.
+     Debería ser <b>fail-closed</b>: si el enable no se puede leer o tiene calidad mala, no se escribe.</p>
+</div>
+
+<div class="item warn">
+  <div class="h"><span class="n">La calidad de dato es inventada</span><span class="chip warn">Seguridad</span></div>
+  <p><code>connectors/kepserver.py</code> usa <code>get_value()</code>, que descarta el StatusCode
+     y el SourceTimestamp de OPC-UA: el campo <code>quality</code> que se muestra lo pone el código.
+     Con <code>get_data_value()</code> habría calidad real y detección de valores congelados.</p>
+</div>
+
+<div class="item warn">
+  <div class="h"><span class="n">Un PV caído aborta el tick entero</span><span class="chip warn">Robustez</span></div>
+  <p>Falta retener el último valor bueno con timeout e inhibir <b>solo</b> las reglas que
+     dependen de la variable degradada, en vez de detener todo el pipeline.</p>
+</div>
+
+<div class="item warn">
+  <div class="h"><span class="n"><code>_save_tags</code> sin lock</span><span class="chip warn">Robustez</span></div>
+  <p>Read-modify-write sin sincronizar, llamado desde el generador, el heartbeat y la API.
+     Ya corrompió datos una vez.</p>
+</div>
+
+<h2>Qué sí está listo</h2>
+
+<div class="item ok">
+  <div class="h"><span class="n">El camino de datos completo</span><span class="chip ok">Operativo</span></div>
+  <p>Lectura OPC-UA, filtrado Exp-Q, fuzzificación y <b>trazabilidad de las 9 etapas</b> del
+     pipeline, con el motivo de por qué cada regla no disparó.</p>
+</div>
+
+<div class="item ok">
+  <div class="h"><span class="n">Se niega a correr sobre datos inventados</span><span class="chip ok">Operativo</span></div>
+  <p><code>start()</code> valida mapeo, filtros, modelos difusos y límites de SP, y reporta
+     todo junto. Que hoy no arranque es el sistema <b>haciendo su trabajo</b>, no una falla.</p>
+</div>
+
+<div class="item ok">
+  <div class="h"><span class="n">Lazo en tiempo real</span><span class="chip ok">Operativo</span></div>
+  <p>Ciclo libre con reloj monotónico real (los waits de 900 s duran 900 s), escritura de
+     setpoints solo por cambio, y persistencia acotada a 500/1000 ms para que la base no
+     fije la velocidad del control.</p>
+</div>
+
+<div class="item ok">
+  <div class="h"><span class="n">Configuración sobre código</span><span class="chip ok">Operativo</span></div>
+  <p>Contrato, tags, filtros, fuzzy y defuzzy se editan desde la web y sobreviven a los
+     reinicios. <b>54 tests</b> de regresión sobre el cableado.</p>
+</div>
+
+<h2>Camino a operación</h2>
+
+<ol class="pasos">
+  <li>Resolver los límites: pedir los 18 tags o bajar esas PV a CRUDA — <b>planta</b></li>
+  <li>Unificar la nomenclatura de SP (contrato vs identificador de tag) — <b>código, acotado</b></li>
+  <li>Hacer que <code>SEEngine</code> cargue <code>defuzzy.json</code> — <b>código, acotado</b></li>
+  <li>Escribir permisivos (las protecciones primero), reglas y tablas defuzzy — <b>ingeniería de proceso</b></li>
+  <li>Interlock de habilitación fail-closed + calidad OPC-UA real — <b>código</b></li>
+  <li><b>Marcha en vacío:</b> SE corriendo con la escritura al DCS deshabilitada, verificando en la
+      Traza que decide lo que un operador decidiría</li>
+  <li>Recién ahí, habilitar la escritura</li>
+</ol>
+
+<p class="foot">
+  Detalle técnico en <code>PUESTA_EN_MARCHA.md</code> (guía operativa) y <code>CLAUDE.md</code>
+  (arquitectura, decisiones y pendientes). <code>README.txt</code>,
+  <code>COMO_EJECUTAR.txt</code> y <code>PROJECT_CONTEXT.md</code> describen el prototipo viejo
+  y están marcados como desactualizados.
+</p>
+
+</div>
+</body>
+</html>

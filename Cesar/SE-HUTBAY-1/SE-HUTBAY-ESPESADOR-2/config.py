@@ -71,6 +71,43 @@ def _cargar_contrato() -> tuple[list, list]:
 
 VARIABLES_PROCESO, _SETPOINTS_CONTRATO = _cargar_contrato()
 
+
+def _cargar_limites_sp() -> dict:
+    """Limites de ingenieria por setpoint, leidos de contrato.json.
+
+    Antes vivian en `simulacion.LIMITES_SP`, hardcodeados con los 3 SP del
+    espesador. Eso no es cosmetico: `apply_actions_tabla` solo clipea las
+    familias presentes en este dict, asi que un SP de otro cliente quedaba
+    SIN CLIPEO y el SE podia escribir cualquier valor al DCS.
+
+    Vacio es un estado valido y significa "sin limites declarados"; el motor
+    se niega a arrancar en ese caso en vez de escribir sin tope.
+    """
+    try:
+        with open(CONTRATO_JSON, encoding="utf-8") as f:
+            data = _json.load(f)
+        crudo = data.get("limites_sp")
+        if not isinstance(crudo, dict):
+            return {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+    out = {}
+    for sp, par in crudo.items():
+        if not isinstance(par, (list, tuple)) or len(par) != 2:
+            continue
+        try:
+            lo, hi = float(par[0]), float(par[1])
+        except (TypeError, ValueError):
+            continue
+        if lo >= hi:
+            continue
+        out[str(sp)] = (lo, hi)
+    return out
+
+
+LIMITES_SP_CONTRATO = _cargar_limites_sp()
+
 # ============================================================
 # VARIABLES CRUDAS DE SENSORES
 # ------------------------------------------------------------
@@ -99,10 +136,18 @@ _VARIABLES_JSON = _os_path.join(
 
 
 def _cargar_crudas() -> list:
+    """Lee las crudas de variables.json.
+
+    OJO: una lista vacia es un estado VALIDO, no un error. Si el archivo
+    existe y dice `"crudas": {}`, el contrato no tiene crudas y punto.
+    Solo se cae a la plantilla si el archivo falta o esta corrupto; si no,
+    blanquear la seccion no serviria de nada porque volveria sola.
+    """
     try:
         with open(_VARIABLES_JSON, encoding="utf-8") as f:
-            crudas = _json.load(f).get("crudas")
-        if isinstance(crudas, dict) and crudas:
+            data = _json.load(f)
+        crudas = data.get("crudas")
+        if isinstance(crudas, dict):
             return list(crudas.keys())
     except (OSError, ValueError, AttributeError):
         pass

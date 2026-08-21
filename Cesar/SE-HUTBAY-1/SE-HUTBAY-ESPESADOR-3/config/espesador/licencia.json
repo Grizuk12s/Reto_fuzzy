@@ -1,0 +1,22 @@
+{
+  "active": true,
+  "months": 6,
+  "type": "Licencia prototipo 6 meses",
+  "activated_at": "2026-07-20",
+  "expires_at": "2026-10-12",
+  "capped": true,
+  "history": [
+    {
+      "activated_at": "2026-07-20",
+      "months": 6,
+      "expires_at": "2026-10-12",
+      "capped": true,
+      "status": "Activa",
+      "code_masked": "HUTBAY-***-2026"
+    }
+  ],
+  "duration_seconds": 15552000.0,
+  "consumed_seconds": 899815.5,
+  "last_seen_at": "2026-08-21T22:16:10",
+  "signature": "a4a8543ac002d853489290a09d3ef00d0de076c574d281b1471d069d030eefe7"
+}

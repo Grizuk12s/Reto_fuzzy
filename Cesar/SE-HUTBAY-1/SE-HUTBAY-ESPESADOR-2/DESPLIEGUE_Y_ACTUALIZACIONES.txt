@@ -1,0 +1,312 @@
+================================================================================
+  SE-HUTBAY ESPESADOR -- Despliegue y actualizaciones
+  Windows dev  ->  pendrive  ->  Windows planta  ->  VM Linux (sin internet)
+================================================================================
+
+  Este documento reemplaza a EXPORTAR_Y_DESPLEGAR.txt, que quedo con las rutas
+  y la version del prototipo (1.0). Aqui esta el circuito real, con las rutas
+  que se usan hoy y los errores concretos con los que ya nos tropezamos.
+
+  Version actual desplegada:  se-espesador:3.0
+
+
+================================================================================
+  1. MAPA DE CARPETAS -- donde vive cada cosa
+================================================================================
+
+  A) WINDOWS DE DESARROLLO  (la maquina de Cesar, con Docker Desktop)
+
+     Proyecto (codigo fuente, se edita aqui):
+       C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\
+       SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-2
+
+     Dentro del proyecto importan:
+       config\espesador\      Configuracion viva (contrato, tags, fuzzy, ...)
+       deploy\                Plantillas del paquete (compose, LEEME, kepserver)
+       static\vendor\         Chart.js y plugins servidos localmente
+       exportar_v2.ps1        Script que automatiza el empaquetado
+
+     Carpeta de salida del paquete (se recrea en cada version):
+       C:\Users\cvall\OneDrive\Desktop\Grafico-T-Real
+
+     OJO: esta carpeta de salida ha cambiado de nombre entre versiones
+     (antes SE-Conexion-Valida, antes Test-conexion-Entornos). No asumas
+     que existe: crearla siempre con New-Item -Force.
+
+
+  B) PENDRIVE
+
+       E:\se-demo          (la letra cambia segun el equipo)
+
+
+  C) WINDOWS DE PLANTA  (usuario adadministrator, SIN privilegios de admin)
+
+       C:\Users\adadministrator\Desktop\Grafico-T-Real
+
+     Desde aqui se hace el scp a la VM. No necesita admin: scp.exe y tar.exe
+     vienen con Windows 10/11.
+
+
+  D) VM LINUX  (192.168.137.94, sin salida a internet)
+
+       Usuario normal:  operador  /  1234       (tiene sudo)
+       Docker exige root o sudo.
+
+       /home/operador/            <- aqui aterriza el scp (zona de paso)
+       /opt/se-3.0/               <- despliegue definitivo
+       /opt/se-3.0/config/        <- FUENTE DE VERDAD de la configuracion
+
+     La carpeta de despliegue se renombra con cada version mayor
+     (/opt/se-2.0 -> /opt/se-3.0). Leer la trampa 3 antes de renombrar.
+
+
+================================================================================
+  2. QUE SE SUBE EN CADA ACTUALIZACION
+================================================================================
+
+  Depende de que se toco. Esta es la regla:
+
+  ------------------------------------------------------------------
+   Cambiaste...                     | Hay que resubir...
+  ------------------------------------------------------------------
+   Codigo .py                       | .tar  (va dentro de la imagen)
+   Plantillas .html                 | .tar  (van dentro de la imagen)
+   static\vendor\*.js               | .tar  (van dentro de la imagen)
+   Solo el numero de version        | .tar + docker-compose.yml
+   config\espesador\*.json          | solo el JSON, o nada (ver abajo)
+  ------------------------------------------------------------------
+
+  EL .tar ES LO NORMAL. Casi cualquier cambio de la aplicacion obliga a
+  reconstruir la imagen, porque el codigo viaja dentro de ella. El .tar pesa
+  ~200 MB siempre, aunque el cambio sea de una linea: docker save exporta la
+  imagen completa. El BUILD en cambio es rapido (segundos) porque Docker
+  cachea la capa del pip install mientras requirements.txt no cambie.
+
+  EL config/ CASI NUNCA SE RESUBE. El config del servidor es la fuente de
+  verdad: todo lo que se edite en la UI (roles, limites, reglas, estado de la
+  conexion KEPserver) queda ahi y NO existe en el Windows de desarrollo.
+  Pisarlo con el del proyecto borra ese trabajo.
+
+  Resubir config/ solo cuando el cambio nace en el proyecto (por ejemplo un
+  contrato nuevo), y avisando a quien opere el servidor.
+
+
+================================================================================
+  3. CICLO DE ACTUALIZACION -- version por version
+================================================================================
+
+  Subir el numero de version en cada entrega (3.0 -> 3.1 -> 3.2 ...). Dos
+  imagenes distintas con el mismo tag es la forma mas rapida de no saber que
+  esta corriendo en planta.
+
+  Sustituir <VER> por la version nueva en todo lo que sigue.
+
+
+  ---- PASO A: WINDOWS DEV (PowerShell, con Docker Desktop abierto) ---------
+
+     $proy = "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-2"
+     $dest = "C:\Users\cvall\OneDrive\Desktop\Grafico-T-Real"
+
+     cd $proy
+     New-Item -ItemType Directory -Force -Path $dest | Out-Null
+     Test-Path $dest                       # debe decir True
+
+     docker build -t se-espesador:<VER> .
+
+     # Verificar que la imagen trae lo que crees:
+     docker run --rm se-espesador:<VER> sh -c "ls static/vendor"
+     docker run --rm se-espesador:<VER> sh -c "grep -c jsdelivr web/templates/graficos.html"
+     # el primero lista 4 .js  |  el segundo debe imprimir 0
+
+     docker save -o "$dest\se-espesador-<VER>.tar" se-espesador:<VER>
+
+     Get-Item "$dest\se-espesador-<VER>.tar" |
+         Select-Object Name, @{N='Size(MB)'; E={[math]::Round($_.Length/1MB,1)}}
+
+     # Si cambio la version, actualizar el compose ANTES de copiarlo:
+     #   deploy\docker-compose.yml  ->  image: se-espesador:<VER>
+     Copy-Item -Force "$proy\deploy\docker-compose.yml" "$dest\"
+     Copy-Item -Force "$proy\deploy\LEEME.txt"          "$dest\"
+
+     # Al pendrive (ajustar la letra):
+     Copy-Item -Force "$dest\se-espesador-<VER>.tar" "E:\se-demo\"
+     Copy-Item -Force "$dest\docker-compose.yml"     "E:\se-demo\"
+     Copy-Item -Force "$dest\LEEME.txt"              "E:\se-demo\"
+
+
+  ---- PASO B: WINDOWS DE PLANTA (CMD, sin admin) ---------------------------
+
+     mkdir C:\Users\adadministrator\Desktop\Grafico-T-Real
+     xcopy /E /I /Y E:\se-demo C:\Users\adadministrator\Desktop\Grafico-T-Real
+
+     scp C:\Users\adadministrator\Desktop\Grafico-T-Real\se-espesador-<VER>.tar operador@192.168.137.94:/home/operador/
+     scp C:\Users\adadministrator\Desktop\Grafico-T-Real\docker-compose.yml     operador@192.168.137.94:/home/operador/
+     scp C:\Users\adadministrator\Desktop\Grafico-T-Real\LEEME.txt              operador@192.168.137.94:/home/operador/
+
+     Clave de operador: 1234
+     La primera conexion pide aceptar la huella del host: escribir  yes
+
+     Enviar los archivos SUELTOS, no la carpeta con -r. Ver trampa 2.
+
+
+  ---- PASO C: VM LINUX -----------------------------------------------------
+
+     ssh operador@192.168.137.94
+     sudo su
+
+     cd /opt/se-3.0
+     cp /home/operador/se-espesador-<VER>.tar .
+     cp /home/operador/docker-compose.yml .
+     cp /home/operador/LEEME.txt .
+
+     grep image docker-compose.yml         # debe decir se-espesador:<VER>
+
+     docker rm -f se-espesador             # ver trampa 3
+     docker load -i se-espesador-<VER>.tar # debe decir Loaded image: ...
+     docker compose up -d
+     docker compose ps
+
+
+  ---- PASO D: VERIFICAR ----------------------------------------------------
+
+     curl http://127.0.0.1:5000/health
+     curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/static/vendor/chart.umd.js
+     docker inspect --format='{{.State.Health.Status}}' se-espesador
+
+     El segundo curl debe dar 200: es la prueba de que los assets locales se
+     estan sirviendo y el Explorador no depende de internet.
+     El health puede tardar ~20 s en pasar de starting a healthy.
+
+     En el navegador del Windows, SIEMPRE con Ctrl+F5:
+       http://192.168.137.94:5000/espesador/graficos
+
+     Si no responde desde Windows:  ufw allow 5000/tcp
+
+
+  ---- PASO E: LIMPIAR (ya con la version nueva andando) ---------------------
+
+     docker rmi se-espesador:<VERSION_ANTERIOR>
+     rm /opt/se-3.0/se-espesador-<VERSION_ANTERIOR>.tar
+     rm -f /home/operador/se-espesador-<VER>.tar
+     rm -f /home/operador/docker-compose.yml /home/operador/LEEME.txt
+
+     Conservar SIEMPRE una version anterior cargada hasta confirmar que la
+     nueva funciona. El rollback es: editar el compose a la version vieja y
+     docker compose up -d.
+
+
+================================================================================
+  4. TRAMPAS -- errores reales que ya nos costaron tiempo
+================================================================================
+
+  TRAMPA 1 -- $dest vacio deja el .tar en la raiz del disco
+  ---------------------------------------------------------
+  Si abres una consola nueva, las variables se pierden. Un
+  "$dest\archivo.tar" con $dest nulo se convierte en "\archivo.tar", que
+  PowerShell resuelve como C:\archivo.tar. El comando NO falla: escribe 200 MB
+  en la raiz y te deja creyendo que quedo en la carpeta destino.
+
+  Antivenenno: despues de asignar, correr  Test-Path $dest  y exigir True.
+
+
+  TRAMPA 2 -- scp -r anida la carpeta si el destino ya existe
+  -----------------------------------------------------------
+  scp -r carpeta usuario@host:/ruta/  crea /ruta/carpeta la primera vez, pero
+  si /ruta/carpeta YA existe, deja el contenido en /ruta/carpeta/carpeta.
+  Nos paso dos veces (SE-KB-Base/SE-KB-Base y Grafico-T-Real/Grafico-T-Real).
+  El sintoma es un "cp: cannot stat ... No such file or directory".
+
+  Antiveneno: enviar los archivos sueltos, sin -r. Y si usas -r, verificar
+  siempre con  ls -la ~/<carpeta>  antes de copiar.
+
+
+  TRAMPA 3 -- docker compose down NO borra el contenedor viejo si renombraste
+  la carpeta
+  ---------------------------------------------------------------------------
+  Compose identifica el proyecto por el NOMBRE DE LA CARPETA. Al renombrar
+  /opt/se-2.0 a /opt/se-3.0, el contenedor viejo quedo etiquetado con el
+  proyecto "se-2.0", asi que el down desde /opt/se-3.0 no encontro nada y no
+  hizo nada. Pero container_name: se-espesador es fijo, y el up -d choco:
+
+     Conflict. The container name "/se-espesador" is already in use
+
+  Antiveneno: borrar por nombre, que no depende del proyecto:
+     docker rm -f se-espesador
+  No se pierde nada: la configuracion vive en el bind mount ./config del host.
+
+
+  TRAMPA 4 -- kepserver.json manda sobre KEPSERVER_URL
+  ----------------------------------------------------
+  El docker-compose.yml trae KEPSERVER_URL, pero connectors/kepserver.py hace
+  _load_config() = {**defaults, **json}: el JSON PISA a la variable de entorno.
+  La variable solo aplica si el archivo falta o esta corrupto.
+
+  En desarrollo el JSON dice host.docker.internal, que en la VM Linux no
+  resuelve. Sintoma confuso: el compose muestra la IP correcta y el SE no ve
+  el KEPserver igual.
+
+  Antiveneno: deploy\kepserver.json ya viene con 192.168.137.1:49320. Si se
+  reenvia config/, copiarlo encima.
+
+
+  TRAMPA 5 -- el navegador cachea la pagina rota
+  ----------------------------------------------
+  Despues de cada actualizacion, abrir el Explorador con Ctrl+F5. Sin refresco
+  forzado el navegador sirve la version cacheada y parece que el arreglo no
+  quedo.
+
+
+  TRAMPA 6 -- grep -c que imprime 0 se ve como un error de Docker
+  ---------------------------------------------------------------
+  grep devuelve codigo de salida 1 cuando no encuentra coincidencias, y Docker
+  lo reporta con un "Debug this container error with Gordon". Si el 0 se
+  imprimio, la verificacion PASO. No es un error.
+
+
+  TRAMPA 7 -- el entrypoint corre siempre
+  ---------------------------------------
+  Cualquier  docker run  imprime el seed de tags PCS7 antes de ejecutar tu
+  comando, porque el ENTRYPOINT va antes del CMD. Con --rm y sin volumen
+  montado trabaja sobre la copia interna de la imagen y no toca nada real.
+  Es ruido esperado.
+
+
+  TRAMPA 8 -- https:// en localhost
+  ----------------------------------
+  Los curl de verificacion son http://, sin la ese. La app no sirve TLS.
+
+
+================================================================================
+  5. ESTADO FUNCIONAL -- que se puede demostrar hoy
+================================================================================
+
+  FUNCIONA:
+    - Conexion OPC-UA al KEPserver y lectura en vivo de los 18 tags con rol
+    - Pagina Tags KEPserver con valores y quality en tiempo real
+    - Explorador de Series historizando lo que llega de planta
+    - Conexion a PostgreSQL
+
+  NO FUNCIONA TODAVIA, Y ES CORRECTO:
+    El boton "Iniciar Sistema" se niega a arrancar y responde:
+
+       Mapeo de tags incompleto. LIM sin mapear: nivel_hopper_a_lmin, ...
+
+    Faltan 18 tags de limite. El contrato tiene 11 variables de proceso y el
+    nucleo exige _lmin y _lmax por cada una: 22 limites, y planta entrego 6.
+    Es un dato de planta pendiente, no un problema de despliegue.
+
+    Ademas reglas.json, defuzzy.json, permisivos.json, estados.json y
+    waits.json estan vacios: aunque lleguen los limites, el motor leera,
+    filtrara y fuzzificara bien, y despues no disparara ninguna regla ni movera
+    ningun setpoint.
+
+  PARA LA DEMO:
+    El buffer del Explorador vive en memoria y arranca VACIO en cada arranque
+    del contenedor. Abrir la pagina varios minutos antes para que junte serie.
+    Si entras y muestras al instante, el grafico esta en blanco y no es falla.
+
+    El historial solo crece mientras alguien tenga abierta la pagina de Tags o
+    el propio Explorador: son las dos que muestrean el KEPserver. Sin navegador
+    abierto, la serie tiene huecos.
+
+  Detalle tecnico completo y pendientes conocidos: CLAUDE.md

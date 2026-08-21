@@ -32,7 +32,12 @@ from config import (
     VARIABLES_PROCESO,
 )
 from defuzzy_actions import apply_actions
-from core.filters.exp_q import ExpQFilter, CONFIG_FILTRO_ESPESADOR_DEFAULT
+from core.engine.defuzzy import apply_actions_tabla
+from core.filters.exp_q import (
+    ExpQFilter,
+    CONFIG_FILTRO_ESPESADOR_DEFAULT,
+    PERIODO_LEGACY_S,
+)
 from core.fuzzy.evaluator import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas
 from permisivos import PERMISIVOS, evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
 
@@ -64,7 +69,9 @@ def cargar_reglas_json(path: str | None = None) -> list[dict]:
             datos = _json.load(_f)
     except (OSError, ValueError):
         return _defaults()
-    if not isinstance(datos, list) or not datos:
+    # Una lista vacia es un estado VALIDO: "este cliente todavia no tiene
+    # reglas". Antes caia a las 28 del espesador y blanquear no servia.
+    if not isinstance(datos, list):
         return _defaults()
 
     def _coerce(node):
@@ -106,10 +113,21 @@ def cargar_filtros_json(path: str | None = None) -> dict:
             continue
         try:
             q = float(cfg.get("q", 0.0))
-            ws = int(cfg.get("window_size", 1))
+            # `ventana_s` es la forma vigente (segundos de proceso). Un
+            # filtros.json viejo trae `window_size` (numero de muestras):
+            # se traduce con el periodo que tenia el lazo entonces, para
+            # que el filtro siga comportandose igual.
+            if "ventana_s" in cfg:
+                ventana_s = float(cfg["ventana_s"])
+            elif "window_size" in cfg:
+                ventana_s = max(1, int(cfg["window_size"])) * PERIODO_LEGACY_S
+            else:
+                continue
         except (TypeError, ValueError):
             continue
-        out[str(var)] = {"q": q, "window_size": max(1, ws)}
+        if ventana_s <= 0.0:
+            continue
+        out[str(var)] = {"q": q, "ventana_s": ventana_s}
     return out or {k: dict(v) for k, v in CONFIG_FILTRO_ESPESADOR_DEFAULT.items()}
 
 
@@ -251,7 +269,8 @@ def cargar_permisivos_json(path: str | None = None) -> dict:
             datos = _json.load(_f)
     except (OSError, ValueError):
         return _permisivos_defaults_deepcopy()
-    if not isinstance(datos, dict) or not datos:
+    # Idem: un objeto vacio significa "sin permisivos", no "usa la plantilla".
+    if not isinstance(datos, dict):
         return _permisivos_defaults_deepcopy()
     return datos
 
@@ -349,7 +368,14 @@ def _evaluar_estado_fuzzy(
     fuzzy_out = evaluar_fuzzys(inputs, limites_fuzzy, fuzzy_modelos)
 
     t_s = _resolver_float(row, TIME_KEY, columnas_entrada)
+    # PEND_MODELOS sigue hardcodeado con las variables del espesador (pendiente
+    # conocido). Sin este guard, cualquier contrato que no las incluya reventaba
+    # con KeyError en TODOS los ticks. Se evalua la pendiente de las variables
+    # que realmente estan en el input; una regla que nombre una tendencia sin
+    # modelo queda "no_evaluable" y el motor lo explica en la traza.
     for var in pend_modelos.keys():
+        if var not in inputs:
+            continue
         fuzzy_out[f"pend_{var}"] = evaluar_pendiente_var(
             var_name=var,
             pv=float(inputs[var]),
@@ -386,6 +412,10 @@ def correr_prueba_general(
     fuzzy_modelos: dict | None = None,
     pend_modelos: dict | None = None,
     variables_proceso: list[str] | None = None,
+    # Tablas Sugeno explicitas. Si es None se usa el dict global del modulo
+    # defuzzy_actions (compatibilidad con los call sites viejos); pasarlas
+    # evita mutar ese global, que el motor en vivo usa en otro hilo.
+    defuzzy_por_familia: dict | None = None,
 ) -> dict:
     """Ejecuta el flujo completo del experto sobre un DataFrame.
 
@@ -454,7 +484,10 @@ def correr_prueba_general(
         t_s = _resolver_float(row, TIME_KEY, columnas_entrada)
         inputs_raw = extraer_inputs_desde_row(row, columnas_entrada, variables_proceso)
 
-        inputs = filtro.actualizar(inputs_raw) if filtro is not None else dict(inputs_raw)
+        # El filtro pesa por edad real de la muestra: se le pasa el t_s de la
+        # fila para que sobre datos historicos se comporte igual que en vivo.
+        inputs = (filtro.actualizar(inputs_raw, t_s=t_s)
+                  if filtro is not None else dict(inputs_raw))
 
         fuzzy_out = _evaluar_estado_fuzzy(
             row,
@@ -492,11 +525,21 @@ def correr_prueba_general(
             for evento in fired:
                 acciones_belief = [(a, float(evento["belief"])) for a in evento.get("acciones", [])]
                 setpoints_antes = dict(setpoints_actuales)
-                setpoints_actuales = apply_actions(
-                    acciones_con_belief=acciones_belief,
-                    setpoints=setpoints_actuales,
-                    limites_sp=limites_sp,
-                )
+                # Con tablas explicitas no se toca el dict global del modulo:
+                # ese global lo esta usando el motor EN VIVO en otro hilo, y
+                # pisarlo desde una simulacion cambiaba el comportamiento del
+                # SE en produccion (y abria una ventana con la tabla vacia).
+                if defuzzy_por_familia is not None:
+                    setpoints_actuales = apply_actions_tabla(
+                        acciones_belief, setpoints_actuales, limites_sp,
+                        defuzzy_por_familia,
+                    )
+                else:
+                    setpoints_actuales = apply_actions(
+                        acciones_con_belief=acciones_belief,
+                        setpoints=setpoints_actuales,
+                        limites_sp=limites_sp,
+                    )
                 eventos.append({
                     "t_s": t_s,
                     "t_min": t_s / 60.0,

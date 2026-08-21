@@ -4,9 +4,10 @@
       "id": 41,
       "name": "PC02.OS_SERVER01_Velocidad",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "sp",
-      "rol": ""
+      "rol": "",
+      "pseudonimo": "OS_SERVER01_Velocidad"
     },
     {
       "id": 42,
@@ -14,22 +15,22 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "pv",
-      "rol": "",
-      "pseudonimo": "Nivel (transmisor A)",
+      "rol": "hopper_nvl_pv_a",
+      "pseudonimo": "Hopper Nvl PV A",
       "unidad_ing": "%",
-      "equipo": "3251-Hopper",
-      "instrumento": ""
+      "equipo": "",
+      "instrumento": "nivel pv"
     },
     {
       "id": 43,
       "name": "PCS7.OS01.Hopper_Nivel_PV_B",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
-      "rol": "nivel_rastra",
-      "pseudonimo": "Nivel (transmisor B)",
+      "rol": "",
+      "pseudonimo": "Hopper Nvl PV B",
       "unidad_ing": "%",
-      "equipo": "3251-Hopper",
+      "equipo": "",
       "instrumento": ""
     },
     {
@@ -38,10 +39,10 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "lim",
-      "rol": "bed_level_lmax",
-      "pseudonimo": "Limite para APC",
+      "rol": "hopper_nvl_pv_a_lmax",
+      "pseudonimo": "Hopper limite MAX",
       "unidad_ing": "%",
-      "equipo": "3251-Hopper",
+      "equipo": "",
       "instrumento": ""
     },
     {
@@ -50,19 +51,19 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "lim",
-      "rol": "bed_level_lmin",
-      "pseudonimo": "Limite para APC",
+      "rol": "hopper_nvl_pv_a_lmin",
+      "pseudonimo": "Hopper limite MIN",
       "unidad_ing": "%",
-      "equipo": "3251-Hopper",
+      "equipo": "",
       "instrumento": ""
     },
     {
       "id": 46,
       "name": "PCS7.OS01.PU009_Exp_Speed_Exp",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "sp",
-      "rol": "sp_vel_bomba",
+      "rol": "",
       "pseudonimo": "Velocidad (salida del SE)",
       "unidad_ing": "%",
       "equipo": "3251-PU-009",
@@ -74,10 +75,10 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "sp",
-      "rol": "",
-      "pseudonimo": "Velocidad",
+      "rol": "velocidad_sp",
+      "pseudonimo": "Velocidad SP",
       "unidad_ing": "%",
-      "equipo": "3251-PU-009",
+      "equipo": "",
       "instrumento": ""
     },
     {
@@ -86,10 +87,10 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "pv",
-      "rol": "",
-      "pseudonimo": "Velocidad",
+      "rol": "velocidad_pv",
+      "pseudonimo": "Velocidad PV",
       "unidad_ing": "%",
-      "equipo": "3251-PU-009",
+      "equipo": "",
       "instrumento": ""
     },
     {
@@ -98,10 +99,10 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "lim",
-      "rol": "",
-      "pseudonimo": "Limite para APC",
+      "rol": "velocidad_pv_lmax",
+      "pseudonimo": "Limite PU009 MAX",
       "unidad_ing": "%",
-      "equipo": "3251-PU-009",
+      "equipo": "",
       "instrumento": ""
     },
     {
@@ -110,19 +111,19 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "lim",
-      "rol": "",
-      "pseudonimo": "Limite para APC",
+      "rol": "velocidad_pv_lmin",
+      "pseudonimo": "Limite PU009 MIN",
       "unidad_ing": "%",
-      "equipo": "3251-PU-009",
+      "equipo": "",
       "instrumento": ""
     },
     {
       "id": 51,
       "name": "PCS7.OS01.PU009_Corriente",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
-      "rol": "potencia_bomba",
+      "rol": "",
       "pseudonimo": "Corriente",
       "unidad_ing": "Amp",
       "equipo": "3251-PU-009",
@@ -132,7 +133,7 @@
       "id": 52,
       "name": "PCS7.OS01.PU009_Flujo_Agua_Sello",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
       "rol": "",
       "pseudonimo": "Flujo agua sello",
@@ -144,7 +145,7 @@
       "id": 53,
       "name": "PCS7.OS01.AG004_Nivel_PV_A",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
       "rol": "",
       "pseudonimo": "Nivel (transmisor A)",
@@ -156,7 +157,7 @@
       "id": 54,
       "name": "PCS7.OS01.AG004_Nivel_PV_B",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
       "rol": "",
       "pseudonimo": "Nivel (transmisor B)",
@@ -168,7 +169,7 @@
       "id": 55,
       "name": "PCS7.OS01.PU009_Exp_TK004_Lvl_MAX",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "lim",
       "rol": "",
       "pseudonimo": "Limite para APC",
@@ -180,7 +181,7 @@
       "id": 56,
       "name": "PCS7.OS01.PU009_Exp_TK004_Lvl_MIN",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "lim",
       "rol": "",
       "pseudonimo": "Limite para APC",
@@ -192,8 +193,8 @@
       "id": 57,
       "name": "PCS7.OS01.PU0025_Velocidad",
       "data_type": "Float",
-      "enabled": true,
-      "categoria": "cruda",
+      "enabled": false,
+      "categoria": "pv",
       "rol": "",
       "pseudonimo": "Velocidad",
       "unidad_ing": "%",
@@ -204,7 +205,7 @@
       "id": 58,
       "name": "PCS7.OS01.PU0026_Velocidad",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
       "rol": "",
       "pseudonimo": "Velocidad",
@@ -216,7 +217,7 @@
       "id": 59,
       "name": "PCS7.OS01.PIC2391_Presion",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
       "rol": "",
       "pseudonimo": "Presion",
@@ -228,7 +229,7 @@
       "id": 60,
       "name": "PCS7.OS01.PU009_Exp_Enable_Ext",
       "data_type": "Boolean",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "ENABLE_EXT — el SE pide el lazo",
@@ -240,7 +241,7 @@
       "id": 61,
       "name": "PCS7.OS01.PU009_Exp_Enable_FBK",
       "data_type": "Boolean",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "ENABLE_FBK — el DCS confirma",
@@ -252,7 +253,7 @@
       "id": 62,
       "name": "PCS7.OS01.PU009_Exp_Hesrt_Int",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "HEART_INT — contador de heartbeat",
@@ -264,8 +265,8 @@
       "id": 63,
       "name": "PCS7.OS01.PU009_Exp_HB",
       "data_type": "Boolean",
-      "enabled": true,
-      "categoria": "otro",
+      "enabled": false,
+      "categoria": "sp",
       "rol": "",
       "pseudonimo": "HEART_BIT — pulso de heartbeat",
       "unidad_ing": "",
@@ -276,7 +277,7 @@
       "id": 64,
       "name": "PCS7.OS01.PU009_Exp_LIC_Manual",
       "data_type": "Boolean",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "Lazo de nivel en manual",
@@ -288,7 +289,7 @@
       "id": 65,
       "name": "PCS7.OS01.PU009_Exp_LIC_Auto",
       "data_type": "Boolean",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "Lazo de nivel en automatico",
@@ -300,7 +301,7 @@
       "id": 66,
       "name": "PCS7.OS01.PU009_Lazo_exp_LIC",
       "data_type": "Boolean",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "Selector lazo nivel",
@@ -312,7 +313,7 @@
       "id": 67,
       "name": "PCS7.OS01.PU009_Lazo_exp",
       "data_type": "Boolean",
-      "enabled": true,
+      "enabled": false,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "Selector lazo experto",
@@ -335,98 +336,130 @@
   },
   "simulation_mode": false,
   "generator": {
-    "intervalo_s": 5.0,
-    "n_ciclo": 60,
+    "intervalo_s": 1.0,
+    "n_ciclo": 10000,
     "ranges": {
       "PCS7.OS01.Hopper_Nivel_PV_A": {
-        "min": 62.0,
-        "max": 78.0,
-        "noise": 1.5
+        "min": 62,
+        "max": 78,
+        "noise": 1.5,
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true
       },
       "PCS7.OS01.Hopper_Nivel_PV_B": {
         "min": 62.0,
         "max": 78.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.Hopper_Lvl_MAX": {
-        "min": 90.0,
-        "max": 90.0,
-        "noise": 0.0
+        "min": 90,
+        "max": 90,
+        "noise": 0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.Hopper_Lvl_MIN": {
-        "min": 60.0,
-        "max": 60.0,
-        "noise": 0.0
+        "min": 40,
+        "max": 40,
+        "noise": 0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Exp_Speed_Exp": {
         "min": 0.0,
         "max": 0.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "vigente": false
       },
       "PCS7.OS01.PU009_Velocidad_SP": {
-        "min": 70.0,
-        "max": 80.0,
-        "noise": 0.5
+        "min": 70,
+        "max": 80,
+        "noise": 0.5,
+        "enabled": false,
+        "categoria": "sp",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Velocidad_PV": {
-        "min": 60.0,
-        "max": 80.0,
-        "noise": 1.5
+        "min": 60,
+        "max": 80,
+        "noise": 1.5,
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Speed_MAX": {
-        "min": 100.0,
-        "max": 100.0,
-        "noise": 0.0
+        "min": 100,
+        "max": 100,
+        "noise": 0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Speed_MIN": {
-        "min": 50.0,
-        "max": 50.0,
-        "noise": 0.0
+        "min": 50,
+        "max": 50,
+        "noise": 0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Corriente": {
         "min": 65.0,
         "max": 85.0,
-        "noise": 2.0
+        "noise": 2.0,
+        "vigente": false
       },
       "PCS7.OS01.PU009_Flujo_Agua_Sello": {
         "min": 12.0,
         "max": 17.0,
-        "noise": 0.4
+        "noise": 0.4,
+        "vigente": false
       },
       "PCS7.OS01.AG004_Nivel_PV_A": {
         "min": 55.0,
         "max": 75.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.AG004_Nivel_PV_B": {
         "min": 55.0,
         "max": 75.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.PU009_Exp_TK004_Lvl_MAX": {
         "min": 90.0,
         "max": 90.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "vigente": false
       },
       "PCS7.OS01.PU009_Exp_TK004_Lvl_MIN": {
         "min": 50.0,
         "max": 50.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "vigente": false
       },
       "PCS7.OS01.PU0025_Velocidad": {
         "min": 60.0,
         "max": 85.0,
-        "noise": 2.0
+        "noise": 2.0,
+        "vigente": false
       },
       "PCS7.OS01.PU0026_Velocidad": {
         "min": 70.0,
         "max": 85.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.PIC2391_Presion": {
         "min": 130.0,
         "max": 175.0,
-        "noise": 4.0
+        "noise": 4.0,
+        "vigente": false
       }
     }
   },

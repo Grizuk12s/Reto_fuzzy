@@ -420,21 +420,25 @@ tr.rule-disabled:hover{background:#1e1e34}
   <div class="top-bar">
     <div>
       <h1>Filtros Exp-Q</h1>
-      <h2>Suavizado (q, window_size) por variable de proceso. Se aplica al iniciar la simulacion.
-          Si <code>filtros.json</code> falta o esta vacio, se usan los defaults del nucleo.</h2>
+      <h2>Suavizado (q, ventana_s) por variable de proceso, una por cada tag de categoria <b>PV</b>.
+          La ventana se mide en <b>segundos de proceso</b>, no en muestras: el motor corre en ciclo libre
+          y el suavizado vale igual sin importar a que velocidad gire el lazo.
+          Se aplica al iniciar el motor. <b>Toda PV necesita filtro</b>: si llega una sin configurar, el tick falla.</h2>
     </div>
     <div style="display:flex;gap:8px">
+      <button class="btn-success" onclick="sincronizarFiltros()">Sincronizar con tags PV</button>
       <button class="btn-primary" onclick="saveFiltros()">Guardar</button>
-      <button class="btn-danger"  onclick="resetFiltros()">Restaurar default</button>
+      <button class="btn-danger"  onclick="resetFiltros()">Vaciar</button>
     </div>
   </div>
   <div id="filtros-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+  <div id="filtros-aviso"></div>
   <table id="filtros-table">
     <thead><tr>
       <th>Variable</th>
       <th style="width:170px">q (0.0 - 1.0)</th>
-      <th style="width:170px">window_size (1 - 1000)</th>
-      <th style="width:160px">Default core</th>
+      <th style="width:190px">ventana_s (0.1 - 3600 s)</th>
+      <th style="width:200px">Tag / unidad</th>
     </tr></thead>
     <tbody id="filtros-body"></tbody>
   </table>
@@ -444,46 +448,48 @@ tr.rule-disabled:hover{background:#1e1e34}
   <div class="top-bar">
     <div>
       <h1>Defuzzy</h1>
-      <h2>Tablas Sugeno por familia de setpoint. Filas = acciones (6 fijas), columnas = puntos del belief.
-          Cada tabla se aplica al iniciar la simulacion.</h2>
+      <h2>Aca viven las <b>variables manipuladas</b>: lo que el experto <b>mueve</b> en la planta,
+          a diferencia de las variables de proceso (Fuzzy), que solo <b>mide</b>.
+          Cada familia es un tag de categoria <b>SP</b> y su tabla Sugeno traduce
+          la conviccion de una regla en cuanto se mueve ese setpoint.<br>
+          Las filas son acciones con nombre libre — el nombre es lo que las reglas ponen en su
+          <code>then</code> — y las columnas son puntos del <b>belief</b>, de menor a mayor.</h2>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn-primary" onclick="saveDefuzzy()">Guardar familia actual</button>
-      <button class="btn-danger"  onclick="resetDefuzzy()">Restaurar default (todas)</button>
+      <button class="btn-primary" onclick="saveDefuzzy()">Guardar todo</button>
+      <button class="btn-danger"  onclick="resetDefuzzy()">Vaciar (todas)</button>
     </div>
   </div>
+  <div id="defuzzy-aviso"></div>
   <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-    <label style="text-transform:none;letter-spacing:0">Familia:</label>
-    <select id="dfz-familia" onchange="_renderDefuzzy()"></select>
-    <button class="btn-sm btn-success" onclick="addDefuzzyCol()">+ Columna</button>
-    <button class="btn-sm btn-danger"  onclick="delDefuzzyCol()">- Columna</button>
+    <select id="dfz-nueva-fam" style="min-width:190px"></select>
+    <button class="btn-sm btn-success" onclick="crearDefuzzy()">+ Crear familia</button>
+    <span style="width:1px;height:22px;background:#334155;margin:0 4px"></span>
+    <span id="dfz-indice" style="display:flex;gap:6px;flex-wrap:wrap"></span>
   </div>
   <div id="defuzzy-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
-  <div style="overflow-x:auto"><table id="defuzzy-table"></table></div>
+  <!-- Una tarjeta por SP. Antes habia un solo <table> y un filtro "Familia":
+       con varios setpoints obligaba a ir de a uno y no se podia comparar. -->
+  <div id="defuzzy-cards"></div>
 </section>
 
 <section class="seccion" id="seccion-fuzzy">
   <div class="top-bar">
     <div>
       <h1>Fuzzy</h1>
-      <h2>Membresias por variable. Filas: offset (eje), HIGH, OK, LOW. El tipo (high/low/norm) es fijo desde el nucleo.
-          Se aplica al iniciar la simulacion.</h2>
+      <h2>Membresias por variable de proceso. <b>Cada tag PV tiene su propia tabla</b>, todas a la
+          vista: las que todavia no tienen membresia aparecen en rojo con su boton para crearla.
+          La primera fila es el <b>offset</b> (el eje); debajo va una fila por etiqueta, con
+          <b>nombre libre</b> — HIGH/OK/LOW es solo la plantilla. Cada tabla se guarda por separado.
+          Se aplica al iniciar el motor.</h2>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn-primary" onclick="saveFuzzy()">Guardar variable actual</button>
-      <button class="btn-danger"  onclick="resetFuzzy()">Restaurar default (todas)</button>
+      <button class="btn-danger"  onclick="resetFuzzy()">Vaciar (todas)</button>
     </div>
   </div>
-  <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-    <label style="text-transform:none;letter-spacing:0">Variable:</label>
-    <select id="fz-variable" onchange="_renderFuzzy()"></select>
-    <span style="font-size:.85rem;color:#94a3b8">Tipo:</span>
-    <span id="fz-tipo" style="font-size:.85rem;color:#facc15;font-weight:600"></span>
-    <button class="btn-sm btn-success" onclick="addFuzzyCol()">+ Columna</button>
-    <button class="btn-sm btn-danger"  onclick="delFuzzyCol()">- Columna</button>
-  </div>
+  <div id="fuzzy-aviso"></div>
   <div id="fuzzy-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
-  <div style="overflow-x:auto"><table id="fuzzy-table"></table></div>
+  <div id="fuzzy-cards"></div>
 </section>
 
 <section class="seccion" id="seccion-contrato">
@@ -495,12 +501,40 @@ tr.rule-disabled:hover{background:#1e1e34}
           y se agregan las que si. Antes esta lista vivia en el codigo.</h2>
     </div>
     <div style="display:flex;gap:8px">
+      <button class="btn-success" onclick="sincronizarContrato()">Sincronizar con tags</button>
       <button class="btn-primary" onclick="verImpactoContrato()">Ver impacto</button>
       <button class="btn-success" onclick="guardarContrato()">Guardar</button>
       <button class="btn-danger"  onclick="resetContrato()">Restaurar plantilla</button>
     </div>
   </div>
   <div id="contrato-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+
+  <details style="margin-bottom:14px">
+    <summary style="cursor:pointer;color:#38bdf8;font-size:.86rem;font-weight:600">
+      ¿Para que sirve el contrato?
+    </summary>
+    <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:13px 16px;margin-top:8px;font-size:.82rem;color:#cbd5e1;line-height:1.6">
+      <p>Es <b>la lista de variables que el experto reconoce</b>. Todo lo demas se cuelga de ella:</p>
+      <ul style="margin:6px 0 6px 20px;padding:0">
+        <li>Por cada <b>PV</b> el sistema espera un tag que la mida, y ademas dos tags de limite
+            (<code>_lmin</code> y <code>_lmax</code>) que le dan la escala a la fuzzificacion.</li>
+        <li>Por cada <b>SP</b> espera un tag donde escribir y una tabla defuzzy que traduzca
+            las acciones en incrementos.</li>
+        <li>Las <b>reglas</b> solo pueden nombrar variables que esten aqui.</li>
+      </ul>
+      <p><b>Por que existe como lista aparte:</b> desacopla el razonamiento de la instrumentacion.
+         El experto habla de "nivel de hopper", no de <code>PCS7.OS01.Hopper_Nivel_PV_A</code>,
+         asi que si manana cambia el nombre del tag en KEPserver solo se reasigna el enlace
+         y las reglas siguen intactas.</p>
+      <p><b>Como llenarlo sin trabajo manual:</b> pulsa <b>Sincronizar con tags</b>. Toma los
+         identificadores de tus tags PV y SP, arma el contrato y asigna los roles de esos tags
+         automaticamente. Despues quitas a mano las variables que este cliente no use — que es
+         justo lo que este proyecto necesita, al ser un estandar que se moldea.</p>
+      <p><b>Lo unico que queda manual son los limites:</b> que PV acota cada tag LIM no se puede
+         deducir del nombre, y equivocarse ahi descalibra la fuzzificacion en silencio.
+         Ese enlace se hace en la tabla de <b>Tags KEPserver</b>, columna Rol.</p>
+    </div>
+  </details>
 
   <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);border-radius:8px;padding:11px 15px;margin-bottom:16px;font-size:.82rem;color:#fbbf24">
     Quitar una variable no es borrar una fila: arrastra su modelo difuso, su filtro, sus limites,
@@ -563,9 +597,16 @@ tr.rule-disabled:hover{background:#1e1e34}
   </div>
   <div id="variables-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
 
-  <h3 style="margin-top:6px">Variables crudas (sensores)</h3>
-  <div style="display:flex;gap:8px;margin-bottom:6px">
-    <button class="btn-sm btn-success" onclick="addCruda()">+ Cruda</button>
+  <h3 style="margin-top:6px">Variables de entrada (PV)</h3>
+  <div style="font-size:.8rem;color:#94a3b8;margin-bottom:8px">
+    Se toman de los <b>tags de categoria PV</b>, no se escriben a mano.
+    El <b>identificador</b> se genera del pseudonimo del tag y queda fijo: es lo que ven las reglas.
+    La <b>descripcion</b> es libre y editarla no rompe nada.
+    Para cambiar el identificador usa <b>Renombrar</b>, que te muestra el impacto antes de aplicar.
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+    <button class="btn-sm btn-success" onclick="addPV()">+ PV</button>
+    <span id="pv-disponibles-msg" style="font-size:.76rem;color:#64748b"></span>
   </div>
   <div style="overflow-x:auto"><table id="crudas-table"></table></div>
 
@@ -586,8 +627,9 @@ tr.rule-disabled:hover{background:#1e1e34}
           Mientras <code>|PV - SP| &gt; rango</code>, la familia queda bloqueada y el motor no emite nuevas acciones sobre ella.</h2>
     </div>
     <div style="display:flex;gap:8px">
+      <button class="btn-success" onclick="sincronizarTracking()">Sincronizar con tags SP</button>
       <button class="btn-primary" onclick="saveTracking()">Guardar</button>
-      <button class="btn-danger"  onclick="resetTracking()">Restaurar default</button>
+      <button class="btn-danger"  onclick="resetTracking()">Vaciar</button>
     </div>
   </div>
   <div id="tracking-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
@@ -598,7 +640,7 @@ tr.rule-disabled:hover{background:#1e1e34}
       <span style="font-weight:700;font-size:.9rem;color:#e2e8f0">Como funciona el Tracking</span>
     </div>
     <p style="font-size:.82rem;color:#94a3b8;line-height:1.6;margin-bottom:8px">
-      Cada familia de setpoint (tonelaje, floculante, velocidad de bomba) tiene asociado un <b>PV de readback</b> que mide el valor real del proceso.
+      Cada familia de setpoint — una por cada tag de categoria <b>SP</b> — puede tener asociado un <b>PV de readback</b> que mide el valor real del proceso.
       Cuando el motor de reglas emite una accion que modifica un SP, el tracking compara el PV actual contra el SP objetivo.
     </p>
     <p style="font-size:.82rem;color:#94a3b8;line-height:1.6;margin-bottom:8px">
@@ -607,10 +649,11 @@ tr.rule-disabled:hover{background:#1e1e34}
     </p>
     <p style="font-size:.82rem;color:#94a3b8;line-height:1.6">
       Esto evita oscilaciones: el sistema espera a que el proceso alcance el objetivo antes de actuar de nuevo.
-      Si una familia esta <b>deshabilitada</b>, el tracking no la bloquea (comportamiento clasico sin tracking).
+      Si una familia esta <b>deshabilitada</b> o no tiene readback, el tracking no la bloquea (comportamiento clasico sin tracking).
     </p>
   </div>
 
+  <div id="tracking-aviso"></div>
   <table id="tracking-table">
     <thead><tr>
       <th>Familia SP</th>
@@ -1137,8 +1180,32 @@ function toggleSidebar() {
 })();
 
 const VARS    = VARIABLES_JSON;
-const LABELS  = LABELS_JSON;
-const ACTIONS = ACTIONS_JSON;
+// `let`, no `const`: las etiquetas ya no son un catalogo fijo del codigo.
+// Salen tambien de las filas de fuzzy.json, que se crean y renombran desde la
+// pagina Fuzzy, asi que hay que poder refrescarlas sin recargar la pagina.
+let LABELS    = LABELS_JSON;
+
+async function refrescarEtiquetas() {
+  try {
+    const d = await (await fetch('/api/meta')).json();
+    if (Array.isArray(d.etiquetas)) LABELS = d.etiquetas;
+    if (Array.isArray(d.acciones))  ACTIONS = d.acciones;
+  } catch (e) {}
+}
+
+// `let`, no `const`: las acciones son las columnas de las tablas Defuzzy, que
+// se crean y borran desde la pagina Defuzzy. Se refrescan solas al abrir el
+// editor de reglas — sin apretar ningun boton — para que una accion recien
+// creada ya se pueda elegir y una borrada deje de ofrecerse.
+let ACTIONS = ACTIONS_JSON;
+
+async function refrescarAcciones() {
+  try {
+    const d = await (await fetch('/api/meta')).json();
+    if (Array.isArray(d.acciones)) ACTIONS = d.acciones;
+  } catch (e) {}
+  return ACTIONS;
+}
 const BLOCKS  = BLOCKS_JSON;
 const SETPOINTS = SETPOINTS_JSON;
 let ESTADOS = ESTADOS_JSON;
@@ -1254,8 +1321,27 @@ function _selWait(selected) {
   return `<select class="cw"><option value="">(ninguno)</option>${opts.join('')}</select>`;
 }
 
+// Selector de accion. La primera opcion es "(sin asignar)" con value vacio:
+// una regla nueva no adivina que accion quiso el operador, y una regla vieja
+// cuya accion ya no existe en el defuzzy cae aca en vez de mostrar un nombre
+// fantasma. Guardar con una fila sin asignar esta bloqueado (ver saveRule).
+function _selAccion(selected) {
+  const sel = String(selected || '');
+  const existe = sel && ACTIONS.includes(sel);
+  const opts = ACTIONS.map(x => `<option value="${x}" ${x===sel?'selected':''}>${x}</option>`).join('');
+  const vacio = `<option value="" ${existe?'':'selected'}>(sin asignar)</option>`;
+  const aviso = (sel && !existe)
+    ? `<div class="accion-huerfana" style="color:#f87171;font-size:.7rem;margin-top:3px">
+         La accion "${sel}" ya no existe en el Defuzzy. Elegi una de la lista.</div>`
+    : (ACTIONS.length === 0
+        ? `<div class="accion-huerfana" style="color:#f87171;font-size:.7rem;margin-top:3px">
+             No hay acciones definidas. Creá las columnas en la pagina Defuzzy.</div>`
+        : '');
+  return `<select class="ca">${vacio}${opts}</select>${aviso}`;
+}
+
 function addActionRow(accion, waitId, duracionS, reiniciarList) {
-  if (!accion) accion = ACTIONS[0];
+  if (!accion) accion = '';
   if (!waitId) waitId = '';
   if (!duracionS) duracionS = 900;
   if (!reiniciarList) reiniciarList = [];
@@ -1276,9 +1362,9 @@ function addActionRow(accion, waitId, duracionS, reiniciarList) {
   }).join('');
 
   row.innerHTML = `
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-      <span style="color:#22c55e;font-size:.7rem;width:50px">ACCION</span>
-      <select class="ca">${ACTIONS.map(x=>`<option ${x===accion?'selected':''}>${x}</option>`).join('')}</select>
+    <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px">
+      <span style="color:#22c55e;font-size:.7rem;width:50px;padding-top:5px">ACCION</span>
+      <div style="flex:1">${_selAccion(accion)}</div>
       <button class="btn-danger btn-sm" onclick="this.closest('.action-row').remove()">x</button>
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
@@ -1307,11 +1393,20 @@ function _renderFuerza(fuerza) {
   return `<span class="tag">${JSON.stringify(fuerza)}</span>`;
 }
 
+// Una accion que ya no esta en el defuzzy se muestra en rojo en la lista: la
+// regla sigue guardada, pero el motor no puede aplicarla hasta reasignarla.
+function _tagAccion(nombre) {
+  const existe = ACTIONS.includes(nombre);
+  const estilo = existe ? '' : 'style="border-left:3px solid #f87171;color:#f87171"';
+  const titulo = existe ? '' : 'title="Esta accion ya no existe en el Defuzzy. Edita la regla y reasignala."';
+  return `<span class="tag tag-action" ${estilo} ${titulo}>${nombre}${existe ? '' : ' ⚠'}</span>`;
+}
+
 function _renderThenActions(then_list) {
   if (!then_list || then_list.length === 0) return '-';
   return then_list.map(item => {
-    if (typeof item === 'string') return `<span class="tag tag-action">${item}</span>`;
-    if (typeof item === 'object' && item.accion) return `<span class="tag tag-action">${item.accion}</span>`;
+    if (typeof item === 'string') return _tagAccion(item);
+    if (typeof item === 'object' && item.accion) return _tagAccion(item.accion);
     return `<span class="tag tag-action">${JSON.stringify(item)}</span>`;
   }).join('<br>');
 }
@@ -1446,12 +1541,15 @@ function addOrGroup(leaves) {
 
 
 async function openModal(rule=null) {
-  // Refresh estados and waits to pick up any newly created ones
+  // Refresh estados, waits y ACCIONES para tomar lo recien creado.
+  // Las acciones se sincronizan aca a proposito: el operador crea la columna
+  // en Defuzzy y la encuentra en la regla sin recargar ni apretar nada.
   try {
     const [re, rw] = await Promise.all([fetch('/api/estados'), fetch('/api/waits')]);
     if (re.ok) ESTADOS = await re.json();
     if (rw.ok) WAITS = await rw.json();
   } catch(e) {}
+  await refrescarAcciones();
   editingId = null;
   document.getElementById('modal-title').textContent = 'Nueva Regla';
   document.getElementById('f-id').value = '';
@@ -1580,7 +1678,17 @@ async function saveRule() {
 
   // Acciones con waits
   const acts = [];
-  for (const row of document.querySelectorAll('#actions-container .action-row')) {
+  const filasAccion = [...document.querySelectorAll('#actions-container .action-row')];
+  // Una fila en "(sin asignar)" no se puede guardar: la regla quedaria con un
+  // `then` que el motor no sabe aplicar. Se avisa aca y no se manda nada.
+  const sinAsignar = filasAccion.filter(r => !r.querySelector('.ca').value);
+  if (sinAsignar.length > 0) {
+    sinAsignar.forEach(r => { r.style.borderColor = '#f87171'; });
+    return alert(ACTIONS.length === 0
+      ? 'No hay acciones definidas en el Defuzzy. Crea al menos una columna en la pagina Defuzzy antes de guardar la regla.'
+      : 'Hay ' + sinAsignar.length + ' accion(es) en "(sin asignar)". Elegi una accion en cada fila antes de guardar.');
+  }
+  for (const row of filasAccion) {
     const accion = row.querySelector('.ca').value;
     const waitId = row.querySelector('.cw').value;
     const duracion = parseFloat(row.querySelector('.cd').value) || 900;
@@ -1788,7 +1896,16 @@ async function runSim() {
     {val: data.total_eventos, lbl: 'Eventos'},
   ];
   for (const k of Object.keys(sp)) cards.push({val: sp[k], lbl: k});
-  document.getElementById('stat-grid').innerHTML = cards.map(c =>
+  // Los avisos explican una corrida con 0 eventos: una PV que se simulo con
+  // rango por defecto o que no se fuzzifica no es un problema de las reglas.
+  const avisos = data.avisos || [];
+  const avisosHtml = avisos.length
+    ? '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
+      + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#fbbf24">'
+      + '<b>Avisos de la simulacion</b><ul style="margin:6px 0 0 18px;padding:0">'
+      + avisos.map(a => '<li>' + _esc(a) + '</li>').join('') + '</ul></div>'
+    : '';
+  document.getElementById('stat-grid').innerHTML = avisosHtml + cards.map(c =>
     `<div class="stat-card"><div class="val">${c.val ?? '-'}</div><div class="lbl">${c.lbl}</div></div>`
   ).join('');
 
@@ -1815,8 +1932,8 @@ async function runSim() {
 // ============================================================
 // Router del sidebar (hash -> seccion)
 // ============================================================
-const SECCIONES = ['licencia','reglas','tracking','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags'];
-const _seccionLoaded = {licencia: false, reglas: false, tracking: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false};
+const SECCIONES = ['licencia','contrato','reglas','tracking','filtros','defuzzy','fuzzy','estados','waits','variables','permisivos','tags'];
+const _seccionLoaded = {licencia: false, contrato: false, reglas: false, tracking: false, filtros: false, defuzzy: false, fuzzy: false, estados: false, waits: false, variables: false, permisivos: false, tags: false};
 
 function _activarSeccion(name) {
   if (!SECCIONES.includes(name)) name = 'reglas';
@@ -2095,29 +2212,100 @@ async function loadTracking() {
 function _renderTrackingTable() {
   if (!_trackingState) return;
   const body = document.getElementById('tracking-body');
+  const salidas = _trackingState.salidas || [];
+  const entradas = _trackingState.entradas_pv || [];
+  const actual = _trackingState.actual || {};
+  const enContrato = new Set(_trackingState.en_contrato || []);
   body.innerHTML = '';
-  for (const familia of _trackingState.familias) {
-    const cur = _trackingState.actual[familia] || _trackingState.defaults[familia];
-    const def = _trackingState.defaults[familia];
+
+  // Aviso de estado del catalogo
+  const aviso = document.getElementById('tracking-aviso');
+  if (aviso) {
+    const partes = [];
+    if (salidas.length === 0) {
+      partes.push('<b style="color:#f59e0b">No hay tags de categoria SP.</b> '
+        + 'Registralos en Tags KEPserver y vuelve a sincronizar.');
+    }
+    if ((_trackingState.huerfanas || []).length) {
+      partes.push('<b style="color:#ef4444">Familias sin tag SP:</b> '
+        + _trackingState.huerfanas.map(h => '<code>' + h + '</code>').join(' ')
+        + ' — usa Sincronizar para sacarlas.');
+    }
+    if (entradas.length === 0 && salidas.length) {
+      partes.push('<span style="color:#94a3b8">No hay entradas PV declaradas, '
+        + 'asi que no hay readback que elegir. Definelas en <b>Variables calc.</b></span>');
+    }
+    aviso.innerHTML = partes.length
+      ? '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
+        + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem">'
+        + partes.join('<br>') + '</div>'
+      : '';
+  }
+
+  // Filas: una por tag SP, mas las huerfanas que aun estan guardadas
+  const filas = salidas.map(s => ({id: s.identificador, salida: s}));
+  for (const h of (_trackingState.huerfanas || [])) filas.push({id: h, salida: null});
+
+  if (filas.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" style="color:#64748b;padding:16px">'
+      + 'Sin familias de setpoint. Registra tags de categoria SP y pulsa Sincronizar.</td></tr>';
+    return;
+  }
+
+  for (const {id, salida} of filas) {
+    const cur = actual[id] || {pv_key: '', rango: 0, habilitado: false};
+    const opts = ['<option value="">(sin readback)</option>'].concat(
+      entradas.map(e => '<option value="' + e + '"' + (e === cur.pv_key ? ' selected' : '') + '>'
+        + e + '</option>'));
+    // Si el readback guardado ya no existe entre las entradas, no lo escondemos
+    if (cur.pv_key && !entradas.includes(cur.pv_key)) {
+      opts.splice(1, 0, '<option value="' + cur.pv_key + '" selected>'
+        + cur.pv_key + ' (ya no existe)</option>');
+    }
     const tr = document.createElement('tr');
+    if (!salida) tr.style.opacity = '.55';
     tr.innerHTML =
-      '<td><span class="tag tag-var" style="font-weight:700">' + dn(familia) + '</span>' + (dn(familia) !== familia ? '<br><span style="font-size:.68rem;color:#475569;font-family:monospace">' + familia + '</span>' : '') + '</td>'
-      + '<td><input data-fam="' + familia + '" data-k="pv_key" type="text" value="' + (cur.pv_key || '') + '" style="width:180px"></td>'
-      + '<td><input data-fam="' + familia + '" data-k="rango" type="number" step="0.01" min="0" value="' + cur.rango + '" style="width:120px"></td>'
-      + '<td style="text-align:center"><label class="toggle-switch" style="width:44px;height:24px"><input type="checkbox" data-fam="' + familia + '" data-k="habilitado" ' + (cur.habilitado ? 'checked' : '') + '><span class="toggle-slider" style="border-radius:24px"></span></label></td>'
-      + '<td style="color:#64748b;font-size:.78rem">pv=' + def.pv_key + ', rango=' + def.rango + ', ' + (def.habilitado ? 'ON' : 'OFF') + '</td>';
+      '<td><code style="color:#22c55e;font-weight:700">' + id + '</code>'
+        + (salida ? '<div style="font-size:.68rem;color:#64748b;font-family:monospace">'
+              + salida.tag + '</div>' : '<div style="font-size:.68rem;color:#ef4444">sin tag SP</div>')
+        + (salida && !enContrato.has(id)
+              ? '<div style="font-size:.66rem;color:#f59e0b">no esta en el contrato: el SE aun no lo usa</div>' : '')
+        + (salida && salida.colision
+              ? '<div style="font-size:.66rem;color:#ef4444">identificador en colision</div>' : '')
+      + '</td>'
+      + '<td><select data-fam="' + id + '" data-k="pv_key" style="width:200px">' + opts.join('') + '</select></td>'
+      + '<td><input data-fam="' + id + '" data-k="rango" type="number" step="0.01" min="0" value="' + cur.rango + '" style="width:120px"></td>'
+      + '<td style="text-align:center"><label class="toggle-switch" style="width:44px;height:24px">'
+        + '<input type="checkbox" data-fam="' + id + '" data-k="habilitado" ' + (cur.habilitado ? 'checked' : '')
+        + '><span class="toggle-slider" style="border-radius:24px"></span></label></td>'
+      + '<td style="color:#64748b;font-size:.76rem">'
+        + (salida ? (salida.pseudonimo + (salida.unidad ? ' · ' + salida.unidad : '')) : '&mdash;')
+      + '</td>';
     body.appendChild(tr);
+  }
+}
+
+async function sincronizarTracking() {
+  try {
+    const d = await (await fetch('/api/tracking/sincronizar', {method: 'POST'})).json();
+    await loadTracking();
+    const a = (d.agregadas || []).length, q = (d.quitadas || []).length;
+    _setTrackingMsg('Sincronizado con los tags SP. '
+      + a + ' agregada(s), ' + q + ' quitada(s).'
+      + (a ? ' Las nuevas entran deshabilitadas y sin readback.' : ''), '#22c55e');
+  } catch (e) {
+    _setTrackingMsg('Error: ' + e.message, '#ef4444');
   }
 }
 
 async function saveTracking() {
   const payload = {};
-  for (const familia of _trackingState.familias) {
-    const pvInp = document.querySelector('#tracking-body input[data-fam="' + familia + '"][data-k="pv_key"]');
-    const rangoInp = document.querySelector('#tracking-body input[data-fam="' + familia + '"][data-k="rango"]');
-    const habInp = document.querySelector('#tracking-body input[data-fam="' + familia + '"][data-k="habilitado"]');
+  for (const sel of document.querySelectorAll('#tracking-body [data-k="pv_key"]')) {
+    const familia = sel.dataset.fam;
+    const rangoInp = document.querySelector('#tracking-body input[data-fam="' + CSS.escape(familia) + '"][data-k="rango"]');
+    const habInp = document.querySelector('#tracking-body input[data-fam="' + CSS.escape(familia) + '"][data-k="habilitado"]');
     payload[familia] = {
-      pv_key: pvInp.value.trim(),
+      pv_key: (sel.value || '').trim(),
       rango: parseFloat(rangoInp.value) || 0,
       habilitado: habInp.checked
     };
@@ -2135,7 +2323,8 @@ async function saveTracking() {
 }
 
 async function resetTracking() {
-  if (!confirm('Restaurar la configuracion de tracking al default del core?')) return;
+  if (!confirm('Vaciar la configuracion de tracking?\n\nNo repuebla la plantilla del espesador: '
+    + 'deja la tabla limpia para configurarla desde los tags SP.')) return;
   const r = await fetch('/api/tracking/reset', {method: 'POST'});
   if (!r.ok) return _setTrackingMsg('Error al restaurar.', '#ef4444');
   const d = await r.json();
@@ -2300,19 +2489,84 @@ async function loadFiltros() {
   const r = await fetch('/api/filtros');
   const d = await r.json();
   const body = document.getElementById('filtros-body');
+  const pv = d.pv || [];
+  const actual = d.actual || {};
+  const huerfanas = d.huerfanas || [];
   body.innerHTML = '';
-  for (const v of d.variables) {
-    const cur = d.actual[v] || d.defaults[v];
-    const def = d.defaults[v];
+
+  const aviso = document.getElementById('filtros-aviso');
+  if (aviso) {
+    const partes = [];
+    if (pv.length === 0) {
+      partes.push('<b style="color:#f59e0b">No hay tags de categoria PV.</b> '
+        + 'Registralos en Tags KEPserver y vuelve a sincronizar.');
+    }
+    const sinFiltro = pv.filter(p => actual[p.identificador] === undefined);
+    if (sinFiltro.length) {
+      partes.push('<b style="color:#ef4444">' + sinFiltro.length + ' PV sin filtro:</b> '
+        + sinFiltro.map(p => '<code>' + p.identificador + '</code>').join(' ')
+        + ' — el tick falla si una PV llega sin filtro configurado. Pulsa Sincronizar.');
+    }
+    if (huerfanas.length) {
+      partes.push('<b style="color:#f59e0b">Filtros sin tag PV:</b> '
+        + huerfanas.map(h => '<code>' + h + '</code>').join(' ') + ' — Sincronizar los saca.');
+    }
+    aviso.innerHTML = partes.length
+      ? '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
+        + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem">'
+        + partes.join('<br>') + '</div>'
+      : '';
+  }
+
+  const filas = pv.map(p => ({id: p.identificador, pv: p}))
+    .concat(huerfanas.map(h => ({id: h, pv: null})));
+
+  if (filas.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" style="color:#64748b;padding:16px">'
+      + 'Sin variables de proceso. Registra tags de categoria PV y pulsa Sincronizar.</td></tr>';
+    _setFiltrosMsg('');
+    return;
+  }
+
+  for (const {id, pv: info} of filas) {
+    const cur = actual[id];
     const tr = document.createElement('tr');
+    if (!info) tr.style.opacity = '.55';
     tr.innerHTML =
-      '<td><span class="tag tag-var">' + dn(v) + '</span>' + (dn(v) !== v ? '<br><span style="font-size:.68rem;color:#475569;font-family:monospace">' + v + '</span>' : '') + '</td>'
-      + '<td><input data-var="' + v + '" data-k="q" type="number" step="0.01" min="0" max="1" value="' + cur.q + '"></td>'
-      + '<td><input data-var="' + v + '" data-k="window_size" type="number" step="1" min="1" max="1000" value="' + cur.window_size + '"></td>'
-      + '<td style="color:#64748b;font-size:.78rem">q=' + def.q + ', ws=' + def.window_size + '</td>';
+      '<td><code style="color:#a855f7;font-weight:700">' + id + '</code>'
+        + (info ? '<div style="font-size:.68rem;color:#64748b;font-family:monospace">' + info.tag + '</div>'
+                : '<div style="font-size:.68rem;color:#ef4444">sin tag PV</div>')
+        + (info && info.colision ? '<div style="font-size:.66rem;color:#ef4444">identificador en colision</div>' : '')
+      + '</td>'
+      + '<td><input data-var="' + id + '" data-k="q" type="number" step="0.01" min="0" max="1" value="'
+        + (cur ? cur.q : '') + '" placeholder="sin filtro"></td>'
+      + '<td><input data-var="' + id + '" data-k="ventana_s" type="number" step="0.5" min="0.1" max="3600" value="'
+        + (cur ? cur.ventana_s : '') + '" placeholder="sin filtro">'
+        + (cur && cur.migrado_de_window_size
+             ? '<div style="font-size:.66rem;color:#f59e0b">migrado de window_size='
+               + cur.migrado_de_window_size + '</div>' : '')
+      + '</td>'
+      + '<td style="color:#64748b;font-size:.76rem">'
+        + (info ? (info.pseudonimo + (info.unidad ? ' · ' + info.unidad : '')) : '&mdash;')
+        + (cur ? '' : '<div style="color:#ef4444">no configurado</div>')
+      + '</td>';
     body.appendChild(tr);
   }
   _setFiltrosMsg('');
+}
+
+async function sincronizarFiltros() {
+  try {
+    const d = await (await fetch('/api/filtros/sincronizar', {method: 'POST'})).json();
+    await loadFiltros();
+    const a = (d.agregadas || []).length, q = (d.quitadas || []).length;
+    const def = d.default_aplicado || {};
+    _setFiltrosMsg('Sincronizado con los tags PV. ' + a + ' agregada(s), ' + q + ' quitada(s).'
+      + (a ? ' Las nuevas entran con q=' + def.q + ', ventana_s=' + def.ventana_s
+           + ' s — ajustalas viendo crudo vs filtrado en la traza.' : ''), '#22c55e');
+  } catch (e) {
+    _setFiltrosMsg('Error: ' + e.message, '#ef4444');
+  }
 }
 
 function _setFiltrosMsg(text, color) {
@@ -2325,8 +2579,9 @@ async function saveFiltros() {
   const payload = {};
   for (const inp of document.querySelectorAll('#filtros-body input')) {
     const v = inp.dataset.var, k = inp.dataset.k;
+    if (inp.value === '') continue;          // sin filtro: no se envia la variable
     if (!payload[v]) payload[v] = {};
-    payload[v][k] = (k === 'window_size') ? parseInt(inp.value, 10) : parseFloat(inp.value);
+    payload[v][k] = parseFloat(inp.value);
   }
   const r = await fetch('/api/filtros', {
     method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -2339,130 +2594,457 @@ async function saveFiltros() {
 }
 
 async function resetFiltros() {
-  if (!confirm('Restaurar los defaults del nucleo en filtros.json?')) return;
+  if (!confirm('Vaciar la configuracion de filtros?\n\nNo repuebla la plantilla del espesador: '
+    + 'deja la tabla limpia para sincronizarla desde los tags PV.')) return;
   const r = await fetch('/api/filtros/reset', {method: 'POST'});
-  if (!r.ok) return _setFiltrosMsg('Error al restaurar.', '#ef4444');
+  if (!r.ok) return _setFiltrosMsg('Error al vaciar.', '#ef4444');
   await loadFiltros();
-  _setFiltrosMsg('Restaurado a defaults.', '#22c55e');
+  _setFiltrosMsg('Filtros vaciados. Usa "Sincronizar con tags PV" para poblarlos.', '#22c55e');
   setTimeout(() => _setFiltrosMsg(''), 4000);
 }
 
 // ============================================================
 // Defuzzy
 // ============================================================
-let _defuzzyState = null;  // {familias, acciones, defaults, actual}
+let _defuzzyState = null;  // {familias, salidas, sp_por_familia, enlaces, actual}
 
-async function loadDefuzzy() {
+// Toda la config de defuzzy se edita en pantalla a la vez: una tarjeta por
+// tag SP en vez de un selector "Familia" que mostraba una sola. Con varios
+// setpoints, el filtro obligaba a ir de a uno y no dejaba comparar tablas.
+// Consecuencia: cualquier cosa que re-dibuje tiene que VOLCAR primero lo que
+// el operador tenga escrito en las demas tarjetas, o se pierde.
+
+async function loadDefuzzy(preferida) {
   const r = await fetch('/api/defuzzy');
   _defuzzyState = await r.json();
-  const sel = document.getElementById('dfz-familia');
-  sel.innerHTML = '';
-  for (const f of _defuzzyState.familias) {
-    const o = document.createElement('option'); o.value = f; o.textContent = dn(f);
-    sel.appendChild(o);
-  }
+
+  // Desplegable de creacion: SP que aun no tienen tabla
+  const nueva = document.getElementById('dfz-nueva-fam');
+  const infoPorId = {};
+  for (const x of (_defuzzyState.salidas || [])) infoPorId[x.identificador] = x;
+  const sinTabla = _defuzzyState.sin_tabla || [];
+  nueva.innerHTML = sinTabla.length
+    ? sinTabla.map(function(f) {
+        const i = infoPorId[f] || {};
+        return '<option value="' + _esc(f) + '">' + _esc(f)
+             + (i.pseudonimo ? ' — ' + _esc(i.pseudonimo) : '') + '</option>';
+      }).join('')
+    : '<option value="">(todos los SP ya tienen tabla)</option>';
+
+  _renderDefuzzyAviso();
   _renderDefuzzy();
+  if (preferida) _irAFamilia(preferida);
+}
+
+function _renderDefuzzyAviso() {
+  const box = document.getElementById('defuzzy-aviso');
+  if (!box || !_defuzzyState) return;
+  const partes = [];
+  if ((_defuzzyState.salidas || []).length === 0) {
+    partes.push('<b style="color:#f59e0b">No hay tags de categoria SP.</b> Registralos en Tags KEPserver.');
+  }
+  if ((_defuzzyState.sin_tabla || []).length) {
+    partes.push('<b style="color:#ef4444">' + _defuzzyState.sin_tabla.length + ' SP sin tabla:</b> '
+      + _defuzzyState.sin_tabla.map(f => '<code>' + _esc(f) + '</code>').join(' ')
+      + ' — sin tabla, una accion sobre ese setpoint falla al aplicarse.');
+  }
+  if ((_defuzzyState.huerfanas || []).length) {
+    partes.push('<b style="color:#f59e0b">Tablas sin tag SP:</b> '
+      + _defuzzyState.huerfanas.map(f => '<code>' + _esc(f) + '</code>').join(' ') + ' — puedes borrarlas.');
+  }
+  box.innerHTML = partes.length
+    ? '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
+      + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem">'
+      + partes.join('<br>') + '</div>'
+    : '';
 }
 
 function _setDefuzzyMsg(text, color) {
   const m = document.getElementById('defuzzy-msg');
-  m.textContent = text || '';
+  m.innerHTML = text || '';
   m.style.color = color || '#94a3b8';
 }
 
-function _renderDefuzzy() {
-  if (!_defuzzyState) return;
-  const fam = document.getElementById('dfz-familia').value;
-  const tabla = _defuzzyState.actual[fam] || _defuzzyState.defaults[fam];
-  const def = _defuzzyState.defaults[fam];
-  const axis = tabla.belief_axis;
-  const steps = tabla.steps_por_accion;
-  const t = document.getElementById('defuzzy-table');
-  let html = '<thead><tr><th style="width:170px">Accion / belief</th>';
-  for (let i = 0; i < axis.length; i++) {
-    html += '<th><input data-row="axis" data-col="' + i + '" type="number" step="0.01" min="0" max="1" value="' + axis[i] + '" style="width:80px"></th>';
-  }
-  html += '<th style="width:160px">Default core</th></tr></thead><tbody>';
-  for (const k of _defuzzyState.acciones) {
-    const row = steps[k] || [];
-    const drow = (def.steps_por_accion[k]) || [];
-    html += '<tr><td><span class="tag tag-action">' + k + '</span></td>';
-    for (let i = 0; i < axis.length; i++) {
-      const v = (row[i] === undefined) ? 0.0 : row[i];
-      html += '<td><input data-row="' + k + '" data-col="' + i + '" type="number" step="0.01" value="' + v + '" style="width:80px"></td>';
-    }
-    html += '<td style="color:#64748b;font-size:.72rem">' + drow.join(', ') + '</td></tr>';
-  }
-  html += '</tbody>';
-  t.innerHTML = html;
+function _famsOrdenadas() {
+  return Object.keys((_defuzzyState || {}).actual || {}).sort();
 }
 
-function _readDefuzzyTable() {
-  const fam = document.getElementById('dfz-familia').value;
-  const inputs = document.querySelectorAll('#defuzzy-table input');
+function _idFam(fam) { return 'dfz-card-' + fam.replace(/[^A-Za-z0-9_-]/g, '_'); }
+
+function _irAFamilia(fam) {
+  const el = document.getElementById(_idFam(fam));
+  if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+// ------------------------------------------------------------
+// Lectura del DOM -> estado
+// ------------------------------------------------------------
+
+function _leerFamiliaDelDOM(fam) {
+  const card = document.getElementById(_idFam(fam));
+  if (!card) return null;
   const axis = [];
   const steps = {};
-  for (const k of _defuzzyState.acciones) steps[k] = [];
-  for (const inp of inputs) {
+  // Mapea nombre original -> nombre editado, para permitir renombrar.
+  const renombres = {};
+  for (const inp of card.querySelectorAll('.dfz-nombre')) {
+    renombres[inp.dataset.accion] = (inp.value || '').trim().toUpperCase();
+  }
+  for (const inp of card.querySelectorAll('input[data-row]')) {
     const row = inp.dataset.row, col = parseInt(inp.dataset.col, 10);
     const val = parseFloat(inp.value);
-    if (row === 'axis') axis[col] = val;
-    else steps[row][col] = val;
+    if (row === 'axis') { axis[col] = val; continue; }
+    const nombre = renombres[row] || row;
+    if (!steps[nombre]) steps[nombre] = [];
+    steps[nombre][col] = val;
   }
-  return {fam, payload: {belief_axis: axis, steps_por_accion: steps}};
+  return {belief_axis: axis, steps_por_accion: steps};
 }
 
-function addDefuzzyCol() {
+// Vuelca a memoria TODO lo escrito en pantalla. Hay que llamarla antes de
+// cualquier re-render, o editar una tarjeta borra lo tipeado en las otras.
+function _sincronizarDefuzzy() {
   if (!_defuzzyState) return;
-  const fam = document.getElementById('dfz-familia').value;
+  for (const fam of _famsOrdenadas()) {
+    const leido = _leerFamiliaDelDOM(fam);
+    if (leido && leido.belief_axis.length) _defuzzyState.actual[fam] = leido;
+  }
+}
+
+// ------------------------------------------------------------
+// Render
+// ------------------------------------------------------------
+
+function _renderDefuzzy() {
+  if (!_defuzzyState) return;
+  const cont = document.getElementById('defuzzy-cards');
+  const fams = _famsOrdenadas();
+
+  document.getElementById('dfz-indice').innerHTML = fams.length > 1
+    ? fams.map(f => '<button class="btn-sm" style="background:#1e293b;color:#94a3b8" '
+        + 'onclick="_irAFamilia(\'' + _esc(f) + '\')">' + _esc(f) + '</button>').join('')
+    : '';
+
+  if (!fams.length) {
+    cont.innerHTML = '<div style="color:#64748b;padding:16px;background:#0f172a;'
+      + 'border:1px solid #334155;border-radius:10px">Sin tablas definidas. '
+      + 'Elige un SP arriba y pulsa "+ Crear familia".</div>';
+    return;
+  }
+  cont.innerHTML = fams.map(_cardDefuzzy).join('');
+}
+
+function _cardDefuzzy(fam) {
+  const tabla = _defuzzyState.actual[fam];
+  if (!tabla) return '';
+  return '<div id="' + _idFam(fam) + '" style="background:#1e293b;border:1px solid #334155;'
+    + 'border-radius:12px;padding:16px 18px;margin-bottom:18px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;'
+    + 'gap:12px;flex-wrap:wrap;margin-bottom:12px">'
+    +   '<div style="font-size:1rem;font-weight:700;color:#38bdf8">' + _esc(fam) + '</div>'
+    +   '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +     '<button class="btn-sm btn-success" onclick="addDefuzzyCol(\'' + _esc(fam) + '\')">+ Columna</button>'
+    +     '<button class="btn-sm btn-danger"  onclick="delDefuzzyCol(\'' + _esc(fam) + '\')">- Columna</button>'
+    +     '<button class="btn-sm btn-success" onclick="addDefuzzyAccion(\'' + _esc(fam) + '\')">+ Accion</button>'
+    +     '<button class="btn-sm btn-danger"  onclick="borrarDefuzzy(\'' + _esc(fam) + '\')">Borrar familia</button>'
+    +   '</div>'
+    + '</div>'
+    + _panelSP(fam)
+    + '<div style="overflow-x:auto">' + _tablaDefuzzy(fam, tabla) + '</div>'
+    + _panelEnlaces(fam)
+    + '</div>';
+}
+
+function _tablaDefuzzy(fam, tabla) {
+  const axis = tabla.belief_axis || [];
+  const steps = tabla.steps_por_accion || {};
+  // El eje del belief SIEMPRE va de menor a mayor y vive en [0, 1]: es una
+  // conviccion, no una magnitud de proceso. Los pasos de cada accion, en
+  // cambio, estan en unidades de ingenieria del setpoint (%, t/h, g/t) y NO
+  // tienen tope: el clipeo real lo hacen los limites del contrato.
+  let html = '<table><thead><tr>'
+    + '<th style="width:230px">Accion / belief<div style="font-weight:400;text-transform:none;'
+    + 'font-size:.68rem;color:#64748b">nombre libre — lo usan las reglas</div></th>';
+  for (let i = 0; i < axis.length; i++) {
+    const desordenado = (i > 0 && !(axis[i] > axis[i - 1]));
+    html += '<th><input class="dfz-axis" data-row="axis" data-col="' + i
+      + '" type="number" step="0.01" min="0" max="1" value="' + axis[i]
+      + '" title="Punto del belief: entre 0.0 y 1.0, creciente hacia la derecha"'
+      + ' style="width:80px' + (desordenado ? ';border-color:#ef4444;color:#ef4444' : '') + '">'
+      + (i === 0
+          ? '<div style="font-weight:400;text-transform:none;font-size:.66rem;color:#64748b">belief 0 - 1</div>'
+          : '')
+      + '</th>';
+  }
+  html += '<th style="width:90px">Acciones</th></tr></thead><tbody>';
+
+  for (const k of Object.keys(steps)) {
+    const row = steps[k] || [];
+    html += '<tr><td><input class="dfz-nombre" data-accion="' + _esc(k) + '" type="text" value="' + _esc(k)
+      + '" style="width:100%;font-weight:700;color:#fb923c" title="Nombre que usan las reglas en su then"></td>';
+    for (let i = 0; i < axis.length; i++) {
+      const v = (row[i] === undefined) ? 0.0 : row[i];
+      // Sin min/max a proposito: el paso puede ser negativo (bajar el SP) y
+      // tan grande como pida la unidad de ingenieria.
+      html += '<td><input class="dfz-paso" data-row="' + _esc(k) + '" data-col="' + i
+        + '" type="number" step="any" value="' + v
+        + '" title="Cuanto se mueve el setpoint con ese belief (sin tope; unidades del SP)"'
+        + ' style="width:80px"></td>';
+    }
+    html += '<td><button class="btn-sm btn-danger" onclick="delDefuzzyAccion(\'' + _esc(fam)
+      + '\',\'' + _esc(k) + '\')">Borrar</button></td></tr>';
+  }
+  return html + '</tbody></table>';
+}
+
+// El tag SP concreto al que escribe la familia. Sin esto, la pagina hablaba
+// de "familias" sin decir nunca que instrumento se mueve.
+function _panelSP(fam) {
+  const sp = ((_defuzzyState || {}).sp_por_familia || {})[fam];
+  if (!sp) {
+    return '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
+      + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#f59e0b">'
+      + '<b>Sin tag SP asociado.</b> Esta tabla no escribe a ningun instrumento: '
+      + 'las acciones que la usen van a fallar al aplicarse.</div>';
+  }
+  const lim = (sp.limites && sp.limites.length === 2)
+    ? sp.limites[0] + ' a ' + sp.limites[1] + (sp.unidad ? ' ' + _esc(sp.unidad) : '')
+    : '<span style="color:#ef4444">sin limites en contrato.json — se escribiria sin tope</span>';
+  const campo = (etiqueta, valor) =>
+    '<div><div style="font-size:.66rem;color:#64748b;text-transform:uppercase;letter-spacing:.3px">'
+    + etiqueta + '</div><div style="font-size:.84rem;color:#e2e8f0">' + valor + '</div></div>';
+  return '<div style="background:#0f172a;border:1px solid #334155;border-radius:10px;'
+    + 'padding:12px 16px;margin-bottom:12px;display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">'
+    + '<div style="font-size:.72rem;color:#38bdf8;font-weight:700;text-transform:uppercase;'
+    + 'letter-spacing:.4px;padding-top:2px">Variable manipulada</div>'
+    + campo('Tag SP', '<code style="color:#a855f7">' + _esc(sp.tag) + '</code>')
+    + campo('Pseudonimo', _esc(sp.pseudonimo || '—'))
+    + campo('Equipo', _esc(sp.equipo || '—'))
+    + campo('Unidad', _esc(sp.unidad || '—'))
+    + campo('Limites del contrato', lim)
+    + (sp.colision ? '<div style="color:#ef4444;font-size:.78rem">identificador en colision</div>' : '')
+    + '</div>';
+}
+
+// El otro extremo del enlace: que reglas mueven este SP y que variables
+// difusas leen esas reglas. Es el mapa fuzzy -> regla -> accion -> SP.
+function _panelEnlaces(fam) {
+  const enl = ((_defuzzyState || {}).enlaces || {})[fam];
+  const reglas = (enl && enl.reglas) || [];
+  const fuzzys = (enl && enl.fuzzys) || [];
+  let cuerpo;
+  if (!reglas.length) {
+    cuerpo = '<div style="color:#64748b;font-size:.8rem">Ninguna regla usa las acciones de esta '
+           + 'tabla todavia: este setpoint no se va a mover.</div>';
+  } else {
+    cuerpo = '<div style="font-size:.8rem;color:#94a3b8;margin-bottom:8px">'
+      + 'Variables fuzzy que terminan moviendo este SP: '
+      + fuzzys.map(v => '<code style="color:#a855f7">' + _esc(dn(v)) + '</code>').join(' ')
+      + '</div><table style="width:100%"><thead><tr><th>Regla</th><th>Bloque</th>'
+      + '<th>Acciones</th><th>Lee</th></tr></thead><tbody>'
+      + reglas.map(r =>
+          '<tr><td><code>' + _esc(r.id) + '</code></td>'
+          + '<td style="color:#64748b">' + _esc(r.bloque || '—') + '</td>'
+          + '<td style="color:#fb923c">' + r.acciones.map(_esc).join(', ') + '</td>'
+          + '<td style="color:#94a3b8;font-size:.78rem">'
+          + r.variables.map(v => _esc(dn(v))).join(', ') + '</td></tr>').join('')
+      + '</tbody></table>';
+  }
+  return '<div style="margin-top:14px;background:#0f172a;border:1px solid #334155;'
+    + 'border-radius:10px;padding:14px 18px">'
+    + '<div style="font-size:.78rem;font-weight:700;color:#e2e8f0;margin-bottom:8px">'
+    + 'Enlace con los fuzzy</div>' + cuerpo + '</div>';
+}
+
+// ------------------------------------------------------------
+// Edicion (columnas y acciones), por familia
+// ------------------------------------------------------------
+
+// El eje del belief vive en [0, 1] y crece hacia la derecha. Antes el boton
+// agregaba 0.25 al final y se trababa apenas el eje llegaba a 1.0 — que es el
+// caso normal, porque un belief de 1.0 es la conviccion maxima y casi toda
+// tabla lo incluye. Ahora se inserta un punto en el hueco mas grande: siempre
+// hay lugar mientras queden huecos, y el orden se mantiene por construccion.
+function addDefuzzyCol(fam) {
+  if (!_defuzzyState) return;
+  _sincronizarDefuzzy();
   const t = _defuzzyState.actual[fam];
-  // Calcula nuevo belief: si <1, agrega 1.0; si no, promedia los dos ultimos.
-  const ax = t.belief_axis;
-  const last = ax[ax.length - 1];
-  const next = (last < 1.0) ? Math.min(1.0, +(last + 0.25).toFixed(3)) : last;
-  if (next <= last) return _setDefuzzyMsg('No se puede agregar mas: el eje ya llega a 1.0.', '#fbbf24');
-  t.belief_axis = ax.concat([next]);
-  for (const k of _defuzzyState.acciones) {
-    const arr = t.steps_por_accion[k];
-    t.steps_por_accion[k] = arr.concat([arr[arr.length - 1] || 0.0]);
+  if (!t) return;
+  const ax = t.belief_axis.slice();
+
+  let mejor = -1, hueco = 0;
+  for (let i = 0; i < ax.length - 1; i++) {
+    const d = ax[i + 1] - ax[i];
+    if (d > hueco) { hueco = d; mejor = i; }
+  }
+  // Si no hay hueco util adentro, se intenta extender por el extremo libre.
+  let pos, valor;
+  if (mejor >= 0 && hueco > 0.02) {
+    pos = mejor + 1;
+    valor = +((ax[mejor] + ax[mejor + 1]) / 2).toFixed(3);
+  } else if (ax[ax.length - 1] < 1.0) {
+    pos = ax.length;
+    valor = +Math.min(1.0, ax[ax.length - 1] + 0.25).toFixed(3);
+  } else if (ax[0] > 0.0) {
+    pos = 0;
+    valor = +Math.max(0.0, ax[0] - 0.25).toFixed(3);
+  } else {
+    return _setDefuzzyMsg('[' + fam + '] No queda espacio para otro punto: los existentes ya '
+      + 'estan demasiado juntos. Separalos primero.', '#fbbf24');
+  }
+
+  ax.splice(pos, 0, valor);
+  t.belief_axis = ax;
+  for (const k of Object.keys(t.steps_por_accion)) {
+    const arr = t.steps_por_accion[k].slice();
+    // El paso del punto nuevo se interpola entre sus vecinos: no inventa un
+    // salto que el operador no pidio.
+    const izq = arr[pos - 1], der = arr[pos];
+    const v = (izq !== undefined && der !== undefined) ? (izq + der) / 2
+            : (der !== undefined ? der : (izq !== undefined ? izq : 0.0));
+    arr.splice(pos, 0, +v.toFixed(4));
+    t.steps_por_accion[k] = arr;
   }
   _renderDefuzzy();
 }
 
-function delDefuzzyCol() {
+function delDefuzzyCol(fam) {
   if (!_defuzzyState) return;
-  const fam = document.getElementById('dfz-familia').value;
+  _sincronizarDefuzzy();
   const t = _defuzzyState.actual[fam];
-  if (t.belief_axis.length <= 2) return _setDefuzzyMsg('No se puede borrar: minimo 2 puntos.', '#fbbf24');
+  if (!t) return;
+  if (t.belief_axis.length <= 2) {
+    return _setDefuzzyMsg('[' + fam + '] No se puede borrar: minimo 2 puntos.', '#fbbf24');
+  }
   t.belief_axis = t.belief_axis.slice(0, -1);
-  for (const k of _defuzzyState.acciones) {
+  for (const k of Object.keys(t.steps_por_accion)) {
     t.steps_por_accion[k] = t.steps_por_accion[k].slice(0, -1);
   }
   _renderDefuzzy();
 }
 
+function addDefuzzyAccion(fam) {
+  if (!_defuzzyState) return;
+  _sincronizarDefuzzy();
+  const t = _defuzzyState.actual[fam];
+  if (!t) return;
+  let n = 1;
+  while (t.steps_por_accion['ACCION_' + n] !== undefined) n++;
+  t.steps_por_accion['ACCION_' + n] = t.belief_axis.map(() => 0.0);
+  _renderDefuzzy();
+  _setDefuzzyMsg('[' + fam + '] Accion agregada. Renombrala, define sus pasos y pulsa '
+    + '"Guardar todo".', '#38bdf8');
+}
+
+function delDefuzzyAccion(fam, nombre) {
+  if (!_defuzzyState) return;
+  _sincronizarDefuzzy();
+  const t = _defuzzyState.actual[fam];
+  if (!t) return;
+  if (Object.keys(t.steps_por_accion).length <= 1) {
+    return _setDefuzzyMsg('[' + fam + '] Una familia necesita al menos una accion.', '#fbbf24');
+  }
+  delete t.steps_por_accion[nombre];
+  _renderDefuzzy();
+}
+
+// ------------------------------------------------------------
+// Alta, baja y guardado
+// ------------------------------------------------------------
+
+async function crearDefuzzy() {
+  const f = document.getElementById('dfz-nueva-fam').value;
+  if (!f) return _setDefuzzyMsg('No hay SP pendientes de tabla.', '#f59e0b');
+  try {
+    _sincronizarDefuzzy();
+    const r = await fetch('/api/defuzzy/' + encodeURIComponent(f), {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) return _setDefuzzyMsg(d.error, '#ef4444');
+    await loadDefuzzy(f);
+    _setDefuzzyMsg('Familia "' + f + '" creada. ' + (d.aviso || ''), '#22c55e');
+  } catch (e) {
+    _setDefuzzyMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function borrarDefuzzy(fam) {
+  if (!fam) return;
+  if (!confirm('Borrar la tabla de "' + fam + '"?\n\nLas reglas que usen sus acciones fallaran al aplicarse.')) return;
+  try {
+    const r = await fetch('/api/defuzzy/' + encodeURIComponent(fam), {method: 'DELETE'});
+    const d = await r.json();
+    if (!r.ok) return _setDefuzzyMsg(d.error, '#ef4444');
+    await loadDefuzzy();
+    const n = (d.reglas_afectadas || []).length;
+    _setDefuzzyMsg('Familia "' + fam + '" borrada.'
+      + (n ? ' Reglas afectadas: ' + d.reglas_afectadas.join(', ') : ''), n ? '#f59e0b' : '#22c55e');
+  } catch (e) {
+    _setDefuzzyMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+function _validarEjeBelief(axis) {
+  for (let i = 0; i < axis.length; i++) {
+    if (!Number.isFinite(axis[i])) return `El punto P${i+1} del belief esta vacio o no es un numero.`;
+    if (axis[i] < 0 || axis[i] > 1) {
+      return `El belief va de 0.0 a 1.0: P${i+1} vale ${axis[i]}. `
+           + 'Es una conviccion, no una magnitud de proceso.';
+    }
+  }
+  for (let i = 0; i < axis.length - 1; i++) {
+    if (!(axis[i + 1] > axis[i])) {
+      return `Los puntos del belief van de menor a mayor, de izquierda a derecha: `
+           + `P${i+1}=${axis[i]} y P${i+2}=${axis[i+1]} rompen el orden.`;
+    }
+  }
+  return null;
+}
+
+// El PUT reemplaza la config COMPLETA, asi que se guarda todo junto. Ya no
+// tiene sentido un "guardar familia actual": estan todas en pantalla.
 async function saveDefuzzy() {
-  const {fam, payload} = _readDefuzzyTable();
-  const body = {}; body[fam] = payload;
+  if (!_defuzzyState) return;
+  _sincronizarDefuzzy();
+  const body = _defuzzyState.actual;
+  if (!Object.keys(body).length) {
+    return _setDefuzzyMsg('No hay tablas que guardar.', '#f59e0b');
+  }
+
+  // Se valida aca para dar el error al instante, diciendo en QUE familia; el
+  // backend vuelve a validar igual.
+  for (const [fam, t] of Object.entries(body)) {
+    const errEje = _validarEjeBelief(t.belief_axis || []);
+    if (errEje) { _renderDefuzzy(); _irAFamilia(fam);
+      return _setDefuzzyMsg('[' + fam + '] ' + errEje, '#ef4444'); }
+    for (const [acc, arr] of Object.entries(t.steps_por_accion || {})) {
+      if (!arr || arr.some(x => !Number.isFinite(x))) {
+        _irAFamilia(fam);
+        return _setDefuzzyMsg(`[${fam}] La accion '${acc}' tiene un paso vacio o no numerico.`,
+          '#ef4444');
+      }
+    }
+  }
+
   const r = await fetch('/api/defuzzy', {
     method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
   });
   const d = await r.json();
   if (!r.ok) return _setDefuzzyMsg(d.error || 'Error', '#ef4444');
-  _defuzzyState.actual = d.actual;
-  _setDefuzzyMsg('Familia \'' + fam + '\' guardada. Se aplicara en la proxima simulacion.', '#22c55e');
+  await loadDefuzzy();
+  const n = Object.keys(d.actual || {}).length;
+  _setDefuzzyMsg(n + ' familia(s) guardada(s). Se aplica al reiniciar el motor.', '#22c55e');
   setTimeout(() => _setDefuzzyMsg(''), 4000);
 }
 
 async function resetDefuzzy() {
-  if (!confirm('Restaurar TODAS las familias defuzzy al default del nucleo?')) return;
+  if (!confirm('Vaciar TODAS las tablas defuzzy?\n\nNo repuebla la plantilla del espesador: '
+    + 'deja la pagina limpia para crearlas desde los SP.')) return;
   const r = await fetch('/api/defuzzy/reset', {method: 'POST'});
   const d = await r.json();
-  if (!r.ok) return _setDefuzzyMsg('Error al restaurar.', '#ef4444');
-  _defuzzyState.actual = d.actual;
-  _renderDefuzzy();
-  _setDefuzzyMsg('Restaurado a defaults.', '#22c55e');
+  if (!r.ok) return _setDefuzzyMsg('Error al vaciar.', '#ef4444');
+  await loadDefuzzy();
+  _setDefuzzyMsg('Tablas vaciadas. Usa "+ Crear familia" para definirlas.', '#22c55e');
   setTimeout(() => _setDefuzzyMsg(''), 4000);
 }
 
@@ -2471,17 +3053,239 @@ async function resetDefuzzy() {
 // ============================================================
 const _fuzzyState = {variables: [], tipoPorVar: {}, labelKeys: ['HIGH','OK','LOW'], defaults: {}, actual: {}};
 
-async function loadFuzzy() {
+async function loadFuzzy(preferida) {
   const r = await fetch('/api/fuzzy');
   const d = await r.json();
-  _fuzzyState.variables   = d.variables;
-  _fuzzyState.tipoPorVar  = d.tipo_por_var;
-  _fuzzyState.labelKeys   = d.label_keys;
-  _fuzzyState.defaults    = d.defaults;
-  _fuzzyState.actual      = d.actual;
-  const sel = document.getElementById('fz-variable');
-  sel.innerHTML = _fuzzyState.variables.map(v => `<option value="${v}">${v}</option>`).join('');
+  _fuzzyState.variables = d.variables || [];
+  _fuzzyState.labelKeys = d.label_keys;
+  _fuzzyState.defaults  = d.defaults;
+  _fuzzyState.actual    = d.actual || {};
+  _fuzzyState.pv        = d.pv || [];
+  _fuzzyState.sinFuzzy  = d.sin_fuzzy || [];
+  _fuzzyState.huerfanas = d.huerfanas || [];
+  // {"<var>|<ETIQUETA>": [ids de regla]} — para avisar antes de romper algo.
+  _fuzzyState.usoEnReglas = d.uso_en_reglas || {};
+  _fuzzyState.reservadas  = d.reservadas || [];
+
+  _renderFuzzyAviso();
   _renderFuzzy();
+  if (preferida) {
+    const card = document.getElementById('fz-card-' + preferida);
+    if (card && card.scrollIntoView) card.scrollIntoView({block: 'nearest'});
+  }
+}
+
+function _renderFuzzyAviso() {
+  const box = document.getElementById('fuzzy-aviso');
+  if (!box) return;
+  const partes = [];
+  if ((_fuzzyState.pv || []).length === 0) {
+    partes.push('<b style="color:#f59e0b">No hay tags de categoria PV.</b> Registralos en Tags KEPserver.');
+  }
+  if ((_fuzzyState.sinFuzzy || []).length) {
+    partes.push('<b style="color:#ef4444">' + _fuzzyState.sinFuzzy.length + ' PV sin fuzzy:</b> '
+      + _fuzzyState.sinFuzzy.map(v => '<code>' + v + '</code>').join(' ')
+      + ' — sin membresia esa variable no se evalua y las reglas que la nombran quedan muertas.');
+  }
+  if ((_fuzzyState.huerfanas || []).length) {
+    partes.push('<b style="color:#f59e0b">Fuzzys sin tag PV:</b> '
+      + _fuzzyState.huerfanas.map(v => '<code>' + v + '</code>').join(' ') + ' — puedes borrarlos.');
+  }
+  box.innerHTML = partes.length
+    ? '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
+      + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem">'
+      + partes.join('<br>') + '</div>'
+    : '';
+}
+
+// ------------------------------------------------------------
+// Render: una tarjeta por variable, todas apiladas.
+//
+// Antes habia un unico selector "Variable:" y una sola tabla: para saber si
+// una PV tenia membresia — o cual era — habia que ir cambiando el desplegable,
+// y el widget de creacion (otro selector, aparte) se confundia con el de
+// edicion. Ahora cada tag PV es su propia tarjeta con su tabla; las que no
+// tienen fuzzy aparecen igual, en rojo, con el boton para crearlo ahi mismo.
+// ------------------------------------------------------------
+
+function _fzEntradas() {
+  const out = [];
+  for (const p of (_fuzzyState.pv || [])) {
+    out.push({
+      id: p.identificador,
+      tag: p.tag || '',
+      pseudo: p.pseudonimo || '',
+      unidad: p.unidad || '',
+      huerfano: false,
+      cfg: _fuzzyState.actual[p.identificador] || null,
+    });
+  }
+  // Fuzzys que quedaron sin tag PV (el tag se borro o cambio de categoria).
+  for (const v of (_fuzzyState.huerfanas || [])) {
+    out.push({id: v, tag: '', pseudo: '', unidad: '', huerfano: true,
+              cfg: _fuzzyState.actual[v] || null});
+  }
+  return out;
+}
+
+function _fzTipoOpts(sel) {
+  const tipos = [
+    ['high', 'high — offset = lmax - pv'],
+    ['low',  'low — offset = pv - lmin'],
+    ['norm', 'norm — offset = (pv-lmin)/(lmax-lmin)'],
+  ];
+  return tipos.map(function(t) {
+    return '<option value="' + t[0] + '"' + (t[0] === sel ? ' selected' : '') + '>' + t[1] + '</option>';
+  }).join('');
+}
+
+function _fzTitulo(e) {
+  // Tag del DCS + pseudonimo + identificador: el operador razona en tags, las
+  // reglas en identificadores. Mostrar los dos evita el salto mental.
+  const ident = '<code style="color:#a78bfa">' + _esc(e.id) + '</code>';
+  if (e.huerfano) {
+    return ident + ' <span style="color:#f59e0b;font-size:.75rem">(sin tag PV)</span>';
+  }
+  return '<span style="color:#e2e8f0;font-family:monospace">' + _esc(e.tag) + '</span>'
+    + (e.pseudo ? ' <span style="color:#94a3b8">— ' + _esc(e.pseudo) + '</span>' : '')
+    + ' ' + ident
+    + (e.unidad ? ' <span style="color:#64748b;font-size:.75rem">[' + _esc(e.unidad) + ']</span>' : '');
+}
+
+function _renderFuzzy() {
+  const cont = document.getElementById('fuzzy-cards');
+  if (!cont) return;
+  const entradas = _fzEntradas();
+  if (!entradas.length) {
+    cont.innerHTML = '<div style="color:#64748b;padding:16px">'
+      + 'No hay tags de categoria PV ni fuzzys definidos.</div>';
+    return;
+  }
+  cont.innerHTML = entradas.map(_fzCardHtml).join('');
+}
+
+function _fzCardHtml(e) {
+  const borde = e.cfg ? '#334155' : '#ef4444';
+  let html = '<div id="fz-card-' + _esc(e.id) + '" class="fz-card" '
+    + 'style="border:1px solid ' + borde + ';border-radius:10px;padding:12px 14px;margin-bottom:14px;background:#111a2b">'
+    + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'
+    + '<div style="flex:1;min-width:260px;font-size:.9rem">' + _fzTitulo(e) + '</div>';
+
+  if (!e.cfg) {
+    // Sin membresia: la tarjeta existe igual, para que se vea el hueco.
+    html += '<select class="fz-nuevo-tipo" style="width:auto">' + _fzTipoOpts('norm') + '</select>'
+      + '<button class="btn-sm btn-success" onclick="crearFuzzy(\'' + _esc(e.id) + '\')">+ Crear fuzzy</button>'
+      + '</div>'
+      + '<div style="color:#ef4444;font-size:.8rem">Sin membresia: esta variable no se evalua y '
+      + 'las reglas que la nombran quedan muertas. Elegi el tipo y creala.</div>'
+      + '<div class="fz-msg" id="fz-msg-' + _esc(e.id) + '" style="font-size:.8rem;margin-top:6px"></div>'
+      + '</div>';
+    return html;
+  }
+
+  const v = e.id;
+  html += '<span style="font-size:.8rem;color:#94a3b8">Tipo:</span>'
+    + '<select class="fz-tipo" onchange="_marcarFuzzySucio(\'' + _esc(v) + '\')" style="width:auto">'
+    + _fzTipoOpts(e.cfg.type || 'norm') + '</select>'
+    + '<button class="btn-sm btn-success" onclick="addFuzzyCol(\'' + _esc(v) + '\')">+ Columna</button>'
+    + '<button class="btn-sm btn-danger"  onclick="delFuzzyCol(\'' + _esc(v) + '\')">- Columna</button>'
+    + '<button class="btn-sm btn-success" onclick="addFuzzyFila(\'' + _esc(v) + '\')">+ Fila</button>'
+    + '<span style="width:1px;height:22px;background:#334155;margin:0 4px"></span>'
+    + '<button class="btn-primary btn-sm" onclick="saveFuzzy(\'' + _esc(v) + '\')">Guardar</button>'
+    + '<button class="btn-sm btn-danger" onclick="borrarFuzzy(\'' + _esc(v) + '\')">Borrar</button>'
+    + '</div>'
+    + '<div class="fz-msg" id="fz-msg-' + _esc(v) + '" style="font-size:.8rem;margin-bottom:6px;min-height:1.1em"></div>'
+    + '<div style="overflow-x:auto">' + _fzTablaHtml(v, e.cfg) + '</div>'
+    + '</div>';
+  return html;
+}
+
+function _fzTablaHtml(v, cfg) {
+  const offset = cfg.offset || [];
+  const n = offset.length;
+  // Las etiquetas son por variable, no un trio fijo: se leen de la config.
+  const etiquetas = Object.keys(cfg.labels || {});
+  let html = '<table><thead><tr><th>Punto</th>';
+  for (let i = 0; i < n; i++) html += '<th>P' + (i + 1) + '</th>';
+  html += '<th style="width:70px"></th></tr></thead><tbody>';
+  // Fila offset: es el EJE, no una etiqueta. No se renombra ni se borra.
+  html += '<tr><td><strong>offset</strong>'
+        + '<div style="font-size:.66rem;color:#64748b">eje (no es etiqueta)</div></td>';
+  for (let i = 0; i < n; i++) {
+    html += '<td><input class="fz-off" data-i="' + i + '" type="number" step="any" value="'
+          + offset[i] + '" style="width:90px"></td>';
+  }
+  html += '<td></td></tr>';
+  // Una fila por etiqueta: nombre editable + boton de borrado.
+  for (const k of etiquetas) {
+    const arr = cfg.labels[k] || [];
+    const usada = _fuzzyReglasQueUsan(v, k);
+    html += '<tr><td>'
+      + '<input class="fz-name" data-k="' + _esc(k) + '" type="text" value="' + _esc(k) + '" '
+      + 'style="width:150px;font-weight:700;text-transform:uppercase" '
+      + 'title="Nombre de la etiqueta. Las reglas la nombran asi.">'
+      + (usada.length
+          ? '<div style="font-size:.66rem;color:#f59e0b">usada por: ' + _esc(usada.join(', ')) + '</div>'
+          : '')
+      + '</td>';
+    for (let i = 0; i < n; i++) {
+      const val = (arr[i] !== undefined) ? arr[i] : 0;
+      html += '<td><input class="fz-lbl" data-k="' + _esc(k) + '" data-i="' + i + '" type="number" '
+            + 'step="0.1" min="0" max="1" value="' + val + '" style="width:80px"></td>';
+    }
+    html += '<td><button class="btn-sm btn-danger" onclick="delFuzzyFila(\'' + _esc(v) + '\', \''
+          + _esc(k) + '\')" title="Eliminar la fila ' + _esc(k) + '">Eliminar</button></td></tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function _fzCard(v) { return document.getElementById('fz-card-' + v); }
+
+function _setFuzzyVarMsg(v, msg, color) {
+  const el = document.getElementById('fz-msg-' + v);
+  if (!el) return _setFuzzyMsg(msg, color);
+  el.textContent = msg || '';
+  el.style.color = color || '#94a3b8';
+}
+
+function _marcarFuzzySucio(v) {
+  _setFuzzyVarMsg(v, 'Tipo cambiado. Pulsa "Guardar" en esta variable para aplicarlo.', '#38bdf8');
+}
+
+async function crearFuzzy(v) {
+  const card = _fzCard(v);
+  const sel = card ? card.querySelector('.fz-nuevo-tipo') : null;
+  const tipo = sel ? sel.value : 'norm';
+  try {
+    const r = await fetch('/api/fuzzy/' + encodeURIComponent(v), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type: tipo})
+    });
+    const d = await r.json();
+    if (!r.ok) return _setFuzzyVarMsg(v, d.error, '#ef4444');
+    await loadFuzzy(v);
+    _setFuzzyVarMsg(v, 'Fuzzy creado como ' + tipo + '. ' + (d.aviso || ''), '#22c55e');
+  } catch (e) {
+    _setFuzzyVarMsg(v, 'Error: ' + e.message, '#ef4444');
+  }
+}
+
+async function borrarFuzzy(v) {
+  if (!v) return;
+  if (!confirm('Borrar el fuzzy de "' + v + '"?\n\nSin membresia, esa variable deja de evaluarse.')) return;
+  try {
+    const r = await fetch('/api/fuzzy/' + encodeURIComponent(v), {method: 'DELETE'});
+    const d = await r.json();
+    if (!r.ok) return _setFuzzyVarMsg(v, d.error, '#ef4444');
+    await loadFuzzy();
+    const n = (d.reglas_afectadas || []).length;
+    _setFuzzyMsg('Fuzzy "' + v + '" borrado.'
+      + (n ? ' Reglas que lo nombran y quedan muertas: ' + d.reglas_afectadas.join(', ') : ''),
+      n ? '#f59e0b' : '#22c55e');
+  } catch (e) {
+    _setFuzzyVarMsg(v, 'Error: ' + e.message, '#ef4444');
+  }
 }
 
 function _setFuzzyMsg(msg, color) {
@@ -2490,106 +3294,198 @@ function _setFuzzyMsg(msg, color) {
   el.style.color = color || '#94a3b8';
 }
 
-function _renderFuzzy() {
-  const sel = document.getElementById('fz-variable');
-  const v = sel.value || _fuzzyState.variables[0];
-  if (!v) return;
-  document.getElementById('fz-tipo').textContent = _fuzzyState.tipoPorVar[v] || '?';
-  const cfg = _fuzzyState.actual[v];
-  if (!cfg) return;
-  const offset = cfg.offset;
-  const n = offset.length;
-  const tbl = document.getElementById('fuzzy-table');
-  let html = '<thead><tr><th>Punto</th>';
-  for (let i = 0; i < n; i++) html += `<th>P${i+1}</th>`;
-  html += '</tr></thead><tbody>';
-  // Fila offset
-  html += '<tr><td><strong>offset</strong></td>';
-  for (let i = 0; i < n; i++) {
-    html += `<td><input class="fz-off" data-i="${i}" type="number" step="any" value="${offset[i]}" style="width:90px"></td>`;
-  }
-  html += '</tr>';
-  // Filas HIGH/OK/LOW
-  for (const k of _fuzzyState.labelKeys) {
-    const arr = cfg.labels[k] || [];
-    html += `<tr><td><strong>${k}</strong></td>`;
-    for (let i = 0; i < n; i++) {
-      const val = (arr[i] !== undefined) ? arr[i] : 0;
-      html += `<td><input class="fz-lbl" data-k="${k}" data-i="${i}" type="number" step="0.1" min="0" max="1" value="${val}" style="width:80px"></td>`;
-    }
-    html += '</tr>';
-  }
-  html += '</tbody>';
-  tbl.innerHTML = html;
+function _esc(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function _readFuzzyTable() {
-  const sel = document.getElementById('fz-variable');
-  const v = sel.value;
-  const offInputs = document.querySelectorAll('.fz-off');
-  const offset = Array.from(offInputs).map(el => parseFloat(el.value));
+// Que reglas nombran (variable, etiqueta). Es lo que hace visible, ANTES de
+// guardar, que renombrar o borrar una fila deja reglas muertas.
+function _fuzzyReglasQueUsan(v, etiqueta) {
+  const uso = _fuzzyState.usoEnReglas || {};
+  const directas = uso[v + '|' + etiqueta] || [];
+  const negadas  = uso[v + '|NO-' + etiqueta] || [];
+  return Array.from(new Set(directas.concat(negadas)));
+}
+
+// Lee la tabla de UNA variable. Las consultas van acotadas a su tarjeta: con
+// varias tablas en pantalla, un querySelectorAll global mezclaria las filas de
+// todas las variables en una sola.
+function _readFuzzyTable(v) {
+  const card = _fzCard(v);
+  if (!card) return {v: v, cfg: {offset: [], labels: {}}, renombres: {}};
+
+  const offset = Array.from(card.querySelectorAll('.fz-off')).map(el => parseFloat(el.value));
+
+  // El nombre de cada fila sale del input, no de una lista fija: renombrar
+  // una fila es escribir sobre ese campo. `data-k` guarda el nombre ORIGINAL,
+  // que es como estan indexados los inputs de grados.
   const labels = {};
-  for (const k of _fuzzyState.labelKeys) {
-    const inputs = document.querySelectorAll(`.fz-lbl[data-k="${k}"]`);
-    labels[k] = Array.from(inputs).map(el => parseFloat(el.value));
+  const renombres = {};
+  for (const nameEl of card.querySelectorAll('.fz-name')) {
+    const original = nameEl.dataset.k;
+    const nuevo = (nameEl.value || '').trim().toUpperCase();
+    if (nuevo !== original) renombres[original] = nuevo;
+    const inputs = card.querySelectorAll('.fz-lbl[data-k="' + CSS.escape(original) + '"]');
+    labels[nuevo || original] = Array.from(inputs).map(el => parseFloat(el.value));
   }
-  return {v, cfg: {offset, labels}};
+  return {v: v, cfg: {offset: offset, labels: labels}, renombres: renombres};
 }
 
-function addFuzzyCol() {
-  const {v, cfg} = _readFuzzyTable();
+function _fzTipoDe(v) {
+  const card = _fzCard(v);
+  const sel = card ? card.querySelector('.fz-tipo') : null;
+  return sel ? sel.value : ((_fuzzyState.actual[v] || {}).type || 'norm');
+}
+
+// Guarda en memoria lo editado en la tarjeta y la vuelve a pintar. Repintar
+// solo esa tarjeta evita perder lo que el operador este escribiendo en otra.
+function _fzAplicar(v, cfg) {
+  _fuzzyState.actual[v] = {type: _fzTipoDe(v), offset: cfg.offset, labels: cfg.labels};
+  const card = _fzCard(v);
+  const entrada = _fzEntradas().find(function(e) { return e.id === v; });
+  if (card && entrada) card.outerHTML = _fzCardHtml(entrada);
+}
+
+// Espejo de FUZZY_LABEL_RE / FUZZY_LABELS_RESERVADAS del backend. Se valida
+// aca solo para dar el error al instante; el backend vuelve a validar.
+const FZ_NOMBRE_RE = /^[A-Z][A-Z0-9_]*$/;
+const FZ_RESERVADAS = ['CERCA_ALTO', 'CERCA_BAJO', 'INC', 'DEC', 'STABLE', 'ON', 'OFF'];
+
+function _validarNombreEtiqueta(nombre, existentes) {
+  if (!nombre) return 'El nombre de la etiqueta no puede quedar vacio.';
+  if (!FZ_NOMBRE_RE.test(nombre)) {
+    return `'${nombre}': usa mayusculas, digitos y guion bajo, empezando por letra `
+         + '(ej. ALTO, CRITICO_ALTO).';
+  }
+  if (nombre.startsWith('NO_') || nombre.startsWith('NO-')) {
+    return `'${nombre}' choca con las etiquetas NO-<X>, que el motor genera solo.`;
+  }
+  if (FZ_RESERVADAS.includes(nombre)) {
+    return `'${nombre}' es una etiqueta reservada del motor (${FZ_RESERVADAS.join(', ')}).`;
+  }
+  if ((existentes || []).filter(x => x === nombre).length > 1) {
+    return `'${nombre}' esta repetida: cada fila necesita un nombre distinto.`;
+  }
+  return null;
+}
+
+function addFuzzyFila(v) {
+  const {cfg} = _readFuzzyTable(v);
+  // Nombre provisional libre: ETIQUETA_1, _2... El operador lo renombra.
+  let i = 1;
+  while (cfg.labels[`ETIQUETA_${i}`] !== undefined) i++;
+  cfg.labels[`ETIQUETA_${i}`] = new Array(cfg.offset.length).fill(0);
+  _fzAplicar(v, cfg);
+  _setFuzzyVarMsg(v, `Fila "ETIQUETA_${i}" agregada. Renombrala y pulsa "Guardar".`, '#38bdf8');
+}
+
+function delFuzzyFila(v, k) {
+  const {cfg} = _readFuzzyTable(v);
+  if (Object.keys(cfg.labels).length <= 1) {
+    return _setFuzzyVarMsg(v, 'Debe quedar al menos una etiqueta: sin filas la variable '
+      + 'no se puede evaluar.', '#ef4444');
+  }
+  const usada = _fuzzyReglasQueUsan(v, k);
+  const aviso = usada.length
+    ? `\n\nOJO: la nombran las reglas ${usada.join(', ')}, que quedarian muertas.`
+      + '\nEl guardado se va a rechazar hasta que las corrijas.'
+    : '';
+  if (!confirm(`Eliminar la fila "${k}" de ${v}?${aviso}`)) return;
+  delete cfg.labels[k];
+  _fzAplicar(v, cfg);
+  _setFuzzyVarMsg(v, `Fila "${k}" eliminada. Pulsa "Guardar" para aplicarlo.`, '#38bdf8');
+}
+
+function addFuzzyCol(v) {
+  const {cfg} = _readFuzzyTable(v);
   const n = cfg.offset.length;
   const last = cfg.offset[n-1] || 0;
   const prev = cfg.offset[n-2] || (last - 1);
   const step = (last - prev) || 1;
   cfg.offset.push(last + step);
-  for (const k of _fuzzyState.labelKeys) cfg.labels[k].push(0.0);
-  _fuzzyState.actual[v] = {..._fuzzyState.actual[v], offset: cfg.offset, labels: cfg.labels};
-  _renderFuzzy();
+  for (const k of Object.keys(cfg.labels)) cfg.labels[k].push(0.0);
+  _fzAplicar(v, cfg);
 }
 
-function delFuzzyCol() {
-  const {v, cfg} = _readFuzzyTable();
+function delFuzzyCol(v) {
+  const {cfg} = _readFuzzyTable(v);
   if (cfg.offset.length <= 3) {
-    _setFuzzyMsg('Minimo 3 puntos.', '#ef4444');
-    return;
+    return _setFuzzyVarMsg(v, 'Minimo 3 puntos.', '#ef4444');
   }
   cfg.offset.pop();
-  for (const k of _fuzzyState.labelKeys) cfg.labels[k].pop();
-  _fuzzyState.actual[v] = {..._fuzzyState.actual[v], offset: cfg.offset, labels: cfg.labels};
-  _renderFuzzy();
+  for (const k of Object.keys(cfg.labels)) cfg.labels[k].pop();
+  _fzAplicar(v, cfg);
 }
 
-async function saveFuzzy() {
-  const {v, cfg} = _readFuzzyTable();
-  const payload = {[v]: {offset: cfg.offset, labels: cfg.labels}};
+async function saveFuzzy(v) {
+  const {cfg, renombres} = _readFuzzyTable(v);
+  if (!v) return _setFuzzyMsg('No hay variable que guardar.', '#f59e0b');
+
+  const nombres = Object.keys(cfg.labels);
+  if (!nombres.length) {
+    return _setFuzzyVarMsg(v, 'Hace falta al menos una etiqueta.', '#ef4444');
+  }
+  for (const nombre of nombres) {
+    const err = _validarNombreEtiqueta(nombre, nombres);
+    if (err) return _setFuzzyVarMsg(v, err, '#ef4444');
+  }
+
+  // Un renombre, visto desde el JSON, es un borrado + un alta: las reglas que
+  // nombraban la etiqueta vieja quedan muertas igual. Se avisa aca y el
+  // backend lo rechaza de todos modos.
+  const rotas = [];
+  for (const [antes, ahora] of Object.entries(renombres || {})) {
+    const usada = _fuzzyReglasQueUsan(v, antes);
+    if (usada.length) rotas.push(`${antes} -> ${ahora} (reglas: ${usada.join(', ')})`);
+  }
+  if (rotas.length) {
+    return _setFuzzyVarMsg(v, 'No se guardo: renombrar dejaria reglas sin su etiqueta. '
+      + rotas.join(' | ') + '. Corrige primero las reglas.', '#ef4444');
+  }
+
+  // El PUT reemplaza la config completa: se manda todo, no solo la variable
+  // editada, para no borrar las demas sin querer. De las otras tarjetas se
+  // toma lo que hay en pantalla, asi una edicion a medias en otra variable no
+  // se pierde ni se guarda a medias.
+  const payload = {};
+  for (const [k, c] of Object.entries(_fuzzyState.actual)) {
+    payload[k] = {type: c.type, offset: c.offset, labels: c.labels};
+  }
+  payload[v] = {type: _fzTipoDe(v), offset: cfg.offset, labels: cfg.labels};
+
   const r = await fetch('/api/fuzzy', {
     method: 'PUT',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload),
   });
   const d = await r.json();
-  if (!r.ok) return _setFuzzyMsg(d.error || 'Error.', '#ef4444');
+  if (!r.ok) return _setFuzzyVarMsg(v, d.error || 'Error.', '#ef4444');
   _fuzzyState.actual = d.actual;
-  _setFuzzyMsg('Variable \'' + v + '\' guardada. Se aplicara en la proxima simulacion.', '#22c55e');
-  setTimeout(() => _setFuzzyMsg(''), 4000);
+  // Las etiquetas nuevas tienen que llegar al editor de reglas, y el uso en
+  // reglas se recalcula: por eso se recarga en vez de solo repintar.
+  await loadFuzzy(v);
+  await refrescarEtiquetas();
+  _setFuzzyVarMsg(v, 'Guardada. Se aplica al reiniciar el motor.', '#22c55e');
 }
 
 async function resetFuzzy() {
-  if (!confirm('Restaurar TODAS las variables fuzzy al default del nucleo?')) return;
+  if (!confirm('Vaciar TODAS las membresias fuzzy?\n\nNo repuebla la plantilla del espesador: '
+    + 'deja la pagina limpia para crearlas desde las PV.')) return;
   const r = await fetch('/api/fuzzy/reset', {method: 'POST'});
   const d = await r.json();
-  if (!r.ok) return _setFuzzyMsg('Error al restaurar.', '#ef4444');
-  _fuzzyState.actual = d.actual;
-  _renderFuzzy();
-  _setFuzzyMsg('Restaurado a defaults.', '#22c55e');
+  if (!r.ok) return _setFuzzyMsg('Error al vaciar.', '#ef4444');
+  await loadFuzzy();
+  _setFuzzyMsg('Fuzzys vaciados. Cada tarjeta tiene su boton "+ Crear fuzzy".', '#22c55e');
   setTimeout(() => _setFuzzyMsg(''), 4000);
 }
 
 // ============================================================
 // Variables (crudas + definiciones calculadas)
 // ============================================================
-const _varsState = {tipos: [], operaciones: [], variablesProceso: [], defaults: null, actual: null};
+const _varsState = {tipos: [], operaciones: [], variablesProceso: [], defaults: null,
+                    actual: null, entradas: [], colisiones: {}};
 
 async function loadVariables() {
   const r = await fetch('/api/variables');
@@ -2599,6 +3495,14 @@ async function loadVariables() {
   _varsState.variablesProceso = d.variables_proceso;
   _varsState.defaults         = d.defaults;
   _varsState.actual           = JSON.parse(JSON.stringify(d.actual));
+  // Tags de categoria PV disponibles como entrada
+  try {
+    const e = await (await fetch('/api/variables/entradas-disponibles')).json();
+    _varsState.entradas   = e.entradas || [];
+    _varsState.colisiones = e.colisiones || {};
+  } catch (err) {
+    _varsState.entradas = []; _varsState.colisiones = {};
+  }
   _renderVariables();
 }
 
@@ -2623,17 +3527,47 @@ function _refsDisponibles(hastaIdx) {
 function _renderVariables() {
   // Crudas
   const ct = document.getElementById('crudas-table');
-  let html = '<thead><tr><th style="width:30%">Nombre</th><th>Descripcion</th><th style="width:80px">Acciones</th></tr></thead><tbody>';
+  let html = '<thead><tr>'
+    + '<th style="width:26%">Identificador</th>'
+    + '<th style="width:32%">Tag de origen</th>'
+    + '<th>Descripcion (pseudonimo)</th>'
+    + '<th style="width:170px">Acciones</th>'
+    + '</tr></thead><tbody>';
   const crudas = _varsState.actual.crudas || {};
   const entries = Object.entries(crudas);
+  const entradas = _varsState.entradas || [];
+  const porIdent = {};
+  for (const e of entradas) porIdent[e.identificador] = e;
+
+  const libres = entradas.filter(e => crudas[e.identificador] === undefined);
+  const avisoEl = document.getElementById('pv-disponibles-msg');
+  if (avisoEl) {
+    const nCol = Object.keys(_varsState.colisiones || {}).length;
+    avisoEl.innerHTML = entradas.length === 0
+      ? 'No hay tags de categoria PV. Registralos en Tags KEPserver.'
+      : libres.length + ' de ' + entradas.length + ' tags PV sin agregar.'
+        + (nCol ? ' <b style="color:#ef4444">' + nCol + ' identificador(es) en colision.</b>' : '');
+    avisoEl.style.color = entradas.length === 0 ? '#f59e0b' : '#64748b';
+  }
+
   if (entries.length === 0) {
-    html += '<tr><td colspan="3" style="color:#64748b">Sin variables crudas. Use "+ Cruda" para agregar.</td></tr>';
+    html += '<tr><td colspan="4" style="color:#64748b">Sin variables de entrada. Use "+ PV" para tomar un tag de categoria PV.</td></tr>';
   }
   for (const [k, v] of entries) {
+    const info = porIdent[k];
+    const huerfana = !info;
     html += `<tr>
-      <td><input class="cr-nombre" data-old="${k}" type="text" value="${k}" style="width:100%"></td>
-      <td><input class="cr-descr"  data-old="${k}" type="text" value="${(v||'').replace(/"/g,'&quot;')}" style="width:100%"></td>
-      <td><button class="btn-sm btn-danger" onclick="delCruda('${k}')">Borrar</button></td>
+      <td>
+        <code style="color:${huerfana ? '#ef4444' : '#a855f7'};font-weight:700">${k}</code>
+        ${huerfana ? '<div style="font-size:.68rem;color:#ef4444">sin tag PV que lo genere</div>' : ''}
+        <input type="hidden" class="cr-nombre" data-old="${k}" value="${k}">
+      </td>
+      <td style="font-size:.76rem;color:#94a3b8">${info ? info.tag : '&mdash;'}</td>
+      <td><input class="cr-descr" data-old="${k}" type="text" value="${(v||'').replace(/"/g,'&quot;')}" style="width:100%"></td>
+      <td>
+        <button class="btn-sm" style="background:#6366f1;color:#fff" onclick="renombrarEntrada('${k}')">Renombrar</button>
+        <button class="btn-sm btn-danger" onclick="delCruda('${k}')">Borrar</button>
+      </td>
     </tr>`;
   }
   html += '</tbody>';
@@ -2688,14 +3622,14 @@ function _renderVariables() {
 }
 
 function _commitCrudasFromInputs() {
-  // Lee inputs cr-nombre/cr-descr y rebuild el dict (preserva orden de UI).
-  const nombres = document.querySelectorAll('.cr-nombre');
-  const descrs  = document.querySelectorAll('.cr-descr');
+  // El identificador no se edita en la tabla (va oculto); solo la descripcion.
+  // Se emparejan por data-old, no por indice, para no depender del orden.
   const out = {};
-  for (let i = 0; i < nombres.length; i++) {
-    const n = nombres[i].value.trim();
-    if (!n) continue;
-    out[n] = descrs[i].value;
+  for (const oculto of document.querySelectorAll('.cr-nombre')) {
+    const id = (oculto.value || '').trim();
+    if (!id) continue;
+    const descr = document.querySelector('.cr-descr[data-old="' + CSS.escape(id) + '"]');
+    out[id] = descr ? descr.value : (_varsState.actual.crudas[id] || '');
   }
   _varsState.actual.crudas = out;
 }
@@ -2722,12 +3656,82 @@ function _commitDefinicionesFromInputs() {
   });
 }
 
-function addCruda() {
+function addPV() {
   _commitCrudasFromInputs();
-  let n = 1;
-  while (_varsState.actual.crudas['cruda_' + n] !== undefined) n++;
-  _varsState.actual.crudas['cruda_' + n] = '';
+  const libres = (_varsState.entradas || [])
+    .filter(e => _varsState.actual.crudas[e.identificador] === undefined);
+
+  if ((_varsState.entradas || []).length === 0) {
+    return _setVariablesMsg('No hay tags de categoria PV. Registralos primero en '
+      + '"Tags KEPserver".', '#f59e0b');
+  }
+  if (libres.length === 0) {
+    return _setVariablesMsg('Ya agregaste todos los tags PV disponibles.', '#f59e0b');
+  }
+  _abrirSelectorPV(libres);
+}
+
+function _abrirSelectorPV(libres) {
+  const opts = libres.map(function(e) {
+    const col = e.colision ? '  [COLISION]' : '';
+    return e.pseudonimo + ' — ' + e.tag + '  →  ' + e.identificador + col;
+  });
+  const lista = opts.map((o, i) => (i + 1) + ') ' + o).join('\n');
+  const sel = prompt('Elige el tag PV a usar como entrada (numero 1-' + libres.length + '):\n\n'
+    + lista + '\n\nEl identificador (despues de la flecha) es lo que veran las reglas '
+    + 'y queda fijo. El pseudonimo se puede editar despues sin romper nada.');
+  if (sel === null) return;
+  const i = parseInt(sel, 10) - 1;
+  if (isNaN(i) || i < 0 || i >= libres.length) {
+    return _setVariablesMsg('Seleccion invalida.', '#f59e0b');
+  }
+  const e = libres[i];
+  if (e.colision) {
+    if (!confirm('El identificador "' + e.identificador + '" colisiona con otro tag PV.\n\n'
+      + 'Dos senales distintas se fundirian en una sola variable.\n'
+      + 'Cambia el pseudonimo de uno de los tags antes de continuar.\n\n¿Agregar igual?')) return;
+  }
+  _varsState.actual.crudas[e.identificador] = e.pseudonimo;
   _renderVariables();
+  _setVariablesMsg('Agregada <code>' + e.identificador + '</code> desde ' + e.tag
+    + '. Recuerda guardar el catalogo.', '#38bdf8');
+}
+
+async function renombrarEntrada(viejo) {
+  const nuevo = prompt('Nuevo identificador para "' + viejo + '":\n\n'
+    + 'Esto SI afecta al sistema: las reglas y definiciones que lo nombran\n'
+    + 'dejan de encontrarlo. Se te mostrara el impacto antes de aplicar.', viejo);
+  if (nuevo === null || !nuevo.trim() || nuevo.trim() === viejo) return;
+
+  try {
+    let r = await fetch('/api/variables/renombrar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({viejo: viejo, nuevo: nuevo.trim()})
+    });
+    let d = await r.json();
+    if (!r.ok) return _setVariablesMsg(d.error, '#ef4444');
+
+    const imp = d.impacto || {};
+    let texto = 'Renombrar "' + viejo + '" a "' + nuevo.trim() + '".\n\n';
+    texto += (imp.definiciones || []).length
+      ? 'Definiciones que se actualizan solas: ' + imp.definiciones.join(', ') + '\n'
+      : 'No hay definiciones afectadas.\n';
+    texto += (imp.reglas || []).length
+      ? '\nREGLAS que hay que ajustar A MANO: ' + imp.reglas.join(', ')
+      : 'No hay reglas afectadas.';
+    if (!confirm(texto + '\n\n¿Aplicar?')) return;
+
+    r = await fetch('/api/variables/renombrar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({viejo: viejo, nuevo: nuevo.trim(), confirmar: true})
+    });
+    d = await r.json();
+    if (!r.ok) return _setVariablesMsg(d.error, '#ef4444');
+    await loadVariables();
+    _setVariablesMsg(d.aviso, (d.impacto.reglas || []).length ? '#f59e0b' : '#22c55e');
+  } catch (e) {
+    _setVariablesMsg('Error: ' + e.message, '#ef4444');
+  }
 }
 
 function delCruda(nombre) {
@@ -3099,6 +4103,64 @@ function _renderImpacto(imp) {
   box.innerHTML = h;
 }
 
+async function sincronizarContrato() {
+  _setContratoMsg('Calculando propuesta desde los tags...', '#94a3b8');
+  try {
+    let r = await fetch('/api/contrato/sincronizar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    });
+    let d = await r.json();
+    if (r.status === 409 && d.cruce_pv_sp) {
+      // Un tag PV y uno SP producen el mismo identificador: hay que
+      // desambiguar los pseudonimos antes de poder sincronizar.
+      let h = '<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.4);'
+        + 'border-radius:8px;padding:12px 15px;font-size:.83rem">'
+        + '<b style="color:#ef4444">No se puede sincronizar: identificadores duplicados entre PV y SP</b>'
+        + '<div style="color:#94a3b8;margin:6px 0">El motor no sabria si esa variable se lee o se escribe. '
+        + 'Cambia el pseudonimo de uno de los tags en <b>Tags KEPserver</b> y vuelve a intentar.</div><ul style="margin-left:18px">';
+      for (const [id, q] of Object.entries(d.cruce_pv_sp)) {
+        h += '<li><code style="color:#f59e0b">' + id + '</code> &larr; PV: ' + q.pv.join(', ')
+          + ' &nbsp;|&nbsp; SP: ' + q.sp.join(', ') + '</li>';
+      }
+      h += '</ul></div>';
+      document.getElementById('contrato-impacto').innerHTML = h;
+      return _setContratoMsg('Corrige los pseudonimos duplicados (detalle abajo).', '#ef4444');
+    }
+    if (!r.ok) return _setContratoMsg(d.error, '#ef4444');
+
+    const p = d.propuesta;
+    _renderImpacto(d.impacto);
+
+    const cols = Object.keys(d.colisiones || {});
+    let texto = 'Contrato propuesto desde tus tags:\n\n'
+      + 'PV (' + p.variables_proceso.length + '): ' + p.variables_proceso.join(', ') + '\n\n'
+      + 'SP (' + p.setpoints.length + '): ' + p.setpoints.join(', ') + '\n\n';
+    if (cols.length) {
+      texto += 'ATENCION — identificadores en colision: ' + cols.join(', ') + '\n'
+        + 'Dos tags distintos generan el mismo nombre y se fundirian en una variable.\n'
+        + 'Conviene corregir sus pseudonimos antes de continuar.\n\n';
+    }
+    texto += 'Se reemplaza el contrato actual y se asignan los roles de PV y SP.\n'
+      + 'Revisa el radio de impacto que aparece abajo.\n\n¿Aplicar?';
+    if (!confirm(texto)) return _setContratoMsg('Cancelado. No se guardo nada.', '#94a3b8');
+
+    r = await fetch('/api/contrato/sincronizar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirmar: true})
+    });
+    d = await r.json();
+    if (!r.ok) return _setContratoMsg(d.error || 'Error al sincronizar.', '#ef4444');
+
+    await loadContrato();
+    const n = (d.roles_asignados || []).length;
+    _setContratoMsg('Contrato sincronizado. ' + n + ' rol(es) de tags asignados automaticamente. '
+      + 'Falta enlazar los tags LIM a su PV en la tabla de Tags. '
+      + '<b>Reinicia la aplicacion</b> para que el nucleo lo tome.', '#22c55e');
+  } catch (e) {
+    _setContratoMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
 async function verImpactoContrato() {
   _setContratoMsg('Calculando impacto...', '#94a3b8');
   try {
@@ -3333,10 +4395,14 @@ async function startSystem() {
     await saveGeneratorConfig();
     const r1 = await fetch('/api/tags/generator/start', {method: 'POST'});
     const d1 = await r1.json();
+    // Ciclo libre: `piso_s` es el periodo MINIMO entre ticks, no el periodo
+    // del lazo. El motor vuelve a iterar apenas termina de escribir los SP;
+    // el piso solo evita saturar CPU y KEPserver si el pipeline resulta mas
+    // rapido que el proceso que observa.
     const r2 = await fetch('/api/se/start', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({intervalo_s: 5})
+      body: JSON.stringify({piso_s: 0.05})
     });
     const d2 = await r2.json();
 
@@ -3570,25 +4636,74 @@ function _syncNewRolOptions() {
       }).join('');
 }
 
+// Aviso de contrato desincronizado. config.py congela el contrato al importar:
+// despues de guardar en la pagina Contrato, el nucleo sigue exigiendo la lista
+// vieja hasta reiniciar el servicio. Sin este banner, el Mapeo pide variables
+// que el operador ya saco y parece un bug del mapeo.
+function _htmlContratoDesync() {
+  const c = (_cobertura && _cobertura.contrato) || null;
+  if (!c || !c.desincronizado) return '';
+  const codes = function(arr) {
+    return arr.map(function(v) { return '<code>' + v + '</code>'; }).join(' ');
+  };
+  const linea = function(titulo, campo, color) {
+    const ag = (c.agregadas || {})[campo] || [];
+    const qu = (c.quitadas || {})[campo] || [];
+    if (!ag.length && !qu.length) return '';
+    return '<li><b style="color:' + color + '">' + titulo + '</b>'
+      + (ag.length ? ' — ya en disco, el nucleo no las tiene: ' + codes(ag) : '')
+      + (qu.length ? ' — el nucleo todavia las exige: ' + codes(qu) : '')
+      + '</li>';
+  };
+  return '<div class="cobertura falta" style="border-color:#f59e0b;margin-bottom:8px">'
+    + '<h4 style="color:#f59e0b">Contrato desincronizado — reinicia la aplicacion</h4>'
+    + '<div style="color:#94a3b8;margin-bottom:6px">El contrato guardado en disco no es el que '
+    + 'tiene cargado el nucleo. El catalogo de roles y la cobertura de abajo todavia son los del '
+    + 'contrato anterior; reinicia el servicio para que tome la lista nueva.</div>'
+    + '<ul>'
+    + linea('PV', 'variables_proceso', '#a78bfa')
+    + linea('SP', 'setpoints', '#22c55e')
+    + '</ul></div>';
+}
+
+// Roles que quedaron apuntando a una variable que el contrato ya no tiene.
+function _htmlRolesHuerfanos() {
+  const h = (_cobertura && _cobertura.huerfanos) || [];
+  if (!h.length) return '';
+  return '<div class="cobertura falta" style="border-color:#ef4444;margin-bottom:8px">'
+    + '<h4 style="color:#ef4444">Roles huerfanos (' + h.length + ')</h4>'
+    + '<div style="color:#94a3b8;margin-bottom:6px">Estos tags tienen guardado un rol que ya no '
+    + 'existe en el contrato: el motor los ignora, igual que si estuvieran sin asignar. '
+    + 'Reasignalos en la columna ROL EN EL SE.</div>'
+    + '<ul>' + h.map(function(x) {
+        return '<li><code>' + x.tag + '</code> <span style="color:#64748b">('
+          + String(x.categoria).toUpperCase() + ')</span> → rol <code style="color:#ef4444">'
+          + x.rol + '</code>, inexistente en el contrato</li>';
+      }).join('') + '</ul></div>';
+}
+
 function _renderCobertura() {
   const box = document.getElementById('cobertura-box');
   if (!box || !_cobertura) return;
   const f = _cobertura.faltantes || {};
   const dup = _cobertura.duplicados || {};
+  const avisos = _htmlContratoDesync() + _htmlRolesHuerfanos();
   const pendientes = [];
   for (const cat of ['pv', 'lim', 'sp', 'cruda']) {
     if ((f[cat] || []).length) pendientes.push({cat: cat, roles: f[cat]});
   }
 
   if (_cobertura.listo && pendientes.length === 0) {
-    box.className = 'cobertura ok';
-    box.innerHTML = '<h4 style="color:#22c55e">Mapeo completo</h4>'
+    box.className = avisos ? 'cobertura falta' : 'cobertura ok';
+    box.innerHTML = avisos
+      + '<h4 style="color:#22c55e">Mapeo completo</h4>'
       + '<div style="color:#94a3b8">Todos los roles del SE tienen un tag asignado. El motor puede arrancar.</div>';
     return;
   }
 
   box.className = 'cobertura falta';
-  let html = '<h4 style="color:#f59e0b">Mapeo incompleto</h4>'
+  let html = avisos
+    + '<h4 style="color:#f59e0b">Mapeo incompleto</h4>'
     + '<div style="color:#94a3b8;margin-bottom:6px">El SE no arranca hasta que PV, LIM y SP esten completos. '
     + 'Las CRUDA faltantes no bloquean, pero degradan los permisivos.</div>';
   for (const p of pendientes) {
@@ -3613,6 +4728,10 @@ function _rolSelectHtml(tag) {
   }
   const usados = _rolesUsados();
   const actual = tag.rol || '';
+  // Un rol guardado que ya no esta en el catalogo quedo huerfano: el contrato
+  // renombro o quito esa variable. Se dice explicitamente en vez de dejar el
+  // select en "(sin asignar)" como si nunca se hubiera configurado.
+  const huerfano = actual && !roles.includes(actual);
   const opts = roles.map(function(r) {
     const tomado = usados[tag.categoria + '::' + r];
     const ocupadoPorOtro = tomado && tomado !== tag.name;
@@ -3620,9 +4739,15 @@ function _rolSelectHtml(tag) {
       + (ocupadoPorOtro ? ' disabled' : '') + '>'
       + r + (ocupadoPorOtro ? ' (usado)' : '') + '</option>';
   }).join('');
-  return '<select class="tag-rol-select' + (actual ? '' : ' sin-asignar') + '"'
+  const aviso = huerfano
+    ? '<div style="color:#ef4444;font-size:.68rem;margin-top:2px" title="El contrato ya no tiene esta variable. El motor ignora este tag.">'
+      + 'rol <code>' + actual + '</code> ya no existe en el contrato</div>'
+    : '';
+  return '<select class="tag-rol-select' + (actual && !huerfano ? '' : ' sin-asignar') + '"'
+    + (huerfano ? ' style="border-color:#ef4444;color:#ef4444"' : '')
     + ' onchange="setTagRol(' + tag.id + ', this.value)">'
-    + '<option value="">(sin asignar)</option>' + opts + '</select>';
+    + '<option value=""' + (huerfano ? ' selected' : '') + '>(sin asignar)</option>'
+    + opts + '</select>' + aviso;
 }
 
 async function setTagRol(tagId, rol) {

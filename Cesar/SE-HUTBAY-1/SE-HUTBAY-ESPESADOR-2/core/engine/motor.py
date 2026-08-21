@@ -97,7 +97,16 @@ def evaluar_condicion(condicion, fuzzy_out: dict) -> float:
                 return 1.0
             return float(min(evaluar_condicion(c, fuzzy_out) for c in items))
         if "NOT" in condicion:
-            return float(max(0.0, 1.0 - evaluar_condicion(condicion["NOT"], fuzzy_out)))
+            interna = condicion["NOT"]
+            # Fail-CLOSED: una variable que el pipeline no produjo da mu=0, y
+            # negar eso daba 1.0 — la regla disparaba SIEMPRE con belief pleno
+            # y el permisivo quedaba concedido para siempre. Justo al reves de
+            # lo que quiere decir "no se pudo evaluar". Si falta el dato, la
+            # condicion vale 0 y el reporte la marca como no_evaluable.
+            faltantes = variables_de_condicion(interna) - set(fuzzy_out or {})
+            if faltantes:
+                return 0.0
+            return float(max(0.0, 1.0 - evaluar_condicion(interna, fuzzy_out)))
 
     if isinstance(condicion, list):
         if not condicion:
@@ -179,6 +188,52 @@ def variables_de_regla(regla: dict) -> set:
     return out
 
 
+def pares_de_condicion(condicion) -> set:
+    """Pares (variable, etiqueta) referenciados por una condicion.
+
+    Es `variables_de_condicion` pero conservando la etiqueta. Sirve para
+    saber que reglas dependen de una etiqueta CONCRETA de una variable, no
+    solo de la variable: borrar o renombrar la fila 'OK' de un fuzzy deja
+    muertas las reglas que la nombran, aunque la variable siga existiendo.
+
+    Solo para diagnostico: no participa en ninguna decision.
+    """
+    condicion = _resolver_condicion_declarativa(condicion)
+    if isinstance(condicion, tuple):
+        return {(str(condicion[0]), str(condicion[1]).upper())} if len(condicion) == 2 else set()
+    if isinstance(condicion, dict):
+        for op in ("OR", "AND"):
+            if op in condicion:
+                out = set()
+                for c in condicion[op]:
+                    out |= pares_de_condicion(c)
+                return out
+        if "NOT" in condicion:
+            return pares_de_condicion(condicion["NOT"])
+        return set()
+    if isinstance(condicion, list):
+        # Una hoja recien leida de reglas.json todavia es ["var", "ETIQUETA"]:
+        # `cargar_reglas_json` la convierte a tupla, pero este helper tambien
+        # se llama sobre el JSON crudo. Se aceptan las dos formas.
+        if len(condicion) == 2 and all(isinstance(x, str) for x in condicion):
+            return {(str(condicion[0]), str(condicion[1]).upper())}
+        out = set()
+        for c in condicion:
+            out |= pares_de_condicion(c)
+        return out
+    return set()
+
+
+def pares_de_regla(regla: dict) -> set:
+    """Todos los pares (variable, etiqueta) que una regla nombra."""
+    out = set()
+    for c in (regla or {}).get("if", []) or []:
+        out |= pares_de_condicion(c)
+    if (regla or {}).get("fuerza") is not None:
+        out |= pares_de_condicion(regla["fuerza"])
+    return out
+
+
 def _evaluar_set_reglas(
     reglas: list[dict],
     fuzzy_out: dict,
@@ -213,7 +268,16 @@ def _evaluar_set_reglas(
         })
 
     for regla in reglas_ordenadas:
-        acciones = _normalizar_acciones(regla)
+        try:
+            acciones = _normalizar_acciones(regla)
+        except Exception as exc:
+            # Una regla mal formada (tipico: un wait sin duracion_s) hacia
+            # estallar evaluar_reglas ENTERO desde la primera linea del bucle:
+            # se perdia el tick completo, incluidas las reglas criticas de
+            # otros bloques, la escritura al DCS y hasta la traza. Ahora la
+            # regla rota se aisla y el resto del barrido sigue.
+            _reportar(regla, "invalida", f"Regla mal formada: {exc}")
+            continue
 
         mu_activacion = fuerza_activacion(fuzzy_out, regla.get("if", []))
         if mu_activacion <= 0.0:

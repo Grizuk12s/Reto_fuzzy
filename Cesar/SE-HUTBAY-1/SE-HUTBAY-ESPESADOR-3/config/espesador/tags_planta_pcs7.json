@@ -1,0 +1,434 @@
+{
+  "_comentario": [
+    "Catalogo de las senales reales de planta, tal como quedaron nombradas en",
+    "KEPserver (canal PCS7, dispositivo OS01). Corresponde a las 22 filas de la",
+    "matriz del DCS = 26 nodos, porque el nivel de hopper y el de TK-004 tienen",
+    "transmisor A y B.",
+    "",
+    "Este archivo es SOLO la semilla: scripts/seed_tags_planta.py lo inserta en",
+    "config/espesador/tags.json si el tag no existe todavia. Nunca pisa una",
+    "categoria ni un rol que ya hayas asignado a mano.",
+    "",
+    "Campos:",
+    "  name       : Item ID en KEPserver (Canal.Dispositivo.Tag)",
+    "  dcs        : direccion original en el DCS (referencia, no se usa para leer)",
+    "  senal      : columna 'Senal' del Excel. null = fila sin senal (handshake).",
+    "  categoria  : deducida de 'senal' -> PV=pv | Maximo/Minimo=lim | SP=sp | null=otro",
+    "  rol        : SIEMPRE vacio. Ninguna de estas senales calza automaticamente",
+    "               con el contrato del espesador (torque, bed_mass, bed_level,",
+    "               densidad, ...). Hay que asignarlo a mano en la pagina de Tags,",
+    "               o dejarlo sin asignar si esa variable no existe en planta.",
+    "  generar    : true = el generador le escribe valores. Las filas sin senal",
+    "               (handshake, heartbeat, selectores) NO se generan.",
+    "  rango      : [min, max, ruido] para el generador. Si min==max y ruido==0",
+    "               el valor es constante (asi se tratan los limites MAX/MIN).",
+    "  observado  : valor leido en planta el dia de la captura (referencia)"
+  ],
+  "prefijo": "PCS7.OS01.",
+  "tags": [
+    {
+      "name": "PCS7.OS01.Hopper_Nivel_PV_A",
+      "dcs": "OS_SERVER01::3251LIC1480B/PID.PV_Out#Value",
+      "equipo": "3251-Hopper",
+      "senal": "PV",
+      "comentario": "Nivel (transmisor A)",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        62.0,
+        78.0,
+        1.5
+      ],
+      "observado": 70.5981
+    },
+    {
+      "name": "PCS7.OS01.Hopper_Nivel_PV_B",
+      "dcs": "OS_SERVER01::3251LIC1480B/PID.PV_Out#Value",
+      "equipo": "3251-Hopper",
+      "senal": "PV",
+      "comentario": "Nivel (transmisor B)",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        62.0,
+        78.0,
+        1.5
+      ],
+      "observado": 71.1468
+    },
+    {
+      "name": "PCS7.OS01.Hopper_Lvl_MAX",
+      "dcs": "AS301/PU009_EXPERTO.HP003_LEVEL_MAX",
+      "equipo": "3251-Hopper",
+      "senal": "Maximo",
+      "comentario": "Limite para APC",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "lim",
+      "generar": true,
+      "rango": [
+        90.0,
+        90.0,
+        0.0
+      ],
+      "observado": 90
+    },
+    {
+      "name": "PCS7.OS01.Hopper_Lvl_MIN",
+      "dcs": "AS301/PU009_EXPERTO.HP003_LEVEL_MIN",
+      "equipo": "3251-Hopper",
+      "senal": "Minimo",
+      "comentario": "Limite para APC",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "lim",
+      "generar": true,
+      "rango": [
+        60.0,
+        60.0,
+        0.0
+      ],
+      "observado": 60
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_Speed_Exp",
+      "dcs": "AS301/PU009_EXPERTO.SPEED_EXPERTO",
+      "equipo": "3251-PU-009",
+      "senal": "SP_experto",
+      "comentario": "Velocidad (salida del SE)",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "sp",
+      "generar": true,
+      "rango": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "observado": 0,
+      "_nota": "ESTE TAG LO ESCRIBE EL SE. Se genera constante en 0 para no pelear con el motor. Si quieres que el SE lo maneje, quitalo de generator.ranges."
+    },
+    {
+      "name": "PCS7.OS01.PU009_Velocidad_SP",
+      "dcs": "OS_SERVER01::3251LIC1480B/PID.SP#Value",
+      "equipo": "3251-PU-009",
+      "senal": "SP",
+      "comentario": "Velocidad",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "sp",
+      "generar": true,
+      "rango": [
+        70.0,
+        80.0,
+        0.5
+      ],
+      "observado": 75
+    },
+    {
+      "name": "PCS7.OS01.PU009_Velocidad_PV",
+      "dcs": "OS_SERVER01::3251PU009/M.PV#Value",
+      "equipo": "3251-PU-009",
+      "senal": "PV",
+      "comentario": "Velocidad",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        60.0,
+        80.0,
+        1.5
+      ],
+      "observado": 69.6667
+    },
+    {
+      "name": "PCS7.OS01.PU009_Speed_MAX",
+      "dcs": "AS301/PU009_EXPERTO.PU009_SPEED_MAX",
+      "equipo": "3251-PU-009",
+      "senal": "Maximo",
+      "comentario": "Limite para APC",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "lim",
+      "generar": true,
+      "rango": [
+        100.0,
+        100.0,
+        0.0
+      ],
+      "observado": 100
+    },
+    {
+      "name": "PCS7.OS01.PU009_Speed_MIN",
+      "dcs": "AS301/PU009_EXPERTO.PU009_SPEED_MIN",
+      "equipo": "3251-PU-009",
+      "senal": "Minimo",
+      "comentario": "Limite para APC",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "lim",
+      "generar": true,
+      "rango": [
+        50.0,
+        50.0,
+        0.0
+      ],
+      "observado": 50
+    },
+    {
+      "name": "PCS7.OS01.PU009_Corriente",
+      "dcs": "OS_SERVER01::3251PU009/M.AV_Perc#Value",
+      "equipo": "3251-PU-009",
+      "senal": "PV",
+      "comentario": "Corriente",
+      "unidad": "Amp",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        65.0,
+        85.0,
+        2.0
+      ],
+      "observado": 74.6595
+    },
+    {
+      "name": "PCS7.OS01.PU009_Flujo_Agua_Sello",
+      "dcs": "OS_SERVER01::3251FAL7577/1.PV_Out#Value",
+      "equipo": "3251-PU-009",
+      "senal": "PV",
+      "comentario": "Flujo agua sello",
+      "unidad": "m3/h",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        12.0,
+        17.0,
+        0.4
+      ],
+      "observado": 14.5378
+    },
+    {
+      "name": "PCS7.OS01.AG004_Nivel_PV_A",
+      "dcs": "OS_SERVER02::L2352B/3261-LIC-2352B.PV_Out#Value",
+      "equipo": "3261-AG-004",
+      "senal": "PV",
+      "comentario": "Nivel (transmisor A)",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        55.0,
+        75.0,
+        1.5
+      ],
+      "observado": 64.9904
+    },
+    {
+      "name": "PCS7.OS01.AG004_Nivel_PV_B",
+      "dcs": "OS_SERVER02::L2352B/3261-LIC-2352B.PV_Out#Value",
+      "equipo": "3261-AG-004",
+      "senal": "PV",
+      "comentario": "Nivel (transmisor B)",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        55.0,
+        75.0,
+        1.5
+      ],
+      "observado": 64.9904
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_TK004_Lvl_MAX",
+      "dcs": "AS301/PU009_EXPERTO.TK004_LEVEL_MAX",
+      "equipo": "3261-AG-004",
+      "senal": "Maximo",
+      "comentario": "Limite para APC",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "lim",
+      "generar": true,
+      "rango": [
+        90.0,
+        90.0,
+        0.0
+      ],
+      "observado": 90
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_TK004_Lvl_MIN",
+      "dcs": "AS301/PU009_EXPERTO.TK004_LEVEL_MIN",
+      "equipo": "3261-AG-004",
+      "senal": "Minimo",
+      "comentario": "Limite para APC",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "lim",
+      "generar": true,
+      "rango": [
+        50.0,
+        50.0,
+        0.0
+      ],
+      "observado": 50
+    },
+    {
+      "name": "PCS7.OS01.PU0025_Velocidad",
+      "dcs": "OS_SERVER02::PU025/SN.ActSpeed#Value",
+      "equipo": "3261-PU-025",
+      "senal": "PV",
+      "comentario": "Velocidad",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        60.0,
+        85.0,
+        2.0
+      ],
+      "observado": 0,
+      "_nota": "En la captura estaba en 0 (bomba detenida). El rango simula la bomba en marcha."
+    },
+    {
+      "name": "PCS7.OS01.PU0026_Velocidad",
+      "dcs": "OS_SERVER02::PU026/SN.ActSpeed#Value",
+      "equipo": "3261-PU-026",
+      "senal": "PV",
+      "comentario": "Velocidad",
+      "unidad": "%",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        70.0,
+        85.0,
+        1.5
+      ],
+      "observado": 78.125
+    },
+    {
+      "name": "PCS7.OS01.PIC2391_Presion",
+      "dcs": "OS_SERVER02::PIC2391/3261-PIC-2391.PV_Out#Value",
+      "equipo": "3264-PIC-2391",
+      "senal": "PV",
+      "comentario": "Presion",
+      "unidad": "kPa",
+      "data_type": "Float",
+      "categoria": "pv",
+      "generar": true,
+      "rango": [
+        130.0,
+        175.0,
+        4.0
+      ],
+      "observado": 151.634
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_Enable_Ext",
+      "dcs": "AS301/PU009_EXPERTO.ENABLE_EXT",
+      "equipo": "LAZO CONTROL",
+      "senal": null,
+      "comentario": "ENABLE_EXT — el SE pide el lazo",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 0
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_Enable_FBK",
+      "dcs": "AS301/PU009_EXPERTO.ENABLE_FBK",
+      "equipo": "LAZO CONTROL",
+      "senal": null,
+      "comentario": "ENABLE_FBK — el DCS confirma",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 0
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_Hesrt_Int",
+      "dcs": "AS301/PU009_EXPERTO.HEART_INT",
+      "equipo": "HEARTBEAT",
+      "senal": null,
+      "comentario": "HEART_INT — contador de heartbeat",
+      "unidad": "",
+      "data_type": "Float",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 0
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_HB",
+      "dcs": "AS301/PU009_EXPERTO.HEART_BIT",
+      "equipo": "HEARTBEAT",
+      "senal": null,
+      "comentario": "HEART_BIT — pulso de heartbeat",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 0
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_LIC_Manual",
+      "dcs": "AS301/PU009_EXPERTO.LIC_MANUAL",
+      "equipo": "NIVEL MODO MANUAL",
+      "senal": null,
+      "comentario": "Lazo de nivel en manual",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 0
+    },
+    {
+      "name": "PCS7.OS01.PU009_Exp_LIC_Auto",
+      "dcs": "AS301/PU009_EXPERTO.LIC_AUTO",
+      "equipo": "NIVEL MODO AUTO",
+      "senal": null,
+      "comentario": "Lazo de nivel en automatico",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 1
+    },
+    {
+      "name": "PCS7.OS01.PU009_Lazo_exp_LIC",
+      "dcs": "AS301/PU009_EXPERTO.SELECTOR_LAZO_LIC",
+      "equipo": "SELECTOR LAZO NIVEL",
+      "senal": null,
+      "comentario": "Selector lazo nivel",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 1
+    },
+    {
+      "name": "PCS7.OS01.PU009_Lazo_exp",
+      "dcs": "AS301/PU009_EXPERTO.SELECTOR_LAZO_EXPERTO",
+      "equipo": "SELECTOR LAZO EXPERTO",
+      "senal": null,
+      "comentario": "Selector lazo experto",
+      "unidad": "",
+      "data_type": "Boolean",
+      "categoria": "otro",
+      "generar": false,
+      "observado": 0
+    }
+  ]
+}

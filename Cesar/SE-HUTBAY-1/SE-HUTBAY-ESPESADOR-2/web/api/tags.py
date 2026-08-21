@@ -22,6 +22,7 @@ from flask import Blueprint, jsonify, request
 from web.state import (
     CATEGORIAS_TAG, normalizar_categoria,
     catalogo_roles, normalizar_rol, construir_mapeo,
+    estado_contrato, roles_huerfanos,
     _load_tags, _save_tags,
     _read_kepserver_tags_batch, _try_write_kepserver_tag, _enrich_tags_with_kepserver,
     _record_tag_values, _get_tag_history,
@@ -208,6 +209,17 @@ def api_lectura_en_vivo():
         }
         for t in enriquecidos
     }
+    # El historial que alimenta el Explorador de Series se llena AQUI.
+    # Antes solo grababan el generador (datos sinteticos) y las escrituras de SP
+    # del motor, asi que las señales reales de planta nunca entraban al buffer:
+    # se veian en esta pagina y el grafico quedaba vacio.
+    _record_tag_values({
+        nombre: float(v["value"])
+        for nombre, v in valores.items()
+        if v["exists"] and isinstance(v["value"], (int, float))
+        and not isinstance(v["value"], bool)
+    })
+
     malos = sum(1 for v in valores.values() if not v["exists"])
     return jsonify({
         "valores": valores,
@@ -226,6 +238,11 @@ def api_get_roles():
         "faltantes": mapeo["faltantes"],
         "duplicados": mapeo["duplicados"],
         "listo": mapeo["listo"],
+        # El catalogo de arriba sale del contrato que tiene CARGADO el proceso.
+        # Si el archivo en disco ya cambio, la cobertura mostrada es la de la
+        # lista vieja: la UI necesita poder decirlo en vez de mentir.
+        "contrato": estado_contrato(),
+        "huerfanos": roles_huerfanos(),
         "asignados": {
             "pv":    mapeo["tag_to_pv"],
             "cruda": mapeo["tag_to_cruda"],

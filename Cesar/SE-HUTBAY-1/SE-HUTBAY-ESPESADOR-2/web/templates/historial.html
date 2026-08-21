@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Historial de regla — SE Espesador</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+header{position:sticky;top:0;z-index:10;background:#1e293b;border-bottom:1px solid #334155;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.05rem;font-weight:700}
+header .sub{font-size:.78rem;color:#94a3b8}
+a.back{color:#38bdf8;text-decoration:none;font-size:.82rem}
+a.back:hover{text-decoration:underline}
+main{padding:22px;max-width:1400px;margin:0 auto}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid #475569;background:#0f172a;color:#94a3b8}
+.pill.on{border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.12);color:#ef4444}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px}
+.kv{background:#1e293b;border:1px solid #334155;border-radius:9px;padding:10px 13px}
+.kv .k{font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.kv .v{font-size:1.25rem;font-weight:700;font-family:ui-monospace,Consolas,monospace;margin-top:3px}
+.panel{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0 18px 14px}
+.panel h2{font-size:.9rem;margin:0;padding:13px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;color:#94a3b8;font-weight:600;padding:7px 9px;border-bottom:1px solid #334155;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+td{padding:6px 9px;border-bottom:1px solid #0f172a;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr.disparo{background:rgba(34,197,94,.06)}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;background:#0f172a;padding:1px 6px;border-radius:4px}
+.mono{font-family:ui-monospace,Consolas,monospace}
+.ok{color:#22c55e}.bad{color:#ef4444}.warn{color:#f59e0b}.mut{color:#64748b}
+.badge{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.03em}
+.b-ok{background:rgba(34,197,94,.15);color:#22c55e}
+.b-bad{background:rgba(239,68,68,.15);color:#ef4444}
+.b-mut{background:rgba(100,116,139,.18);color:#94a3b8}
+.empty{color:#64748b;padding:18px 0;font-size:.85rem}
+.banner{border:2px solid #f59e0b;background:rgba(245,158,11,.08);border-radius:10px;padding:13px 17px;margin-bottom:16px;font-size:.85rem}
+select,button{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 11px;font-size:.8rem;cursor:pointer}
+button:hover{border-color:#38bdf8}
+</style>
+</head>
+<body>
+<header>
+  <h1>Historial de regla</h1>
+  <span id="pill" class="pill"><span class="dot"></span><span id="pill-txt">—</span></span>
+  <div class="sub" id="sub">Cargando…</div>
+  <span style="flex:1"></span>
+  <select id="auto">
+    <option value="2000">Auto-refresco 2 s</option>
+    <option value="5000" selected>Auto-refresco 5 s</option>
+    <option value="15000">Auto-refresco 15 s</option>
+    <option value="0">Manual</option>
+  </select>
+  <button onclick="cargar()">Actualizar</button>
+  <button id="btn-grab" onclick="toggleGrabacion()">● Grabar</button>
+  <a class="back" href="/espesador/traza">← Traza del pipeline</a>
+</header>
+
+<main>
+  <div id="banner"></div>
+  <div class="grid" id="resumen"></div>
+  <div class="panel">
+    <h2>Eventos — del mas reciente al mas antiguo</h2>
+    <div id="tabla"></div>
+  </div>
+</main>
+
+<script>
+// Una regla por ventana: el id viene en la query string, asi que se pueden
+// vigilar varias reglas a la vez abriendo varias pestanas.
+const REGLA = new URLSearchParams(location.search).get('regla') || '';
+let _timer = null;
+let _grabando = false;
+
+function esc(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function num(v, d) {
+  return (v === undefined || v === null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+}
+function hora(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString() : '—'; }
+function fecha(ts) { return ts ? new Date(ts * 1000).toLocaleString() : '—'; }
+function hace(ts) {
+  if (!ts) return '—';
+  const s = Math.max(0, Date.now() / 1000 - Number(ts));
+  if (s < 90) return Math.round(s) + ' s';
+  if (s < 5400) return Math.round(s / 60) + ' min';
+  return (s / 3600).toFixed(1) + ' h';
+}
+
+async function toggleGrabacion() {
+  const accion = _grabando ? 'stop' : 'start';
+  if (accion === 'start' && !confirm('Empezar a grabar "' + REGLA + '"?\n\n'
+      + 'Se descarta lo grabado antes: el historial arranca de cero desde ahora.')) return;
+  await fetch('/api/se/grabador/' + encodeURIComponent(REGLA) + '/' + accion, {method: 'POST'});
+  cargar();
+}
+
+function renderResumen(d) {
+  const r = d.resumen || {};
+  const cards = [
+    {k: 'Disparos', v: r.disparos, cls: 'ok'},
+    {k: 'Eventos guardados', v: r.eventos + ' / ' + d.max},
+    {k: 'Evaluaciones', v: r.evaluaciones},
+    {k: 'Ultimo disparo', v: hace(r.ultimo_disparo_ts)},
+    {k: 'Grabando desde', v: hora(r.primer_ts)},
+  ];
+  document.getElementById('resumen').innerHTML = cards.map(function(c) {
+    return '<div class="kv"><div class="k">' + c.k + '</div>'
+      + '<div class="v ' + (c.cls || '') + '">' + (c.v === undefined ? '—' : c.v) + '</div></div>';
+  }).join('');
+}
+
+function renderTabla(d) {
+  const es = (d.entradas || []).slice().reverse();
+  if (!es.length) {
+    document.getElementById('tabla').innerHTML = d.grabando
+      ? '<div class="empty">Grabando… todavia no se registro ningun evento de esta regla. '
+        + 'Si el motor esta detenido, arrancalo desde Tags KEPserver.</div>'
+      : '<div class="empty">Nada grabado. Pulsa "Grabar" para empezar a seguir esta regla.</div>';
+    return;
+  }
+  const cls = {disparo: 'b-ok', descartada: 'b-mut', no_evaluable: 'b-bad',
+               no_evaluada: 'b-mut', invalida: 'b-bad'};
+  document.getElementById('tabla').innerHTML =
+    '<table><thead><tr><th>Hace</th><th>Desde</th><th>Hasta</th><th>Estado</th>'
+    + '<th>Motivo</th><th>Veces</th><th>Belief</th><th>Efecto en el SP</th>'
+    + '</tr></thead><tbody>'
+    + es.map(function(e) {
+        const disparo = e.estado === 'disparo';
+        const sps = e.setpoints || {};
+        const efecto = Object.keys(sps).map(function(k) {
+          const x = sps[k];
+          const movio = Math.abs(Number(x.delta)) > 1e-9;
+          return '<span class="' + (movio ? 'ok' : 'mut') + '">' + esc(k) + ' '
+            + num(x.antes, 2) + ' &rarr; ' + num(x.despues, 2)
+            + ' (' + (Number(x.delta) >= 0 ? '+' : '') + num(x.delta, 3) + ')</span>';
+        }).join('<br>');
+        const acciones = (e.acciones || []).length
+          ? '<div style="color:#fb923c;font-size:.72rem">' + (e.acciones || []).map(esc).join(', ') + '</div>'
+          : '';
+        const falta = (e.variables_faltantes || []).length
+          ? '<div class="bad" style="font-size:.7rem">falta: '
+            + e.variables_faltantes.map(esc).join(', ') + '</div>'
+          : '';
+        const wait = e.wait_bloqueante
+          ? ' <code>' + esc(e.wait_bloqueante) + '</code>' : '';
+        const err = e.aplicada === false
+          ? '<div class="bad" style="font-size:.7rem">no se pudo aplicar: ' + esc(e.error) + '</div>'
+          : '';
+        return '<tr class="' + (disparo ? 'disparo' : '') + '">'
+          + '<td class="mono mut">' + hace(e.ts_wall_ultimo || e.ts_wall) + '</td>'
+          + '<td class="mono">' + hora(e.ts_wall) + '</td>'
+          + '<td class="mono mut">' + (Number(e.repeticiones) > 1 ? hora(e.ts_wall_ultimo) : '—') + '</td>'
+          + '<td><span class="badge ' + (cls[e.estado] || 'b-mut') + '">' + esc(e.estado) + '</span></td>'
+          + '<td>' + esc(e.motivo) + wait + falta + err + '</td>'
+          + '<td class="mono">' + (Number(e.repeticiones) > 1
+              ? '<b>&times;' + e.repeticiones + '</b>' : '1') + '</td>'
+          + '<td class="mono">' + num(e.belief, 3) + '</td>'
+          + '<td class="mono" style="font-size:.72rem">' + (efecto || '—') + acciones + '</td>'
+          + '</tr>';
+      }).join('') + '</tbody></table>';
+}
+
+async function cargar() {
+  if (!REGLA) {
+    document.getElementById('sub').textContent = 'Falta el parametro ?regla=<id>.';
+    document.getElementById('banner').innerHTML =
+      '<div class="banner">Abri esta pagina desde la <b>Traza del pipeline</b>: '
+      + 'elegi una regla en el paso 6 y pulsa "Ver historial".</div>';
+    return;
+  }
+  try {
+    const d = await (await fetch('/api/se/grabador/' + encodeURIComponent(REGLA))).json();
+    _grabando = !!d.grabando;
+
+    document.getElementById('pill').className = 'pill' + (_grabando ? ' on' : '');
+    document.getElementById('pill-txt').textContent = _grabando ? 'GRABANDO' : 'DETENIDO';
+    document.getElementById('btn-grab').textContent = _grabando ? '■ Detener' : '● Grabar';
+    document.getElementById('btn-grab').style.borderColor = _grabando ? '#ef4444' : '';
+    document.getElementById('sub').innerHTML = 'Regla <code>' + esc(REGLA) + '</code>'
+      + ' · ultimo evento ' + fecha((d.resumen || {}).ultimo_ts);
+
+    // El buffer es un anillo: cuando se llena, lo viejo se cae. Hay que decirlo
+    // o el "grabando desde" de arriba pasa a ser mentira.
+    document.getElementById('banner').innerHTML = (d.resumen || {}).truncado
+      ? '<div class="banner">Buffer lleno (' + d.max + ' eventos): los mas antiguos se '
+        + 'van descartando. Los contadores de arriba cuentan solo lo que sigue guardado.</div>'
+      : '';
+
+    renderResumen(d);
+    renderTabla(d);
+  } catch (e) {
+    document.getElementById('sub').textContent = 'Error: ' + e.message;
+  }
+}
+
+function reprogramar() {
+  if (_timer) { clearInterval(_timer); _timer = null; }
+  const ms = parseInt(document.getElementById('auto').value, 10);
+  if (ms > 0) _timer = setInterval(cargar, ms);
+}
+document.getElementById('auto').addEventListener('change', reprogramar);
+
+cargar();
+reprogramar();
+</script>
+</body>
+</html>

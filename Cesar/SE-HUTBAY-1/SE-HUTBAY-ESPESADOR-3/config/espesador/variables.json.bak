@@ -1,0 +1,25 @@
+{
+  "crudas": {
+    "hopper_nvl_pv_a": "Hopper Nvl PV A",
+    "hopper_nvl_pv_b": "Hopper Nvl PV B"
+  },
+  "definiciones": [
+    {
+      "nombre": "var_calc_1",
+      "descripcion": "",
+      "tipo": "aritmetica",
+      "operacion": "suma",
+      "args": [
+        "hopper_nvl_pv_a",
+        "hopper_nvl_pv_a"
+      ]
+    },
+    {
+      "nombre": "var_calc_2",
+      "descripcion": "",
+      "tipo": "rolling_delta",
+      "arg": "hopper_nvl_pv_a",
+      "ventana_min": 30.0
+    }
+  ]
+}

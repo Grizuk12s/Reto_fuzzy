@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba/Demo -- Diagrama de Flujo del Sistema Experto</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{background:#0b1322;border-bottom:1px solid #1e293b;padding:12px 24px;display:flex;gap:16px;align-items:center}
+nav a{color:#94a3b8;text-decoration:none;font-size:.85rem;padding:6px 12px;border-radius:6px;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:24px}
+h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
+.subtitle{color:#94a3b8;font-size:.95rem;margin-bottom:28px}
+
+.flow-wrapper{position:relative;overflow-x:auto;padding:20px 0}
+
+/* Pipeline vertical */
+.pipeline{display:flex;flex-direction:column;align-items:center;gap:0;min-width:700px}
+
+/* Nodo principal */
+.node{position:relative;border-radius:12px;padding:18px 24px;min-width:520px;max-width:700px;text-align:left;cursor:pointer;transition:all .2s;border:2px solid transparent}
+.node:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.node.expanded .node-details{display:block}
+.node-header{display:flex;align-items:center;gap:12px}
+.node-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;font-weight:700}
+.node-title{font-weight:700;font-size:1rem}
+.node-desc{font-size:.82rem;color:#94a3b8;margin-top:2px}
+.node-details{display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);font-size:.82rem;line-height:1.7;color:#cbd5e1}
+.node-details code{background:#0f172a;padding:2px 6px;border-radius:4px;font-size:.78rem;color:#38bdf8}
+.node-details .detail-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-top:8px}
+.node-details .detail-label{color:#64748b;font-weight:600;text-transform:uppercase;font-size:.7rem;letter-spacing:.03em}
+.node-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600;margin:2px}
+
+/* Flecha conector */
+.arrow{display:flex;flex-direction:column;align-items:center;padding:0;height:40px;position:relative}
+.arrow-line{width:3px;flex:1;background:linear-gradient(180deg,var(--arrow-from,#334155),var(--arrow-to,#334155))}
+.arrow-head{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:10px solid var(--arrow-to,#334155)}
+.arrow-label{position:absolute;right:calc(50% + 20px);top:50%;transform:translateY(-50%);font-size:.7rem;color:#64748b;white-space:nowrap;background:#0f172a;padding:2px 6px;border-radius:4px}
+.arrow-label-left{left:calc(50% + 20px);right:auto}
+
+/* Colores por etapa */
+.stage-input{background:linear-gradient(135deg,#1e3a5f,#1a2744);border-color:#2563eb}
+.stage-input .node-icon{background:#1d4ed8;color:#fff}
+
+.stage-calc{background:linear-gradient(135deg,#1e3348,#1a2744);border-color:#0891b2}
+.stage-calc .node-icon{background:#0e7490;color:#fff}
+
+.stage-filter{background:linear-gradient(135deg,#1e2e44,#1a2744);border-color:#6366f1}
+.stage-filter .node-icon{background:#4f46e5;color:#fff}
+
+.stage-fuzzy{background:linear-gradient(135deg,#2d1f48,#1a2744);border-color:#a855f7}
+.stage-fuzzy .node-icon{background:#7c3aed;color:#fff}
+
+.stage-perm{background:linear-gradient(135deg,#1e3340,#1a2744);border-color:#14b8a6}
+.stage-perm .node-icon{background:#0d9488;color:#fff}
+
+.stage-motor{background:linear-gradient(135deg,#3a2a1a,#2a2030);border-color:#f59e0b}
+.stage-motor .node-icon{background:#d97706;color:#fff}
+
+.stage-defuzzy{background:linear-gradient(135deg,#1a3329,#1a2744);border-color:#22c55e}
+.stage-defuzzy .node-icon{background:#16a34a;color:#fff}
+
+.stage-output{background:linear-gradient(135deg,#3a1a1a,#2a1a30);border-color:#ef4444}
+.stage-output .node-icon{background:#dc2626;color:#fff}
+
+.stage-loop{background:linear-gradient(135deg,#2a2a1a,#2a2030);border-color:#facc15}
+.stage-loop .node-icon{background:#ca8a04;color:#fff}
+
+/* Branch fork */
+.branch{display:flex;gap:20px;justify-content:center;align-items:flex-start;min-width:700px;flex-wrap:wrap}
+.branch .node{min-width:220px;max-width:320px;flex:1}
+
+/* Iteración visual */
+.loop-indicator{display:flex;align-items:center;gap:10px;padding:10px 20px;background:#1e293b;border:2px dashed #facc15;border-radius:10px;color:#facc15;font-size:.85rem;font-weight:600;margin-top:8px}
+.loop-indicator .icon{font-size:1.3rem}
+
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px;padding:16px 20px;background:#1e293b;border-radius:10px;border:1px solid #334155}
+.legend-title{width:100%;font-size:.8rem;color:#64748b;text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:#cbd5e1}
+.legend-dot{width:14px;height:14px;border-radius:4px;flex-shrink:0}
+
+/* Mode tag */
+.mode-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600}
+.mode-tag.sim{background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)}
+.mode-tag.kep{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.mode-sep{color:#475569;font-size:.7rem;margin:0 2px}
+
+/* Click hint */
+.click-hint{text-align:center;color:#475569;font-size:.78rem;margin-bottom:16px;font-style:italic}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada">Entrada de Datos</a>
+  <a href="/espesador/graficos">Explorador de Series</a>
+  <a href="/espesador/diagrama" class="active">Diagrama de Flujo</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
+</nav>
+<div class="container">
+<h1>Diagrama de Flujo del Sistema Experto</h1>
+<p class="subtitle">Pipeline completo de procesamiento por cada tick temporal. Haz clic en cada etapa para ver detalles tecnicos.</p>
+<p class="click-hint">Haz clic en cualquier nodo para expandir/contraer los detalles</p>
+
+<div class="flow-wrapper">
+<div class="pipeline">
+
+<!-- STAGE 1: Data input -->
+<div class="node stage-input" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">1</div>
+    <div>
+      <div class="node-title">Entrada de Datos</div>
+      <div class="node-desc">Variables de proceso, sensores crudos y limites fuzzy</div>
+    </div>
+    <span class="mode-tag sim">Simulacion</span>
+    <span class="mode-sep">/</span>
+    <span class="mode-tag kep">Tags KEPserver</span>
+  </div>
+  <div class="node-details">
+    <p>El sistema soporta <b>dos modos de entrada</b>:</p>
+    <p style="margin:6px 0"><span class="mode-tag sim">Simulacion ON</span> Se generan datos sinteticos con <code>simulacion.py</code> en 3 fases (estable, alerta, recuperacion) y el generador de datos (<code>TagGenerator</code>) escribe valores dinamicos en KEPserver.</p>
+    <p style="margin:6px 0"><span class="mode-tag kep">Simulacion OFF</span> Se leen directamente los tags reales del KEPserver via OPC-UA. Los tags deben tener valores reales proporcionados por el proceso o un sistema externo.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Variables PV (9)</span>
+      <span><code>RETO.PV.torque</code>, <code>RETO.PV.bed_mass</code>, <code>RETO.PV.bed_level</code>, <code>RETO.PV.densidad</code>, <code>RETO.PV.torque_bomba</code>, <code>RETO.PV.potencia_bomba</code>, <code>RETO.PV.presion_descarga</code>, <code>RETO.PV.presion_diferencial</code>, <code>RETO.PV.nivel_rastra</code></span>
+      <span class="detail-label">Sensores crudos (6)</span>
+      <span><code>RETO.CRUDA.tonelaje_sag_1/2</code>, <code>RETO.CRUDA.tonelaje_relave</code>, <code>RETO.CRUDA.presion_bomba_1/2</code>, <code>RETO.CRUDA.turbiedad_agua</code></span>
+      <span class="detail-label">Limites fuzzy (18)</span>
+      <span><code>RETO.LIM.{var}_lmin</code>, <code>RETO.LIM.{var}_lmax</code> por cada PV</span>
+      <span class="detail-label">Protocolo</span>
+      <span>OPC-UA (<code>opc.tcp://127.0.0.1:49320</code>) — lectura batch en una sola conexion</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#2563eb;--arrow-to:#0891b2">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">DataFrame completo</div>
+</div>
+
+<!-- STAGE 2: Calculated variables -->
+<div class="node stage-calc" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">2</div>
+    <div>
+      <div class="node-title">Variables Calculadas</div>
+      <div class="node-desc">Derivacion de variables a partir de sensores crudos</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Se calculan 5 variables derivadas a partir de los sensores crudos usando <code>calcular_variables_df()</code>.
+       Estas no pasan por fuzzificacion directa, pero los permisivos las consultan.</p>
+    <div class="detail-grid">
+      <span class="detail-label">tonelaje_sag_total</span>
+      <span><code>tonelaje_sag_1 + tonelaje_sag_2</code></span>
+      <span class="detail-label">tonelaje_sag_delta_30min</span>
+      <span>Delta rolling en ventana de 30 min</span>
+      <span class="detail-label">tonelaje_sag_desv_est_30min</span>
+      <span>Desviacion estandar rolling 30 min</span>
+      <span class="detail-label">diferencial_ton_sag_relave</span>
+      <span><code>tonelaje_sag_total - tonelaje_relave</code></span>
+      <span class="detail-label">diferencial_presion_bbas</span>
+      <span><code>presion_bomba_1 - presion_bomba_2</code></span>
+    </div>
+    <p style="margin-top:8px;color:#64748b">Funcion: <code>fun_calc_variables.calcular_variables_df(df, dt_s, definiciones)</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#0891b2;--arrow-to:#0891b2">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">DF + columnas derivadas</div>
+</div>
+
+<!-- STAGE 3: Extract row -->
+<div class="node stage-calc" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">3</div>
+    <div>
+      <div class="node-title">Extraccion de Inputs</div>
+      <div class="node-desc">Se construye un dict {variable: valor} del instante actual</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>En cada tick, se obtienen las 9 variables de proceso como diccionario <code>{nombre: float}</code>. Este es el <b>dato crudo</b> antes de filtrar.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Modo Simulacion</span>
+      <span><code>extraer_inputs_desde_row()</code> extrae de una fila del DataFrame</span>
+      <span class="detail-label">Modo KEPserver</span>
+      <span><code>SEEngine._read_tags()</code> lee directamente los tags PV, CRUDA y LIM via OPC-UA</span>
+      <span class="detail-label">Salida</span>
+      <span><code>inputs_raw = {torque: 45.2, bed_level: 3.1, ...}</code> (9 valores)</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#0891b2;--arrow-to:#6366f1">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">inputs_raw (9 floats)</div>
+</div>
+
+<!-- STAGE 4: Filter -->
+<div class="node stage-filter" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">4</div>
+    <div>
+      <div class="node-title">Filtro Exp-Q</div>
+      <div class="node-desc">Suavizado exponencial cuadratico para reducir ruido</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Cada variable de proceso pasa por un filtro de media ponderada exponencial:
+       <code>y = &sum; w<sub>i</sub> &middot; x<sub>k-i</sub> / &sum; w<sub>i</sub></code> donde
+       <code>w<sub>i</sub> = exp(-q &middot; i&sup2;)</code>.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Parametros</span>
+      <span><code>q</code> (peso decaimiento) y <code>window_size</code> (muestras) por variable</span>
+      <span class="detail-label">Ejemplo</span>
+      <span>torque: q=0.15, ws=10 | bed_level: q=0.20, ws=8</span>
+      <span class="detail-label">Efecto</span>
+      <span>Reduce ruido manteniendo tendencia; q alto = mas filtrado</span>
+      <span class="detail-label">Estado</span>
+      <span>Mantiene buffer <code>deque</code> entre ticks (memoria temporal)</span>
+    </div>
+    <p style="margin-top:8px;color:#64748b">Clase: <code>ExpQFilter.actualizar(inputs_raw) -> inputs</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#6366f1;--arrow-to:#a855f7">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">inputs (9 floats filtrados)</div>
+</div>
+
+<!-- STAGE 5: Fuzzification -->
+<div class="node stage-fuzzy" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">5</div>
+    <div>
+      <div class="node-title">Fuzzificacion</div>
+      <div class="node-desc">Conversion de valores numericos a etiquetas linguisticas con grado de pertenencia</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Cada variable se evalua contra sus funciones de membresia (modelos tipo <code>high</code>, <code>low</code>, <code>norm</code>)
+       para obtener grados de pertenencia &mu; a etiquetas linguisticas.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Etiquetas base</span>
+      <span><span class="node-badge" style="background:#22c55e30;color:#22c55e">LOW</span>
+            <span class="node-badge" style="background:#3b82f630;color:#3b82f6">OK</span>
+            <span class="node-badge" style="background:#ef444430;color:#ef4444">HIGH</span></span>
+      <span class="detail-label">Pendientes</span>
+      <span><span class="node-badge" style="background:#ef444430;color:#ef4444">DEC</span>
+            <span class="node-badge" style="background:#64748b30;color:#94a3b8">STABLE</span>
+            <span class="node-badge" style="background:#22c55e30;color:#22c55e">INC</span>
+            (regresion lineal en ventana de 60s)</span>
+      <span class="detail-label">Compuestas</span>
+      <span><span class="node-badge" style="background:#f59e0b30;color:#f59e0b">NO-HIGH</span>
+            <span class="node-badge" style="background:#f59e0b30;color:#f59e0b">NO-LOW</span>
+            <span class="node-badge" style="background:#a855f730;color:#a855f7">CERCA_ALTO</span>
+            <span class="node-badge" style="background:#a855f730;color:#a855f7">CERCA_BAJO</span></span>
+      <span class="detail-label">Formula NO-*</span>
+      <span><code>&mu;(NO-X) = 1 - &mu;(X)</code></span>
+      <span class="detail-label">Formula CERCA</span>
+      <span><code>CERCA_ALTO = min(&mu;(OK), &mu;(HIGH))</code></span>
+    </div>
+    <p style="margin-top:8px"><b>Salida:</b> <code>fuzzy_out = {torque: {dom: "HIGH", val: 0.85, pert: {HIGH: 0.85, OK: 0.15, LOW: 0.0, ...}}, pend_torque: {...}, ...}</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#a855f7;--arrow-to:#14b8a6">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">fuzzy_out (etiquetas + &mu;)</div>
+</div>
+
+<!-- STAGE 6: Permisivos -->
+<div class="node stage-perm" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">6</div>
+    <div>
+      <div class="node-title">Evaluacion de Permisivos</div>
+      <div class="node-desc">Condiciones logicas que habilitan/bloquean acciones del motor</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Los permisivos son condiciones booleanas complejas (AND/OR/NOT) que verifican el estado del proceso.
+       Se inyectan en <code>fuzzy_out</code> como pseudo-variables <code>__PERM_*</code> con etiquetas ON/OFF (&mu;=1 o 0).</p>
+    <div class="detail-grid">
+      <span class="detail-label">PERMITIR_FRENAR_DESCARGA</span>
+      <span>ON cuando NO hay alertas criticas en SAG/tonelaje/tendencias</span>
+      <span class="detail-label">PERMITIR_SOLTAR_DESCARGA</span>
+      <span>ON cuando NO hay alertas en presiones/torque de bombas</span>
+      <span class="detail-label">OPTIMIZAR_SUBIR_DENSIDAD</span>
+      <span>ON cuando condiciones favorecen subir objetivo de densidad</span>
+      <span class="detail-label">OPTIMIZAR_BAJAR_DENSIDAD</span>
+      <span>ON cuando condiciones favorecen bajar objetivo</span>
+    </div>
+    <p style="margin-top:8px"><b>Mecanismo:</b> Las reglas refieren a <code>__PERM_*</code> en su <code>if</code>. Si el permisivo esta OFF, la regla que requiere ON no dispara.</p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#14b8a6;--arrow-to:#f59e0b">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">fuzzy_out + __PERM_* inyectados</div>
+</div>
+
+<!-- STAGE 7: Motor de reglas -->
+<div class="node stage-motor" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">7</div>
+    <div>
+      <div class="node-title">Motor de Reglas</div>
+      <div class="node-desc">Evaluacion jerarquica de reglas con bloques, prioridades y cooldowns</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>El motor evalua todas las reglas contra <code>fuzzy_out</code> usando logica AND/OR/NOT. Las reglas se agrupan en bloques jerarquicos.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Belief</span>
+      <span><code>belief = weight &times; min(&mu;(condiciones))</code> — umbral minimo 0.05</span>
+      <span class="detail-label">Bloque critico</span>
+      <span>Nivel 1 — si dispara, <b>bloquea</b> estabilidad</span>
+      <span class="detail-label">Bloque estabilidad</span>
+      <span>Nivel 2 — bloqueado si critico disparo</span>
+      <span class="detail-label">Bloque optimizacion</span>
+      <span>Independiente — siempre se evalua</span>
+      <span class="detail-label">Cooldown</span>
+      <span>vel_bomba: 900s | floculante: 1800s | tonelaje: 2700s — por familia de SP</span>
+    </div>
+    <p style="margin-top:8px"><b>Salida:</b> Lista de eventos con <code>{regla_id, bloque, acciones, belief}</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#f59e0b;--arrow-to:#22c55e">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">eventos fired [{accion, belief}, ...]</div>
+</div>
+
+<!-- STAGE 8: Defuzzification -->
+<div class="node stage-defuzzy" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">8</div>
+    <div>
+      <div class="node-title">Defuzzificacion (Sugeno)</div>
+      <div class="node-desc">Conversion de acciones fuzzy a cambios numericos en setpoints</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Cada accion disparada se traduce a un delta numerico sobre el setpoint correspondiente,
+       interpolando en tablas de Sugeno segun el <code>belief</code>.</p>
+    <div class="detail-grid">
+      <span class="detail-label">Acciones</span>
+      <span><code>AUMENTAR|DISMINUIR</code> + <code>VEL_BOMBA|TONELAJE|FLOCULANTE</code> + <code>FUERTE|SUAVE|</code>(normal)</span>
+      <span class="detail-label">Interpolacion</span>
+      <span><code>step = np.interp(belief, belief_axis, steps)</code></span>
+      <span class="detail-label">Aplicacion</span>
+      <span><code>SP[familia] += step</code>, luego clamp a limites [LL, HL]</span>
+      <span class="detail-label">Acumulativo</span>
+      <span>Multiples reglas en un tick aplican secuencialmente sobre el mismo SP</span>
+    </div>
+    <p style="margin-top:8px"><b>Ejemplo:</b> <code>DISMINUIR_VEL_BOMBA_FUERTE</code> @ belief=0.8 → step=-0.4 → <code>sp_vel_bomba -= 0.4</code></p>
+  </div>
+</div>
+
+<div class="arrow" style="--arrow-from:#22c55e;--arrow-to:#ef4444">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+  <div class="arrow-label">setpoints actualizados</div>
+</div>
+
+<!-- STAGE 9: Output -->
+<div class="node stage-output" onclick="this.classList.toggle('expanded')">
+  <div class="node-header">
+    <div class="node-icon">9</div>
+    <div>
+      <div class="node-title">Salida: Setpoints Actualizados</div>
+      <div class="node-desc">Nuevos valores de consigna para el proceso Prueba/Demo</div>
+    </div>
+  </div>
+  <div class="node-details">
+    <p>Los 3 setpoints se actualizan en cada tick y se acumulan entre iteraciones.
+       En modo KEPserver, los valores se <b>escriben de vuelta</b> a los tags <code>RETO.SP.*</code> via OPC-UA.</p>
+    <div class="detail-grid">
+      <span class="detail-label">sp_vel_bomba</span>
+      <span>Velocidad de la bomba de descarga &rarr; <code>RETO.SP.sp_vel_bomba</code></span>
+      <span class="detail-label">sp_tonelaje</span>
+      <span>Tonelaje objetivo de alimentacion &rarr; <code>RETO.SP.sp_tonelaje</code></span>
+      <span class="detail-label">sp_floculante</span>
+      <span>Dosificacion de floculante &rarr; <code>RETO.SP.sp_floculante</code></span>
+      <span class="detail-label">Persistencia</span>
+      <span>Los SPs se arrastran al siguiente tick como estado mutable</span>
+      <span class="detail-label">Escritura</span>
+      <span><span class="mode-tag kep">KEPserver</span> OPC-UA write a <code>RETO.SP.*</code> &nbsp;|&nbsp; <span class="mode-tag sim">Simulacion</span> solo en memoria</span>
+    </div>
+  </div>
+</div>
+
+<!-- Loop indicator -->
+<div class="arrow" style="--arrow-from:#ef4444;--arrow-to:#facc15">
+  <div class="arrow-line"></div>
+  <div class="arrow-head"></div>
+</div>
+
+<div class="loop-indicator">
+  <span class="icon">&#x21bb;</span>
+  <span>Se repite cada 5 segundos (configurable). Lee tags &rarr; ejecuta pipeline &rarr; escribe SPs. El estado (filtros, hist, cooldowns, SPs) se arrastra entre iteraciones.</span>
+</div>
+
+</div><!-- /pipeline -->
+</div><!-- /flow-wrapper -->
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-title">Leyenda de etapas</div>
+  <span class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Entrada de datos</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#0891b2"></span> Calculo / Extraccion</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#6366f1"></span> Filtrado Exp-Q</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#a855f7"></span> Fuzzificacion</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#14b8a6"></span> Permisivos</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Motor de reglas</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> Defuzzificacion</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Salida (Setpoints)</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#facc15"></span> Iteracion / Loop</span>
+</div>
+
+<div style="margin-top:20px;padding:16px 20px;background:#1e293b;border-radius:10px;border:1px solid #334155;font-size:.82rem;color:#94a3b8;line-height:1.7">
+  <p><b style="color:#e2e8f0">Estado persistente entre ticks:</b></p>
+  <p>&bull; <code style="color:#6366f1">ExpQFilter</code> — buffers de muestras anteriores para el filtrado</p>
+  <p>&bull; <code style="color:#a855f7">hist</code> — puntos recientes para calculo de pendientes (regresion lineal)</p>
+  <p>&bull; <code style="color:#f59e0b">last_action_time</code> — timestamp de ultima accion por familia SP (cooldown)</p>
+  <p>&bull; <code style="color:#22c55e">setpoints_actuales</code> — valores acumulados de los 3 setpoints</p>
+</div>
+
+</div><!-- /container -->
+
+<script>
+(async function applyPseudonimos() {
+  try {
+    const res = await fetch('/api/entrada');
+    const tags = await res.json();
+    const map = {};
+    for (const t of tags) {
+      if (t.pseudonimo) map[t.name] = t.pseudonimo;
+    }
+    if (Object.keys(map).length === 0) return;
+
+    document.querySelectorAll('code').forEach(el => {
+      const text = el.textContent.trim();
+      if (map[text]) {
+        el.innerHTML = '<span style="color:#e2e8f0;font-weight:600">' + map[text] + '</span>'
+          + '<span style="color:#475569;font-size:.72rem;margin-left:4px">(' + text + ')</span>';
+      }
+    });
+
+    document.querySelectorAll('.detail-grid .detail-label').forEach(el => {
+      const text = el.textContent.trim();
+      if (map[text]) {
+        el.textContent = map[text];
+        el.title = text;
+      }
+    });
+
+    document.querySelectorAll('.detail-grid span:not(.detail-label)').forEach(el => {
+      const codes = el.querySelectorAll('code');
+      if (codes.length > 0) return;
+      const text = el.textContent.trim();
+      for (const [tagName, pseudo] of Object.entries(map)) {
+        if (text.includes(tagName)) {
+          el.innerHTML = el.innerHTML.replace(
+            tagName,
+            '<span style="color:#e2e8f0;font-weight:600">' + pseudo + '</span>'
+              + ' <span style="color:#475569;font-size:.72rem">(' + tagName + ')</span>'
+          );
+        }
+      }
+    });
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
