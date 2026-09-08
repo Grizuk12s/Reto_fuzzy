@@ -1,0 +1,12 @@
+{
+  "velocidad_salida_del_se": {
+    "pv_key": "",
+    "rango": 0.3,
+    "habilitado": true
+  },
+  "velocidad_sp": {
+    "pv_key": "velocidad_pv",
+    "rango": 0.3,
+    "habilitado": false
+  }
+}

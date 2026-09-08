@@ -1,12 +1,12 @@
 {
   "hopper_nvl_pv_a": {
-    "type": "high",
+    "type": "norm",
     "offset": [
-      -2.0,
-      -1.0,
-      0.0,
-      1.0,
-      2.0
+      10.0,
+      15.0,
+      20.0,
+      25.0,
+      30.0
     ],
     "labels": {
       "HIGH": [
@@ -18,18 +18,27 @@
       ],
       "LOW": [
         0.0,
-        0.5,
-        1.0,
-        0.5,
-        0.0
-      ],
-      "OK": [
-        0.0,
         0.0,
         0.0,
         0.5,
         1.0
+      ],
+      "OK": [
+        0.0,
+        0.5,
+        1.0,
+        0.5,
+        0.0
       ]
+    },
+    "limites": {
+      "lmin": "PCS7.OS01.Hopper_Lvl_MIN",
+      "lmax": "PCS7.OS01.Hopper_Lvl_MAX"
+    },
+    "limites_num": {
+      "habilitado": false,
+      "lmin": null,
+      "lmax": null
     }
   }
 }

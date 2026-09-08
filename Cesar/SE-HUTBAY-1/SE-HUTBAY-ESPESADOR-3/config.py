@@ -108,6 +108,44 @@ def _cargar_limites_sp() -> dict:
 
 LIMITES_SP_CONTRATO = _cargar_limites_sp()
 
+
+def _cargar_rate_sp() -> dict:
+    """Velocidad maxima de cambio por setpoint, en unidades de ingenieria/segundo.
+
+    Vive en el contrato por el mismo motivo que `limites_sp`: es un limite del
+    setpoint, expresado en sus unidades. Lo aplica `SEEngine._write_setpoints`
+    **al escribir**, no al calcular — el paso que no cabe no se descarta, se
+    entrega en los ticks siguientes (rampa).
+
+    Vacio significa "sin limite de velocidad", que es el comportamiento previo:
+    el setpoint viaja al DCS de un salto. 0 o negativo se descarta, porque un
+    rate de 0 congelaria el setpoint para siempre y eso no es un limite de
+    velocidad, es una inhibicion — y para inhibir ya estan `limites_sp` y el
+    handshake.
+    """
+    try:
+        with open(CONTRATO_JSON, encoding="utf-8") as f:
+            data = _json.load(f)
+        crudo = data.get("rate_sp")
+        if not isinstance(crudo, dict):
+            return {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+    out = {}
+    for sp, val in crudo.items():
+        try:
+            r = float(val)
+        except (TypeError, ValueError):
+            continue
+        if r <= 0:
+            continue
+        out[str(sp)] = r
+    return out
+
+
+RATE_SP_CONTRATO = _cargar_rate_sp()
+
 # ============================================================
 # VARIABLES CRUDAS DE SENSORES
 # ------------------------------------------------------------
@@ -247,6 +285,9 @@ def recargar_contrato() -> dict:
     LIMITES_SP_CONTRATO.clear()
     LIMITES_SP_CONTRATO.update(_cargar_limites_sp())
 
+    RATE_SP_CONTRATO.clear()
+    RATE_SP_CONTRATO.update(_cargar_rate_sp())
+
     VARIABLES_CRUDAS_REQUERIDAS[:] = _cargar_crudas()
 
     LIMITES_FUZZY_POR_VARIABLE.clear()
@@ -276,7 +317,8 @@ def recargar_contrato() -> dict:
     return {"variables_proceso": list(VARIABLES_PROCESO),
             "setpoints": list(SETPOINT_KEYS),
             "crudas": list(VARIABLES_CRUDAS_REQUERIDAS),
-            "limites_sp": {k: list(v) for k, v in LIMITES_SP_CONTRATO.items()}}
+            "limites_sp": {k: list(v) for k, v in LIMITES_SP_CONTRATO.items()},
+            "rate_sp": dict(RATE_SP_CONTRATO)}
 
 
 # ============================================================

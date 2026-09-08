@@ -360,23 +360,52 @@ Esa página tiene dos botones que responden preguntas distintas:
 Página **Traza del Pipeline** (`/espesador/traza`). Es la herramienta principal de
 diagnóstico. Muestra las nueve etapas del último tick con los números reales:
 
-1. **Lectura** — cada tag con valor, quality y si falló
+1. **Lectura** — cada tag mapeado (PV, CRUDA, LIM y **SP**), con valor, calidad OPC-UA
+   real, el `StatusCode` exacto, hace cuánto que no cambia, y si falló. Los SP del
+   contrato aparecen aquí para cruzar con el paso 8
 2. **Filtro** — crudo vs filtrado, para ver el lag que introduce
 3. **Derivadas** — las variables calculadas
 4. **Fuzzy** — valor, límites usados, dominio y grados de pertenencia
 5. **Permisivos** — cuáles habilitaron y cuáles bloquearon
 6. **Reglas** — **todas**, no solo las que dispararon, con el motivo de cada una
 7. **Waits activos** — cuánto le falta a cada uno para liberar
-7b. **Últimos disparos** — historial corto y global: cuándo disparó cada regla y qué
-    le hizo al setpoint. Sobrevive al anillo de la traza
-8. **Defuzzy** — setpoint antes → después → delta, y aviso si el SP quedó **saturado**
-   en un límite (la regla puede seguir disparando sin efecto)
-9. **Escritura** — qué setpoints se escribieron, cuáles no cambiaron, o el error
+7b. **Últimos disparos** — historial corto y global: cuándo disparó cada regla, con dos
+    columnas: **Planta (tag)** (lo que el DCS tiene / recibió) e **Interno SE** (lo que
+    calculó el defuzzy). Badge **SIN EFECTO** si la planta no se movió. Sobrevive al
+    anillo de la traza
+8. **Defuzzy** — por cada SP: **Planta (tag)** en vivo, **Interno SE** (antes → después),
+   **Escrito DCS** (último valor aceptado), aviso si está inhibido o saturado en un límite
+9. **Escritura** — qué setpoints se escribieron, cuáles no cambiaron, cuáles quedaron
+   inhibidos (tracking, handshake, sin límites), o el error
 
 > En la etapa 9, **"ningún setpoint cambió" es lo normal, no un fallo**: con
 > write-on-change, la mayoría de los ticks no escriben nada.
 
 La barra superior se corta en rojo en la etapa donde el tick abortó.
+
+### Planta, interno y escrito: tres números distintos
+
+En los pasos **7b** y **8** conviene no mezclar estas capas:
+
+| Capa | Qué es | De dónde sale |
+|---|---|---|
+| **Planta (tag)** | Valor del tag SP leído por OPC en este tick | Paso 1 (misma lectura) y columna **Planta** en 7b |
+| **Interno SE** | Objetivo que calcula el defuzzy en memoria | Columna **Interno SE** en 7b; bloque homónimo en paso 8 |
+| **Escrito DCS** | Último valor que el DCS **aceptó** en una escritura | Paso 8 · *Escrito DCS*; referencia del **tracking** |
+
+**Regla práctica:** si la regla “sube” en **Interno** pero **Planta** queda en `+0` con
+badge **SIN EFECTO**, el experto calculó pero **no llegó al DCS** (handshake, tracking,
+inhibido por configuración). Mirá el paso 9 y los carteles naranjas arriba.
+
+Cuando la escritura está **bloqueada** (handshake denegado, tracking retenido, SP sin
+límites), el motor **no acumula** pasos fantasma en el interno: lo realinea a lo
+**escrito** antes de evaluar reglas. Las **rampas** (`rate_sp` en el contrato) siguen
+pudiendo dejar el interno por delante del escrito **solo** mientras el SP sí se puede
+escribir.
+
+El **tracking** compara el readback (`velocidad_pv`, etc.) contra **Escrito DCS**, no
+contra el interno. Si el PV está lejos del escrito, verás *“esperando al proceso”* aunque
+el interno hubiera subido en una versión anterior del software.
 
 ### La pregunta que contesta
 
@@ -403,19 +432,128 @@ grabador:
 
 La página de historial muestra cuántas veces disparó, hace cuánto fue el último
 disparo, y la lista de eventos con el motivo, el wait que la bloqueó, las variables
-que faltan y **el efecto real sobre el setpoint** (`95.00 → 100.00 (+5.000)`).
+que faltan y el efecto en **Planta (tag)** e **Interno SE** por separado.
 
 Detalles que conviene saber:
 
 - No se guarda un evento por tick: se guarda **por cambio**. Una situación que se
   repite se muestra una vez con `×N`. Los disparos sí son siempre entrada propia.
 - **Pulsar Grabar de nuevo borra lo anterior**: el historial arranca de cero.
-- Se pueden grabar **varias reglas a la vez** y mirar cada una en su pestaña.
+- Se pueden grabar **hasta 5 reglas a la vez** y mirar cada una en su pestaña.
 - El historial vive en memoria: aguanta stop/start del motor, pero se pierde si
   reiniciás la aplicación. Si te importa conservarlo, sacá una captura o pedí el
   JSON en `GET /api/se/grabador/<regla_id>`.
 - Tope: **500 eventos por regla**. Cuando se llena, lo más viejo se descarta y la
   página lo avisa.
+
+---
+
+## 8. Export / Import de configuración
+
+Página **Export / Import** (`/espesador/export-import`), en el menú **Conexión**.
+Sirve para **respaldar** bloques de configuración en un JSON, **clonarlos** a otra
+máquina o **restaurar** un estado anterior sin entrar al contenedor a mano.
+
+### Cuándo usarlo
+
+| Caso | Qué hacer |
+|---|---|
+| Pasar la lógica del SE de desarrollo a planta | Exportar en el origen, importar en el destino |
+| Respaldar antes de un cambio grande | Exportar todo (o solo reglas + defuzzy) |
+| Deshacer una importación mala | Sección **Historial** → Restaurar el respaldo automático |
+
+> **El motor SE debe estar detenido** para importar o restaurar. La página avisa si
+> está corriendo.
+
+### Exportar
+
+1. Marca los bloques que quieres incluir (casillas por módulo).
+2. **Guardar JSON…** — en Chrome/Edge abre el diálogo de Windows; en otros
+   navegadores descarga el archivo directamente.
+3. El archivo lleva fecha, versión del formato y qué casillas estaban marcadas.
+
+**Módulos disponibles:**
+
+| Grupo | Módulo | Qué guarda |
+|---|---|---|
+| Conexión | **Tags** | `tags.json` completo: OPC-UA, pseudónimos, generador, heartbeat |
+| Conexión | **Contrato** | PV, SP, `limites_sp`, `rate_sp`, descripciones |
+| Conexión | **KEPserver** | Timeout, calidad, retención, estancamiento (y host/port si marcas todo) |
+| Pipeline | **Variables calculadas** | `variables.json` |
+| Pipeline | **Filtros, Fuzzy, Pendientes, Estados, Tracking, Permisivos, Waits, Reglas, Defuzzy** | Cada uno su JSON |
+
+**No van en el paquete** (son de cada servidor/planta): configuración de **PostgreSQL**
+y `licencia.json`.
+
+### Importar
+
+1. **Buscar archivo JSON…** — solo acepta paquetes con `"format": "se-hutbay-export"`.
+2. Revisa la **vista previa**: módulos del paquete, duplicados detectados, impacto del
+   contrato si aplica.
+3. Elige el modo si hay colisiones:
+
+| Modo | Comportamiento |
+|---|---|
+| **Agregar** | Solo entra lo nuevo; duplicados se omiten |
+| **Reemplazar** | Los duplicados del paquete pisan los del destino |
+| **Copias** | Los duplicados se guardan como `nombre_Copia_N` |
+
+4. **Aplicar importación**.
+
+Antes de tocar nada, el sistema **copia a disco** los JSON que va a modificar en
+`config/espesador/.backup/import_YYYYMMDD_HHMMSS/`.
+
+**Orden de aplicación** (fijo): tags → contrato → pipeline → KEPserver al final.
+
+**Detalles importantes:**
+
+- Si importas tags o contrato pero **no** filtros/tracking, el sistema **sincroniza**
+  automáticamente filtros y tracking con lo nuevo (igual que los botones Sincronizar
+  de cada página).
+- **KEPserver:** en modo *Agregar* o *Copias* solo se fusionan `timeout_s`,
+  `aceptar_uncertain`, `estancado_alerta_s` y `retencion_s`. El **host y puerto de
+  la planta destino no se pisan** — cada máquina tiene su propia IP.
+- Paquetes **viejos** (formato v1) que traían `tags_kepserver` y `entrada_datos` por
+  separado siguen importándose; la UI los muestra como **Tags**.
+- Si la importación falla a mitad, no hay rollback automático: usa el historial para
+  restaurar el respaldo que se creó al inicio.
+
+### Historial de importaciones
+
+Tercera sección de la misma página. Lista las **últimas 10** importaciones con fecha,
+módulos, modo usado y archivos respaldados. Botón **Restaurar** por fila (motor
+detenido).
+
+Los metadatos viven en `config/espesador/.backup/historial_import.json`; las copias
+de los JSON, en subcarpetas `import_*` del mismo directorio.
+
+### Formato del paquete (referencia)
+
+```json
+{
+  "format": "se-hutbay-export",
+  "version": 2,
+  "exported_at": "2026-08-25T18:00:00-04:00",
+  "selected": { "tags": true, "reglas": true },
+  "data": { "tags": { ... }, "reglas": [ ... ] }
+}
+```
+
+Solo aparecen en `data` los módulos marcados al exportar.
+
+### API (para scripts o integración)
+
+| Método | Ruta | Uso |
+|---|---|---|
+| GET | `/api/export-import/modulos` | Catálogo de módulos + estado del motor |
+| POST | `/api/export-import/export` | Body `{ "selected": { ... } }` → paquete JSON |
+| POST | `/api/export-import/preview` | Valida paquete y devuelve conflictos |
+| POST | `/api/export-import/apply` | Body `{ "package": {...}, "modo": "agregar" }` |
+| GET | `/api/export-import/historial` | Lista respaldos con metadatos |
+| GET/POST | `/api/export-import/undo` | Info o restaurar (`backup_dir` opcional) |
+
+Código: `web/api/export_import.py`, UI: `web/templates/export_import.html`,
+tests: `tests/test_export_import.py`.
 
 ---
 
@@ -425,13 +563,18 @@ Detalles que conviene saber:
 |---|---|
 | Tags conectados pero en 0, sin moverse | Registros K del driver Simulator: son estáticos, alguien tiene que escribirlos. Usa el generador |
 | "Iniciar Sistema" no hace nada | Mapeo incompleto — el motivo sale en rojo bajo el formulario |
-| Tag "No existe" con quality Bad | El Item ID no coincide con KEPserver. Revisa el nombre carácter por carácter |
+| Tag "No existe" con quality Bad | Pasa el mouse por la celda QUALITY: el `StatusCode` exacto dice a dónde ir. `BadNodeIdUnknown` es un Item ID que no coincide (revisar el nombre carácter por carácter); `BadUserAccessDenied` son permisos en el KEPserver |
+| Quality en `Uncertain` y la variable no entra al fuzzy | Es deliberado: el servidor avisa que no se hace responsable del valor. Si en esta planta esos códigos son benignos, se acepta con la casilla "Aceptar valores Uncertain" en la página de KEPserver |
+| Aviso "PV sin cambiar de valor" | El valor no se mueve desde hace más del umbral. Puede ser un scan congelado o un proceso genuinamente quieto — el SE **la sigue usando** y no puede distinguirlos. Contrastar contra el HMI |
 | La traza dice "Sin datos" | El motor no ha ejecutado ningún tick todavía |
 | Una PV sin filtro | El tick falla. Sincroniza en la página de Filtros |
 | Un SP sin tabla defuzzy | La acción sobre ese setpoint falla al aplicarse. El arranque ahora avisa por nombre qué acciones no tienen tabla |
 | La regla dispara pero el SP no se mueve | Está saturado en un límite del contrato. La etapa 8 lo dice explícito |
 | "0 disparadas" siempre en la etapa 6 | Con un wait largo, casi todos los ticks caen dentro de la espera. Usa el grabador de la regla |
 | Aviso "identificador en colisión" | Dos tags comparten pseudónimo. Corrige uno |
+| Importar dice "motor corriendo" | Detén el SE en Tags KEPserver → Iniciar Sistema (toggle) |
+| Restaurar respaldo no hace nada | Mismo requisito: motor detenido. Revisa que la carpeta `import_*` siga en `.backup` |
+| Importé reglas pero el contrato no cuadra | El contrato no siempre va en el mismo paquete: exporta/importa **Contrato** junto con reglas y fuzzy, o sincroniza contrato en destino antes |
 
 ---
 
@@ -450,6 +593,9 @@ Detalles que conviene saber:
 10. Estados, Waits, Permisivos, Reglas
 11. Reiniciar la aplicación
 12. Iniciar Sistema y verificar en la Traza
+
+Opcional — clonar entre entornos:
+  Export / Import → exportar en origen, importar en destino (motor detenido)
 ```
 
 ---
@@ -540,42 +686,55 @@ falta definir en planta**, y es el trabajo más grande que queda.
 
 Estos no impiden probar, pero sí operar sobre proceso real:
 
-- **No hay interlock de habilitación.** El DCS ya provisionó el handshake completo
-  (`PU009_Exp_Enable_Ext`, `Enable_FBK`, `Exp_HB`, `LIC_Auto/Manual`), pero el motor
-  no lo consulta. Debería ser **fail-closed**: si el enable no se puede leer o tiene
-  calidad mala, no se escribe.
-- **La calidad de dato es inventada.** `connectors/kepserver.py` usa `get_value()`,
-  que descarta el StatusCode y el SourceTimestamp de OPC-UA; el campo `quality` que
-  se muestra lo pone el código. Con `get_data_value()` habría calidad real y
-  detección de valores congelados.
-- **Un PV caído aborta el tick entero.** Falta retener el último valor bueno con
-  timeout e inhibir solo las reglas que dependen de la variable degradada.
-- **`_save_tags` no tiene lock.** Read-modify-write sin sincronizar, llamado desde el
-  generador, el heartbeat y la API. Ya corrompió datos una vez.
+- **Falta el rate limit por SP.** Un paso máximo por segundo, para que un error de
+  calibración del defuzzy no se traduzca en un salto grande de una sola vez.
 - **Sin límites de SP no hay clipeo.** `apply_actions_tabla` solo recorre las familias
-  presentes en `limites_sp`: un SP que no esté ahí **se escribe sin tope**.
+  presentes en `limites_sp`: un SP que no esté ahí **se escribe sin tope**. Desde el
+  2026-08-21 esa familia queda inhibida (se calcula, no se escribe) en vez de arrancar sin
+  protección, pero conviene declarar los límites igual.
+- **Sin `rate_sp` declarado, el setpoint viaja de un salto.** Es el comportamiento
+  anterior y sigue siendo válido, pero si el paso del defuzzy es grande el DCS recibe el
+  escalón completo en un write. Declararlo es barato: son unidades de ingeniería por
+  segundo, por familia de SP.
 
 ### Qué sí está listo
 
 - Lectura OPC-UA, filtrado, fuzzificación y trazabilidad completa del pipeline.
-- El motor **se niega a arrancar** ante configuración incompleta, en vez de correr
-  sobre datos inventados, y dice exactamente qué falta.
-- Ciclo libre con reloj real, escritura solo por cambio y persistencia acotada.
+- **Degradación por partes**: lo que falta inhibe solo lo suyo. El motor arranca y
+  controla con las variables que sí llegaron, en vez de negarse en bloque; y dice
+  exactamente qué quedó afuera y por qué.
+- **Calidad de dato real** (2026-08-25): sale del `StatusCode` de OPC-UA. Un tag en `Bad`
+  o `Uncertain` queda fuera del pipeline en vez de entrar disfrazado de sano, y hay
+  detección de valor congelado que avisa sin inhibir.
+- **Retención del último valor bueno** (2026-08-25): un parpadeo del KEPserver no saca al
+  experto de servicio. `retencion_s` en la página de KEPserver, default 5 s.
+- **Límite de velocidad por SP** (2026-08-25): `rate_sp` en el contrato, en unidades de
+  ingeniería por segundo. Rampea el cambio en varios ticks en vez de descartarlo, así que
+  no se pierde la decisión del experto. El valor declarado es además el paso máximo de un
+  solo write.
+- **Los JSON se guardan de forma atómica** y el read-modify-write de `tags.json` está
+  serializado: un corte a mitad de guardado ya no puede dejar la configuración ilegible.
+- **Interlock de habilitación fail-closed**: el motor consulta `Enable_FBK` en cada tick y
+  no escribe ningún SP si el DCS no autoriza. Pulsa `Exp_HB` y pide `Enable_Ext` al
+  arrancar.
+- **Resincronización con el operador**: si alguien mueve un SP a mano en el HMI, el SE lo
+  adopta en vez de revertirlo.
+- Sesión OPC-UA persistente con timeout acotado, ciclo libre con reloj real, escritura
+  solo por cambio y persistencia acotada.
 - Toda la configuración es editable desde la web y sobrevive a los reinicios.
-- 54 tests de regresión sobre el cableado (`python -m pytest tests/ -q`).
+- 164 tests de regresión sobre el cableado (`python -m pytest tests/ -q`).
 
 ### Orden sugerido para dejarlo operativo
 
 ```
-1. Resolver los límites: pedir los 18 tags o bajar esas PV a CRUDA   [planta]
-2. Unificar la nomenclatura de SP (contrato vs identificador de tag) [código]
-3. Hacer que SEEngine cargue defuzzy.json                            [código]
-4. Escribir permisivos (las protecciones), reglas y tablas defuzzy   [ingeniería]
-5. Interlock de habilitación fail-closed + calidad OPC-UA real       [código]
-6. Marcha en vacío: SE corriendo con la escritura al DCS deshabilitada,
+1. Resolver los límites: pedir los tags que faltan o bajar esas PV a CRUDA  [planta]
+2. Escribir permisivos (las protecciones), reglas y tablas defuzzy          [ingeniería]
+3. Retener el último valor bueno con timeout + rate limit por SP            [código]
+4. Marcha en vacío: SE corriendo con la escritura al DCS deshabilitada,
    verificando en la Traza que decide lo que un operador decidiría
-7. Recién ahí, habilitar la escritura
+5. Recién ahí, habilitar la escritura
 ```
 
-Los pasos 2 y 3 son acotados y de código. El paso 1 depende de planta. El paso 4 es
-el grueso del trabajo y no lo resuelve el software: es ingeniería de proceso.
+El paso 1 depende de planta. El paso 2 es el grueso del trabajo y **no lo resuelve el
+software**: es ingeniería de proceso, y necesita al experto. El paso 3 es acotado y de
+código.

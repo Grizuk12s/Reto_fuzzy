@@ -26,7 +26,8 @@ import re
 from flask import Blueprint, jsonify, request
 
 import config as cfg_mod
-from web.state import _load_tags, _save_tags, _se_engine
+from core.jsonio import escribir_json_atomico
+from web.state import _load_tags, _save_tags, _tags_lock, _se_engine
 
 bp_contrato = Blueprint("contrato", __name__)
 
@@ -40,6 +41,8 @@ FILTROS_JSON  = os.path.join(_CFG_DIR, "filtros.json")
 REGLAS_JSON   = os.path.join(_CFG_DIR, "reglas.json")
 VARIABLES_JSON = os.path.join(_CFG_DIR, "variables.json")
 PERMISIVOS_JSON = os.path.join(_CFG_DIR, "permisivos.json")
+DEFUZZY_JSON  = os.path.join(_CFG_DIR, "defuzzy.json")
+TRACKING_JSON = os.path.join(_CFG_DIR, "tracking.json")
 
 NOMBRE_RE = re.compile(r"^[a-z][a-z0-9_]{1,48}$")
 
@@ -66,21 +69,27 @@ def contrato_vigente() -> dict:
             "setpoints": list(cfg_mod.SETPOINT_KEYS_DEFAULT),
             "descripciones": {},
             "limites_sp": {},
+            "rate_sp": {},
         }
     return {
         "variables_proceso": list(data.get("variables_proceso")
                                   or cfg_mod.VARIABLES_PROCESO_DEFAULT),
         "setpoints": list(data.get("setpoints") or cfg_mod.SETPOINT_KEYS_DEFAULT),
         "descripciones": data.get("descripciones") or {},
-        # Limites de ingenieria por SP: es lo que clipea la escritura al DCS.
+        # LEGADO. Hasta el 2026-09-03 esto era el tope de escritura al DCS, y
+        # ninguna pagina lo editaba. `migrar_limites_sp_del_contrato()` lo
+        # adopta una sola vez como `limites_num` de la familia de defuzzy que
+        # lo usa, y desde ahi lo edita la pagina de Defuzzificacion. El motor
+        # **ya no lo lee**; se conserva para que un paquete viejo se pueda
+        # importar y migrar igual.
         "limites_sp": data.get("limites_sp") or {},
+        # Velocidad maxima de cambio por SP (u/s). Vacio = sin limite.
+        "rate_sp": data.get("rate_sp") or {},
     }
 
 
 def _guardar_contrato(c: dict) -> None:
-    os.makedirs(_CFG_DIR, exist_ok=True)
-    with open(CONTRATO_JSON, "w", encoding="utf-8") as f:
-        json.dump(c, f, ensure_ascii=False, indent=2)
+    escribir_json_atomico(CONTRATO_JSON, c)
 
 
 # ============================================================
@@ -256,6 +265,33 @@ def _normalizar(data: dict) -> tuple[dict | None, str | None]:
             return None, f"'{sp}': el minimo ({lo}) debe ser menor que el maximo ({hi})."
         lim_out[sp] = [lo, hi]
     out["limites_sp"] = lim_out
+
+    # Velocidad maxima de cambio por SP (u. de ingenieria/s). Mismo tratamiento
+    # que `limites_sp`, y por el mismo motivo: si el payload no trae la clave se
+    # conserva lo guardado, para que un guardado desde la pagina no borre en
+    # silencio el limite de velocidad de la planta.
+    if "rate_sp" not in data:
+        rates = contrato_vigente().get("rate_sp") or {}
+    else:
+        rates = data.get("rate_sp") or {}
+    if not isinstance(rates, dict):
+        return None, "'rate_sp' debe ser un objeto { <setpoint>: u_por_segundo }."
+    rate_out = {}
+    for sp, val in rates.items():
+        sp = str(sp).strip()
+        if sp not in out["setpoints"]:
+            return None, f"'{sp}' tiene rate pero no es un setpoint del contrato."
+        try:
+            r = float(val)
+        except (TypeError, ValueError):
+            return None, f"'{sp}': el rate debe ser numerico."
+        # 0 congelaria el setpoint para siempre: eso no es un limite de
+        # velocidad, es una inhibicion. Para no declarar limite se omite la clave.
+        if r <= 0:
+            return None, (f"'{sp}': el rate debe ser mayor que 0. Para no limitar "
+                          "la velocidad, quita la entrada.")
+        rate_out[sp] = r
+    out["rate_sp"] = rate_out
     return out, None
 
 
@@ -355,19 +391,61 @@ def _asignar_roles_automaticos(contrato: dict) -> list[dict]:
 
     validos = {"pv": set(contrato["variables_proceso"]), "sp": set(contrato["setpoints"])}
 
-    store = _load_tags()
-    asignados = []
-    for t in store.get("tags", []):
-        par = ident_por_tag.get(t.get("name"))
-        if not par:
-            continue
-        cat, ident = par
-        if ident in validos[cat] and t.get("rol") != ident:
-            t["rol"] = ident
-            asignados.append({"tag": t["name"], "rol": ident})
-    if asignados:
-        _save_tags(store)
+    with _tags_lock:
+        store = _load_tags()
+        asignados = []
+        for t in store.get("tags", []):
+            par = ident_por_tag.get(t.get("name"))
+            if not par:
+                continue
+            cat, ident = par
+            if ident in validos[cat] and t.get("rol") != ident:
+                t["rol"] = ident
+                asignados.append({"tag": t["name"], "rol": ident})
+        if asignados:
+            _save_tags(store)
     return asignados
+
+
+def _aplicar_contrato_en_caliente(norm: dict, *, accion: str = "guardo") -> dict:
+    """Limpia roles huerfanos, recarga config.py y arma el aviso operativo."""
+    roles_validos = set(norm["variables_proceso"]) | set(norm["setpoints"])
+    for v in norm["variables_proceso"]:
+        roles_validos |= {f"{v}_lmin", f"{v}_lmax"}
+    roles_validos |= set(cfg_mod.VARIABLES_CRUDAS_REQUERIDAS)
+
+    limpiados = []
+    with _tags_lock:
+        store = _load_tags()
+        for t in store.get("tags", []):
+            if t.get("rol") and t["rol"] not in roles_validos:
+                limpiados.append({"tag": t["name"], "rol": t["rol"]})
+                t["rol"] = ""
+        if limpiados:
+            _save_tags(store)
+
+    vigente = cfg_mod.recargar_contrato()
+    corriendo = False
+    try:
+        corriendo = bool(_se_engine.status().get("running"))
+    except Exception:
+        pass
+
+    aviso = (
+        f"El contrato se {accion} y el nucleo ya lo tomo: los catalogos de "
+        "roles, variables y reglas usan la lista nueva sin reiniciar la aplicacion."
+    )
+    if corriendo:
+        aviso += (
+            " El motor esta CORRIENDO con el contrato anterior: detenelo y "
+            "volve a arrancarlo (o activa Auto-reinicio)."
+        )
+    return {
+        "vigente": vigente,
+        "roles_limpiados": limpiados,
+        "motor_corriendo": corriendo,
+        "aviso": aviso,
+    }
 
 
 @bp_contrato.route("/api/contrato/sincronizar", methods=["POST"])
@@ -412,13 +490,19 @@ def api_sincronizar_contrato():
 
     _guardar_contrato(norm)
     asignados = _asignar_roles_automaticos(norm)
+    caliente = _aplicar_contrato_en_caliente(norm, accion="sincronizo")
+    aviso = caliente["aviso"] + " Los LIM siguen requiriendo enlace manual en Tags."
     return jsonify({
-        "aplicado": True, "contrato": norm, "impacto": impacto,
+        "ok": True,
+        "aplicado": True,
+        "contrato": norm,
+        "impacto": impacto,
         "roles_asignados": asignados,
         "colisiones": sug["colisiones"],
-        "aviso": ("Contrato sincronizado y roles de PV/SP asignados. "
-                  "Los LIM siguen requiriendo enlace manual. "
-                  "Reinicia la aplicacion para que el nucleo tome la nueva lista."),
+        "roles_limpiados": caliente["roles_limpiados"],
+        "motor_corriendo": caliente["motor_corriendo"],
+        "vigente": caliente["vigente"],
+        "aviso": aviso,
     })
 
 
@@ -447,52 +531,16 @@ def api_put_contrato():
         }), 409
 
     _guardar_contrato(norm)
-
-    # Los roles de tags que ya no existen en el contrato quedan invalidos:
-    # se limpian para que el panel de cobertura no muestre fantasmas.
-    roles_validos = set(norm["variables_proceso"]) | set(norm["setpoints"])
-    for v in norm["variables_proceso"]:
-        roles_validos |= {f"{v}_lmin", f"{v}_lmax"}
-    roles_validos |= set(cfg_mod.VARIABLES_CRUDAS_REQUERIDAS)
-
-    store = _load_tags()
-    limpiados = []
-    for t in store.get("tags", []):
-        if t.get("rol") and t["rol"] not in roles_validos:
-            limpiados.append({"tag": t["name"], "rol": t["rol"]})
-            t["rol"] = ""
-    if limpiados:
-        _save_tags(store)
-
-    # Recarga en caliente: hasta el 2026-08-21 el nucleo leia contrato.json una
-    # sola vez, al importarse, y guardar desde aqui obligaba a reiniciar el
-    # servicio. Peor que incomodo: la pantalla mostraba el contrato nuevo y el
-    # catalogo de roles seguia exigiendo el viejo, sin ninguna pista de cual
-    # de los dos era el real.
-    vigente = cfg_mod.recargar_contrato()
-
-    corriendo = False
-    try:
-        corriendo = bool(_se_engine.status().get("running"))
-    except Exception:
-        pass
-
-    aviso = ("El contrato se guardo y el nucleo ya lo tomo: los catalogos de "
-             "roles, variables y reglas usan la lista nueva sin reiniciar.")
-    if corriendo:
-        # Cambiar el contrato bajo un lazo en marcha significaria fuzzificar
-        # contra otra escala y escribir a otro setpoint a mitad de tick.
-        aviso += (" El motor esta CORRIENDO con el contrato anterior: detenelo "
-                  "y volve a arrancarlo para que tome este.")
+    caliente = _aplicar_contrato_en_caliente(norm, accion="guardo")
 
     return jsonify({
         "ok": True,
         "contrato": norm,
-        "vigente": vigente,
+        "vigente": caliente["vigente"],
         "impacto": impacto,
-        "roles_limpiados": limpiados,
-        "motor_corriendo": corriendo,
-        "aviso": aviso,
+        "roles_limpiados": caliente["roles_limpiados"],
+        "motor_corriendo": caliente["motor_corriendo"],
+        "aviso": caliente["aviso"],
     })
 
 
@@ -504,7 +552,166 @@ def api_reset_contrato():
         "descripciones": {},
     }
     _guardar_contrato(norm)
-    vigente = cfg_mod.recargar_contrato()
-    return jsonify({"ok": True, "contrato": norm, "vigente": vigente,
-                    "aviso": "Contrato restaurado a la plantilla estandar. El nucleo "
-                             "ya lo tomo; si el motor esta corriendo, reinicialo."})
+    caliente = _aplicar_contrato_en_caliente(norm, accion="restauro a la plantilla")
+    return jsonify({
+        "ok": True,
+        "contrato": norm,
+        "vigente": caliente["vigente"],
+        "motor_corriendo": caliente["motor_corriendo"],
+        "aviso": caliente["aviso"],
+    })
+
+
+# ============================================================
+# Auto-sincronizacion ADITIVA + revision de desfases
+# ============================================================
+# El contrato es la lista de la que cuelga todo, asi que mantenerlo al dia a
+# mano era un paso facil de olvidar: se creaba un tag, se lo marcaba PV y el
+# SE seguia sin verlo hasta que alguien se acordaba de sincronizar.
+#
+# Se automatiza SOLO la mitad segura. `sincronizar_aditivo` agrega lo que
+# aparece y NUNCA quita: quitar una variable arrastra su fuzzy, su filtro, sus
+# reglas y el rol del tag, y eso sigue pidiendo confirmacion humana con
+# "Ver impacto". Deshabilitar un tag para mantenimiento no puede borrar en
+# silencio media configuracion.
+
+_PAGINAS_DERIVADAS = {
+    "defuzzy":  "Defuzzificacion",
+    "tracking": "Tracking PV-SP",
+    "filtros":  "Filtros Exp-Q",
+    "fuzzy":    "Fuzzy",
+}
+
+
+def sincronizar_aditivo(motivo: str = "") -> dict:
+    """Agrega al contrato los tags PV/SP que todavia no estan. No quita nada.
+
+    Devuelve {"ok", "agregadas_pv", "agregadas_sp", "error"}. Es idempotente:
+    si no hay nada nuevo no toca disco ni molesta al operador.
+    """
+    from web.state import _activity_log
+
+    sug = _sugerencia_desde_tags()
+    if sug["cruce_pv_sp"]:
+        detalle = " | ".join(
+            f"'{ident}': PV {q['pv']} y SP {q['sp']}"
+            for ident, q in sug["cruce_pv_sp"].items()
+        )
+        _activity_log.log_issue(
+            "contrato:cruce_pv_sp", "contrato", "Contrato de Variables",
+            "Hay tags de PV y de SP con el mismo identificador: el contrato no "
+            "se puede sincronizar solo hasta resolverlo.",
+            detalle,
+        )
+        return {"ok": False, "agregadas_pv": [], "agregadas_sp": [],
+                "error": "cruce PV/SP: " + detalle}
+    _activity_log.clear_issue("contrato:cruce_pv_sp")
+
+    actual = contrato_vigente()
+    nuevas_pv = [v for v in sug["variables_proceso"]
+                 if v not in actual["variables_proceso"]
+                 and v not in actual["setpoints"]]
+    nuevas_sp = [v for v in sug["setpoints"]
+                 if v not in actual["setpoints"]
+                 and v not in actual["variables_proceso"]]
+    if not nuevas_pv and not nuevas_sp:
+        # Igual se reasignan los roles: es lo que congela el identificador de
+        # un tag que ya esta en el contrato pero todavia no lo tenia fijado.
+        _asignar_roles_automaticos(actual)
+        return {"ok": True, "agregadas_pv": [], "agregadas_sp": [], "error": None}
+
+    propuesta = {
+        "variables_proceso": list(actual["variables_proceso"]) + nuevas_pv,
+        "setpoints": list(actual["setpoints"]) + nuevas_sp,
+        # Las descripciones nuevas se toman del pseudonimo; las que ya existian
+        # se respetan, porque el operador pudo haberlas editado.
+        "descripciones": {**{k: v for k, v in sug["descripciones"].items()
+                             if k in set(nuevas_pv) | set(nuevas_sp)},
+                          **(actual.get("descripciones") or {})},
+    }
+    norm, error = _normalizar(propuesta)
+    if error:
+        return {"ok": False, "agregadas_pv": [], "agregadas_sp": [], "error": error}
+
+    impacto = analizar_impacto(norm)
+    if impacto["errores"]:
+        return {"ok": False, "agregadas_pv": [], "agregadas_sp": [],
+                "error": " ".join(impacto["errores"])}
+    # Cinturon: por construccion no se quita nada, pero si alguna vez se
+    # quitara, el auto-sync se planta en vez de borrar sin preguntar.
+    if impacto["quitadas"]:
+        return {"ok": False, "agregadas_pv": [], "agregadas_sp": [],
+                "error": "el auto-sync no quita variables; usa 'Ver impacto'"}
+
+    _guardar_contrato(norm)
+    _asignar_roles_automaticos(norm)
+    _aplicar_contrato_en_caliente(norm, accion="sincronizo")
+
+    agregadas = nuevas_pv + nuevas_sp
+    _activity_log.log_saved(
+        "contrato", "Contrato de Variables",
+        "Contrato actualizado solo: " + ", ".join(agregadas),
+        (motivo + " · " if motivo else "") + "las variables nuevas todavia "
+        "necesitan fuzzy, filtro y limites.",
+    )
+    if _se_engine.status().get("running"):
+        _activity_log.log_restart_needed(
+            "contrato", "Contrato de Variables",
+            "El contrato cambio con el motor corriendo: reinicialo para que "
+            "el SE tome las variables nuevas.",
+        )
+    return {"ok": True, "agregadas_pv": nuevas_pv, "agregadas_sp": nuevas_sp,
+            "error": None}
+
+
+def revisar_desfases() -> dict:
+    """Busca configuracion que quedo apuntando a un identificador inexistente.
+
+    Es el modo de falla caro de este sistema: renombrar el pseudonimo de un tag
+    cambiaba el identificador y las tablas de Defuzzy, Tracking, Filtros y
+    Fuzzy quedaban colgadas de un nombre que ya no existe. El motor no fallaba
+    de entrada — seguia corriendo y dejaba de mover el setpoint, callado.
+
+    No corrige nada: deja una alerta roja VIGENTE en la pagina donde se ocupa,
+    y la retira sola cuando el desfase se resuelve.
+    """
+    from web.state import _activity_log
+
+    actual = contrato_vigente()
+    pv = set(actual["variables_proceso"])
+    sp = set(actual["setpoints"])
+
+    huerfanos = {
+        "defuzzy":  sorted(k for k in (_leer_json(DEFUZZY_JSON, {}) or {}) if k not in sp),
+        "tracking": sorted(k for k in (_leer_json(TRACKING_JSON, {}) or {}) if k not in sp),
+        "filtros":  sorted(k for k in (_leer_json(FILTROS_JSON, {}) or {}) if k not in pv),
+        "fuzzy":    sorted(k for k in (_leer_json(FUZZY_JSON, {}) or {}) if k not in pv),
+    }
+    for pagina, faltan in huerfanos.items():
+        clave = "desfase:" + pagina
+        if not faltan:
+            _activity_log.clear_issue(clave)
+            continue
+        _activity_log.log_issue(
+            clave, pagina, _PAGINAS_DERIVADAS[pagina],
+            f"{len(faltan)} entrada(s) apuntan a variables que no estan en el "
+            "contrato: el SE las ignora.",
+            ", ".join(faltan) + ". Suele pasar al renombrar el pseudonimo de un "
+            "tag: renombra la entrada al identificador nuevo o volve a "
+            "sincronizar esta pagina.",
+        )
+
+    # SP del contrato sin tabla defuzzy: la regla dispara y no mueve nada.
+    defuzzy = _leer_json(DEFUZZY_JSON, {}) or {}
+    sin_tabla = sorted(s for s in sp if s not in defuzzy)
+    if sin_tabla:
+        _activity_log.log_issue(
+            "desfase:sp_sin_tabla", "defuzzy", "Defuzzificacion",
+            "Setpoint del contrato sin tabla Sugeno: las reglas que lo muevan "
+            "van a disparar sin efecto.",
+            ", ".join(sin_tabla),
+        )
+    else:
+        _activity_log.clear_issue("desfase:sp_sin_tabla")
+
+    return {"huerfanos": huerfanos, "sp_sin_tabla": sin_tabla}

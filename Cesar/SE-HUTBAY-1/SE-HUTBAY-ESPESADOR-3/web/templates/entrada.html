@@ -130,6 +130,7 @@ tr:hover .edit-icon{opacity:1;color:#38bdf8}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 20px;font-size:.82rem;color:#e2e8f0;box-shadow:0 8px 32px rgba(0,0,0,.4);transition:transform .3s,opacity .3s;opacity:0;z-index:600;display:flex;align-items:center;gap:8px}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 </style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
 </head>
 <body>
 <nav>
@@ -140,6 +141,7 @@ tr:hover .edit-icon{opacity:1;color:#38bdf8}
   <a href="/espesador/graficos">Explorador de Series</a>
   <a href="/espesador/diagrama">Diagrama de Flujo</a>
   <a href="/espesador/postgres">PostgreSQL</a>
+  <a href="/espesador/export-import">Export / Import</a>
 </nav>
 <div class="container">
 
@@ -381,7 +383,10 @@ async function toggleTag(tagId, enabled, el) {
     renderTable();
     updateStats();
     showToast(enabled ? 'Tag activado' : 'Tag desactivado', enabled ? '✔' : '✖');
-  } catch (e) { el.checked = !enabled; showToast('Error: ' + e.message, '⚠'); }
+    ActivityAlerts.onSave(true, enabled ? 'Tag activado' : 'Tag desactivado',
+      displayName(tag || {name: ''}));
+  } catch (e) { el.checked = !enabled; showToast('Error: ' + e.message, '⚠');
+    ActivityAlerts.onSave(false, e.message); }
 }
 
 /* Modal */
@@ -424,6 +429,7 @@ function openModal(tagId) {
 
   document.querySelectorAll('.add-inline').forEach(el => el.classList.remove('show'));
   document.getElementById('modalOverlay').classList.add('open');
+  if (typeof ActivityAlerts !== 'undefined') ActivityAlerts.clearDirtyState();
 }
 
 function closeModal() {
@@ -456,9 +462,17 @@ async function saveTag() {
     Object.assign(editingTag, body);
     renderTable();
     updateStats();
+    // El nombre se resuelve ANTES de cerrar: closeModal() pone editingTag en
+    // null, y el aviso de exito reventaba con "Cannot read properties of null
+    // (reading 'pseudonimo')". El catch de abajo lo mostraba como ERROR rojo,
+    // asi que un guardado que SI se habia hecho se leia como fallido.
+    const nombre = displayName(editingTag);
     closeModal();
-    showToast('Tag actualizado: ' + displayName(editingTag), '✔');
-  } catch (e) { showToast('Error: ' + e.message, '⚠'); }
+    showToast('Tag actualizado: ' + nombre, '✔');
+    ActivityAlerts.onSave(true, 'Tag actualizado: ' + nombre,
+      'pseudonimo: ' + pseudo);
+  } catch (e) { showToast('Error: ' + e.message, '⚠');
+    ActivityAlerts.onSave(false, e.message); }
 }
 
 /* Catalog management */
@@ -467,6 +481,7 @@ function showAddInline(type) {
   document.getElementById(ids[type]).classList.add('show');
   const inputIds = {inst:'addInstVal', unit:'addUnitVal', eqp:'addEqpVal'};
   document.getElementById(inputIds[type]).focus();
+  if (typeof ActivityAlerts !== 'undefined') ActivityAlerts.markDirty();
 }
 function hideAddInline(id) { document.getElementById(id).classList.remove('show'); }
 
@@ -489,6 +504,7 @@ async function addCatalogItem(catalogType, inputId, selectId, inlineId) {
     const containerMap = {instrumentos:'catInstItems', unidades_ing:'catUnitItems', equipos:'catEqpItems'};
     renderCatalogUsage(containerMap[catalogType], catalogType, fieldMap[catalogType]);
     showToast('Creado: ' + val, '✔');
+    ActivityAlerts.onSave(true, 'Catalogo actualizado: +' + val);
   } catch (e) { showToast('Error al crear', '⚠'); }
 }
 
@@ -511,6 +527,7 @@ async function removeCatalogItem(catalogType, selectId) {
     renderTable();
     updateStats();
     showToast('Eliminado: ' + val, '✖');
+    ActivityAlerts.onSave(true, 'Catalogo actualizado: -' + val);
   } catch (e) { showToast('Error al eliminar', '⚠'); }
 }
 
@@ -536,29 +553,16 @@ async function pollUpdate() {
 
 fetchData().then(() => { pollTimer = setInterval(pollUpdate, 3000); });
 
-const _ACATS = ALERT_CATEGORIES_JSON;
-async function _pollAlerts() {
-  try {
-    const r = await fetch('/api/alerts'); const d = await r.json();
-    const el = document.getElementById('alertFloat'); const cnt = d.alerts.length;
-    el.querySelector('.af-count').textContent = cnt;
-    el.style.borderColor = cnt > 0 ? '#ef4444' : '#22c55e';
-    el.querySelector('.af-count').style.background = cnt > 0 ? '#ef4444' : '#22c55e';
-    const body = el.querySelector('.af-body');
-    body.innerHTML = cnt === 0 ? '<div style="color:#22c55e;font-size:.8rem;padding:8px">Sin alertas</div>'
-      : d.alerts.map(a => { const cat = _ACATS[a.category]||_ACATS.general; return '<div style="padding:6px 0;border-bottom:1px solid #1e293b;font-size:.78rem"><span style="color:'+cat.color+';font-weight:600">'+cat.icon+'</span> '+a.message+'</div>'; }).join('');
-  } catch(e){}
-}
-_pollAlerts(); setInterval(_pollAlerts, 10000);
 </script>
-
-<div id="alertFloat" style="position:fixed;bottom:16px;right:16px;background:#0b1322;border:2px solid #22c55e;border-radius:12px;z-index:200;cursor:pointer;min-width:36px;transition:.2s" onclick="this.classList.toggle('open')">
-  <div style="display:flex;align-items:center;gap:6px;padding:6px 10px">
-    <span class="af-count" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#22c55e;color:#fff;font-size:.72rem;font-weight:700">0</span>
-    <span style="color:#94a3b8;font-size:.78rem">Alertas</span>
-  </div>
-  <div class="af-body" style="display:none;padding:4px 12px 8px 12px;max-height:250px;overflow-y:auto"></div>
-</div>
-<style>#alertFloat.open{width:320px}#alertFloat.open .af-body{display:block}</style>
+<script src="/static/activity-summary.js"></script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'entrada',
+  pageLabel: 'Entrada de Datos',
+  restartOnSave: false,
+  dirtySelector: '#modalOverlay input, #modalOverlay select',
+});
+</script>
 </body>
 </html>

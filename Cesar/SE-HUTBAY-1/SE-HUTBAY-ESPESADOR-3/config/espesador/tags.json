@@ -25,7 +25,7 @@
       "id": 43,
       "name": "PCS7.OS01.Hopper_Nivel_PV_B",
       "data_type": "Float",
-      "enabled": true,
+      "enabled": false,
       "categoria": "pv",
       "rol": "",
       "pseudonimo": "Hopper Nvl PV B",
@@ -61,9 +61,9 @@
       "id": 46,
       "name": "PCS7.OS01.PU009_Exp_Speed_Exp",
       "data_type": "Float",
-      "enabled": false,
+      "enabled": true,
       "categoria": "sp",
-      "rol": "",
+      "rol": "velocidad_salida_del_se",
       "pseudonimo": "Velocidad (salida del SE)",
       "unidad_ing": "%",
       "equipo": "3251-PU-009",
@@ -75,8 +75,8 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "sp",
-      "rol": "velocidad_sp",
-      "pseudonimo": "Velocidad SP",
+      "rol": "velocidad_sp_del_dcs_referencia_de_arranque",
+      "pseudonimo": "Velocidad SP del DCS (referencia de arranque)",
       "unidad_ing": "%",
       "equipo": "",
       "instrumento": ""
@@ -123,7 +123,7 @@
       "data_type": "Float",
       "enabled": true,
       "categoria": "pv",
-      "rol": "",
+      "rol": "corriente",
       "pseudonimo": "Corriente",
       "unidad_ing": "Amp",
       "equipo": "3251-PU-009",
@@ -145,9 +145,9 @@
       "id": 53,
       "name": "PCS7.OS01.AG004_Nivel_PV_A",
       "data_type": "Float",
-      "enabled": false,
+      "enabled": true,
       "categoria": "pv",
-      "rol": "",
+      "rol": "nivel_transmisor_a",
       "pseudonimo": "Nivel (transmisor A)",
       "unidad_ing": "%",
       "equipo": "3261-AG-004",
@@ -229,7 +229,7 @@
       "id": 60,
       "name": "PCS7.OS01.PU009_Exp_Enable_Ext",
       "data_type": "Boolean",
-      "enabled": false,
+      "enabled": true,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "ENABLE_EXT — el SE pide el lazo",
@@ -241,7 +241,7 @@
       "id": 61,
       "name": "PCS7.OS01.PU009_Exp_Enable_FBK",
       "data_type": "Boolean",
-      "enabled": false,
+      "enabled": true,
       "categoria": "otro",
       "rol": "",
       "pseudonimo": "ENABLE_FBK — el DCS confirma",
@@ -265,8 +265,8 @@
       "id": 63,
       "name": "PCS7.OS01.PU009_Exp_HB",
       "data_type": "Boolean",
-      "enabled": false,
-      "categoria": "sp",
+      "enabled": true,
+      "categoria": "otro",
       "rol": "",
       "pseudonimo": "HEART_BIT — pulso de heartbeat",
       "unidad_ing": "",
@@ -324,24 +324,24 @@
   ],
   "next_id": 69,
   "catalogs": {
+    "equipos": [
+      "Cajon ch3"
+    ],
     "instrumentos": [
       "nivel pv"
     ],
     "unidades_ing": [
       "%"
-    ],
-    "equipos": [
-      "Cajon ch3"
     ]
   },
   "simulation_mode": false,
   "generator": {
-    "intervalo_s": 1.0,
-    "n_ciclo": 10000,
+    "intervalo_s": 0.5,
+    "n_ciclo": 5000,
     "ranges": {
       "PCS7.OS01.Hopper_Nivel_PV_A": {
-        "min": 62.0,
-        "max": 78.0,
+        "min": 62,
+        "max": 78,
         "noise": 1.5,
         "enabled": true,
         "categoria": "pv",
@@ -351,68 +351,68 @@
         "min": 62.0,
         "max": 78.0,
         "noise": 1.5,
-        "enabled": true,
-        "categoria": "pv",
-        "vigente": true
+        "vigente": false
       },
       "PCS7.OS01.Hopper_Lvl_MAX": {
-        "min": 90.0,
-        "max": 90.0,
-        "noise": 0.0,
+        "min": 90,
+        "max": 90,
+        "noise": 0,
         "enabled": true,
         "categoria": "lim",
         "vigente": true
       },
       "PCS7.OS01.Hopper_Lvl_MIN": {
-        "min": 60.0,
-        "max": 60.0,
-        "noise": 0.0,
+        "min": 60,
+        "max": 60,
+        "noise": 0,
         "enabled": true,
         "categoria": "lim",
         "vigente": true
       },
       "PCS7.OS01.PU009_Exp_Speed_Exp": {
-        "min": 0.0,
-        "max": 0.0,
-        "noise": 0.0,
-        "vigente": false
+        "min": 0,
+        "max": 0,
+        "noise": 0,
+        "enabled": true,
+        "categoria": "sp",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Velocidad_SP": {
-        "min": 70.0,
-        "max": 80.0,
+        "min": 70,
+        "max": 80,
         "noise": 0.5,
         "enabled": true,
         "categoria": "sp",
         "vigente": true
       },
       "PCS7.OS01.PU009_Velocidad_PV": {
-        "min": 60.0,
-        "max": 80.0,
+        "min": 60,
+        "max": 80,
         "noise": 1.5,
         "enabled": true,
         "categoria": "pv",
         "vigente": true
       },
       "PCS7.OS01.PU009_Speed_MAX": {
-        "min": 100.0,
-        "max": 100.0,
-        "noise": 0.0,
+        "min": 100,
+        "max": 100,
+        "noise": 0,
         "enabled": true,
         "categoria": "lim",
         "vigente": true
       },
       "PCS7.OS01.PU009_Speed_MIN": {
-        "min": 50.0,
-        "max": 50.0,
-        "noise": 0.0,
+        "min": 50,
+        "max": 50,
+        "noise": 0,
         "enabled": true,
         "categoria": "lim",
         "vigente": true
       },
       "PCS7.OS01.PU009_Corriente": {
-        "min": 65.0,
-        "max": 85.0,
-        "noise": 2.0,
+        "min": 65,
+        "max": 85,
+        "noise": 2,
         "enabled": true,
         "categoria": "pv",
         "vigente": true
@@ -424,10 +424,12 @@
         "vigente": false
       },
       "PCS7.OS01.AG004_Nivel_PV_A": {
-        "min": 55.0,
-        "max": 75.0,
+        "min": 55,
+        "max": 75,
         "noise": 1.5,
-        "vigente": false
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true
       },
       "PCS7.OS01.AG004_Nivel_PV_B": {
         "min": 55.0,
@@ -470,10 +472,38 @@
   "heartbeat": {
     "enabled": true,
     "tag_out": "PCS7.OS01.PU009_Exp_HB",
-    "tag_in": "PCS7.OS01.PU009_Exp_Enable_FBK",
+    "tag_in": "",
     "intervalo_s": 2.0,
     "value_a": 0.0,
     "value_b": 1.0,
     "data_type": "Boolean"
+  },
+  "handshake": {
+    "enabled": true,
+    "enable_fbk_tag": "PCS7.OS01.PU009_Exp_Enable_FBK",
+    "enable_ext_tag": "PCS7.OS01.PU009_Exp_Enable_Ext"
+  },
+  "grafico": {
+    "colores": {
+      "PCS7.OS01.Hopper_Nivel_PV_A": "#38bdf8",
+      "PCS7.OS01.PU009_Exp_Speed_Exp": "#a78bfa",
+      "PCS7.OS01.Hopper_Lvl_MIN": "#22c55e",
+      "PCS7.OS01.Hopper_Lvl_MAX": "#fb923c",
+      "PCS7.OS01.PU009_Speed_MIN": "#f472b6",
+      "PCS7.OS01.PU009_Velocidad_PV": "#facc15",
+      "PCS7.OS01.PU009_Speed_MAX": "#ef4444",
+      "PCS7.OS01.PU009_Velocidad_SP": "#14b8a6",
+      "PCS7.OS01.AG004_Nivel_PV_A": "#8b5cf6",
+      "PCS7.OS01.PU009_Corriente": "#10b981",
+      "PCS7.OS01.PU009_Exp_HB": "#f97316",
+      "PCS7.OS01.PU009_Exp_Enable_FBK": "#ec4899",
+      "PCS7.OS01.PU009_Exp_Enable_Ext": "#eab308"
+    },
+    "limites": {
+      "PCS7.OS01.Hopper_Nivel_PV_A": {
+        "min": 60.0,
+        "max": 90.0
+      }
+    }
   }
 }

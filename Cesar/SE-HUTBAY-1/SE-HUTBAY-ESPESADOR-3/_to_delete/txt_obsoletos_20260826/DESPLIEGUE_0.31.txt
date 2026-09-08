@@ -1,0 +1,209 @@
+================================================================================
+  SE-HUTBAY ESPESADOR 3 -- Despliegue v0.31 (Windows -> USB -> VM Linux)
+  Repeticion del flujo ya probado. Todo desde cero.
+================================================================================
+
+FLUJO
+-----
+  [Win dev] docker build -> docker save -> "C:\Users\cvall\OneDrive\Desktop\SE 0.31"
+      -> USB -> [Win destino] -> scp -> [VM Linux] docker load -> compose up
+
+
+================================================================================
+  PARTE A -- GENERAR EL PAQUETE EN WINDOWS (PowerShell, NO cmd)
+================================================================================
+
+  Requisito: Docker Desktop abierto y con el icono en verde.
+
+A.0  Ir al proyecto y verificar Docker
+
+  cd "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
+  docker version --format '{{.Server.Version}}'
+  docker compose version
+
+A.1  Generar el paquete completo con el script (hace build + save + config + compose + LEEME)
+
+  .\exportar_v2.ps1 -Version 0.31 -Dest "C:\Users\cvall\OneDrive\Desktop\SE 0.31" -KepHost 192.168.137.1 -KepPort 49320
+
+  Si PowerShell bloquea el script:
+      Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+      .\exportar_v2.ps1 -Version 0.31 -Dest "C:\Users\cvall\OneDrive\Desktop\SE 0.31" -KepHost 192.168.137.1
+
+  El script deja en "SE 0.31":
+      se-espesador-0.31.tar   (~200-400 MB)  imagen autocontenida
+      docker-compose.yml      apuntando a la imagen se-espesador:0.31
+      config/                 tus JSON actuales, con kepserver.json ya
+                              reescrito a 192.168.137.1:49320
+      LEEME.txt
+
+  IMPORTANTE: kepserver.json manda sobre la variable KEPSERVER_URL del compose.
+  En desarrollo dice "host.docker.internal", que en la VM Linux NO resuelve.
+  Por eso hay que pasar -KepHost con la IP real. El script lo corrige solo.
+
+A.2  (Alternativa manual, si prefieres no usar el script)
+
+  docker build -t se-espesador:0.31 .
+  $dest = "C:\Users\cvall\OneDrive\Desktop\SE 0.31"
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+  docker save -o "$dest\se-espesador-0.31.tar" se-espesador:0.31
+  Copy-Item -Recurse -Force ".\config" "$dest\"
+  # y editar a mano $dest\config\espesador\kepserver.json -> "host": "192.168.137.1"
+
+A.3  Verificar el paquete
+
+  Get-ChildItem "C:\Users\cvall\OneDrive\Desktop\SE 0.31" -Recurse |
+      Select-Object FullName, @{N='MB'; E={[math]::Round($_.Length/1MB,2)}}
+
+
+================================================================================
+  PARTE B -- COPIAR AL USB
+================================================================================
+
+  # Reemplazar E: por la letra real del pendrive
+  $usb = "E:\se-demo"
+  New-Item -ItemType Directory -Force -Path $usb | Out-Null
+  Copy-Item -Recurse -Force "C:\Users\cvall\OneDrive\Desktop\SE 0.31\*" $usb
+  Get-ChildItem $usb -Recurse | Select-Object FullName
+
+  Expulsar el pendrive de forma segura desde el explorador.
+
+  (Atajo: .\exportar_v2.ps1 -Version 0.31 -Dest "...\SE 0.31" -Usb E:\se-demo
+   hace el paso B junto con el A.)
+
+
+================================================================================
+  PARTE C -- WINDOWS DESTINO: DEL USB A LA VM LINUX
+================================================================================
+
+C.1  Copiar del USB al disco local (CMD o PowerShell)
+
+  xcopy /E /I /Y E:\se-demo C:\Deploy\se-demo
+
+C.2  Enviar a la VM Linux por scp (Windows 10/11 ya trae scp)
+
+  scp -r C:\Deploy\se-demo root@192.168.137.94:/root/
+
+  # Queda en /root/se-demo
+  # Si el usuario no es root:
+  #   scp -r C:\Deploy\se-demo usuario@192.168.137.94:/home/usuario/
+
+  Si no hay scp:
+    - Compartir C:\Deploy\se-demo por SMB y montar en Linux:
+        sudo mkdir -p /mnt/win
+        sudo mount -t cifs //10.0.10.155/se-demo /mnt/win -o username=adadministrator
+        cp -r /mnt/win /root/se-demo
+    - O montar el USB directo en la VM:
+        lsblk
+        sudo mkdir -p /mnt/usb && sudo mount /dev/sdb1 /mnt/usb
+        cp -r /mnt/usb/se-demo /root/se-demo
+        sudo umount /mnt/usb
+
+
+================================================================================
+  PARTE D -- LEVANTAR EL CONTENEDOR EN LA VM LINUX
+================================================================================
+
+  ssh root@192.168.137.94
+
+D.0  Docker instalado (solo la primera vez en una VM nueva)
+
+  docker --version || curl -fsSL https://get.docker.com | sudo sh
+  sudo usermod -aG docker $USER && newgrp docker
+  docker compose version
+  sudo ufw status                # si dice "active":
+  sudo ufw allow 5000/tcp
+  sudo timedatectl set-timezone America/Santiago
+  sudo timedatectl set-ntp true  # la licencia se invalida si el reloj retrocede
+
+D.1  Ubicarse y revisar
+
+  cd /root/se-demo
+  ls -la          # .tar, docker-compose.yml, config/, LEEME.txt
+
+D.2  Cargar la imagen
+
+  docker load -i se-espesador-0.31.tar
+  # Debe imprimir: Loaded image: se-espesador:0.31
+  docker images | grep se-espesador
+
+D.3  Si hay una version anterior corriendo, bajarla primero
+
+  docker compose down
+
+D.4  Levantar
+
+  docker compose up -d
+  docker compose ps
+  docker compose logs -f se-espesador      # Ctrl+C para salir
+
+D.5  Verificar salud
+
+  curl http://127.0.0.1:5000/health
+  docker inspect --format='{{.State.Health.Status}}' se-hutbay-espesador-3
+  # "starting" ~20 s y luego "healthy"
+
+D.6  Acceso desde Windows
+
+  http://192.168.137.94:5000/
+
+
+================================================================================
+  PARTE E -- CONECTIVIDAD Y CONFIG DESDE LA UI
+================================================================================
+
+E.1  Antes de configurar, probar red desde la VM
+
+  ping -c 3 192.168.137.1
+  sudo apt install -y netcat-openbsd
+  nc -zv 192.168.137.1 49320     # KEPserver OPC-UA
+  nc -zv 192.168.137.1 5432      # PostgreSQL
+
+E.2  En la UI
+
+  Panel "Conexion KEPserver":  IP 192.168.137.1 / Puerto 49320
+      -> Probar conexion -> Guardar
+  Vista Postgres: host, puerto 5432, usuario, password, base
+      -> Probar conexion -> Guardar configuracion
+
+  Persistencia: todo queda en /root/se-demo/config/ (bind mount).
+  Backup antes de una prueba invasiva:
+      cd /root/se-demo && tar -czf config-backup-$(date +%Y%m%d-%H%M).tar.gz config/
+
+
+================================================================================
+  PARTE F -- COMANDOS DEL DIA A DIA (VM LINUX)
+================================================================================
+
+  docker compose logs -f se-espesador       logs en vivo
+  docker compose restart                    reiniciar
+  docker compose stop | start               parar / arrancar
+  docker compose down                       borrar contenedor (config/ se mantiene)
+  docker exec -it se-hutbay-espesador-3 sh  entrar al contenedor
+  docker images                             ver imagenes
+  docker rmi se-espesador:0.30              borrar version vieja
+
+
+================================================================================
+  PARTE G -- PROBLEMAS FRECUENTES
+================================================================================
+
+  no such image se-espesador:0.31   -> falto el docker load
+  contenedor en Restarting          -> compose ejecutado fuera de /root/se-demo
+                                       (el bind ./config no encuentra la carpeta)
+  navegador sin respuesta           -> sudo ufw allow 5000/tcp
+  UI no ve KEPserver                -> kepserver.json quedo en host.docker.internal;
+                                       corregir host en la UI o en el JSON
+                                       y docker compose restart
+  KEPserver rechaza la conexion     -> endpoint OPC-UA escuchando en 127.0.0.1;
+                                       exponer en 192.168.137.1 + Security None
+  licencia "manipulada"             -> sudo timedatectl set-ntp true
+  permission denied con docker      -> sudo usermod -aG docker $USER && newgrp docker
+
+
+NOTA DE ESTADO
+--------------
+  Este paquete sirve para validar conexion, lectura de tags y trazas.
+  Segun el LEEME que genera el script, faltan limites de planta (_lmin/_lmax)
+  y reglas/defuzzy/permisivos/estados/waits pueden estar vacios: el SE se
+  niega a iniciar con el mapeo incompleto. Verificar CLAUDE.md antes de
+  esperar control real.

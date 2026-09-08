@@ -1,0 +1,19 @@
+{
+  "backup_dir": "/app/config/espesador/.backup/import_20260825_215626",
+  "applied_at": "2026-08-25T21:56:26+00:00",
+  "modulos": [
+    "tags",
+    "contrato",
+    "variables",
+    "filtros",
+    "fuzzy",
+    "pendientes",
+    "estados",
+    "tracking",
+    "permisivos",
+    "waits",
+    "reglas",
+    "defuzzy",
+    "kepserver"
+  ]
+}

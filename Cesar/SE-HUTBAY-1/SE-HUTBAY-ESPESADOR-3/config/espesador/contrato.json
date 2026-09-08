@@ -1,20 +1,27 @@
 {
   "variables_proceso": [
     "hopper_nvl_pv_a",
-    "velocidad_pv"
+    "velocidad_pv",
+    "corriente",
+    "nivel_transmisor_a"
   ],
   "setpoints": [
-    "velocidad_sp"
+    "velocidad_salida_del_se",
+    "velocidad_sp_del_dcs_referencia_de_arranque"
   ],
   "descripciones": {
+    "velocidad_sp_del_dcs_referencia_de_arranque": "Velocidad SP del DCS (referencia de arranque)",
     "hopper_nvl_pv_a": "Hopper Nvl PV A",
     "velocidad_pv": "Velocidad PV",
-    "velocidad_sp": "Velocidad SP"
+    "corriente": "Corriente",
+    "nivel_transmisor_a": "Nivel (transmisor A)",
+    "velocidad_salida_del_se": "Velocidad (salida del SE)"
   },
   "limites_sp": {
-    "velocidad_sp": [
+    "velocidad_salida_del_se": [
       50.0,
       100.0
     ]
-  }
+  },
+  "rate_sp": {}
 }

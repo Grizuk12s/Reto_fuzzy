@@ -10,6 +10,7 @@ Rutas:
   POST                 /api/se/stop
   GET                  /api/entrada
   GET                  /api/entrada/history
+  GET                  /api/entrada/escalas
   POST                 /api/simulacion
   POST                 /api/simulacion/start
   GET                  /api/simulacion/next
@@ -26,7 +27,9 @@ from flask import Blueprint, jsonify, request
 from config import SETPOINT_KEYS, VARIABLES_PROCESO, COLUMNAS_ENTRADA
 from web.state import (
     AlertCollector,
+    ActivityLogCollector,
     _alerts,
+    _activity_log,
     _se_engine,
     _load_tags,
     _read_kepserver_tags_batch,
@@ -35,6 +38,7 @@ from web.state import (
     _definiciones_lista_a_dict,
     _get_trazas,
     grabador_start, grabador_stop, grabador_estado, grabador_historial,
+    GrabadorLimiteActivosError,
 )
 
 bp_se = Blueprint("se", __name__)
@@ -65,6 +69,57 @@ def api_clear_alerts():
 
 
 # ============================================================
+# API — Log de actividad de configuracion (solo observabilidad)
+# ============================================================
+
+@bp_se.route("/api/activity-log", methods=["GET"])
+def api_activity_log():
+    kind = request.args.get("kind") or None
+    scope = request.args.get("scope", "active")
+    if scope == "history":
+        return jsonify({
+            "entries": _activity_log.get_history(kind),
+            "kinds": ActivityLogCollector.KINDS,
+        })
+    return jsonify({
+        "entries": _activity_log.get_active(),
+        "kinds": ActivityLogCollector.KINDS,
+    })
+
+
+@bp_se.route("/api/activity-log", methods=["POST"])
+def api_activity_log_post():
+    body = request.get_json(force=True) or {}
+    action = body.get("action", "")
+    page = str(body.get("page", ""))
+    page_label = str(body.get("page_label", page or "Sistema"))
+    message = str(body.get("message", ""))
+    detail = str(body.get("detail", ""))
+
+    if action == "unsaved":
+        _activity_log.mark_unsaved(page, page_label, message, detail)
+    elif action == "clear_unsaved":
+        _activity_log.clear_unsaved(page)
+    elif action == "saved":
+        _activity_log.log_saved(page, page_label, message, detail)
+    elif action == "restart":
+        _activity_log.log_restart_needed(page, page_label, message, detail)
+    elif action == "error":
+        _activity_log.log_error(page, page_label, message or "Error", detail)
+    elif action == "info":
+        _activity_log.log_info(message, detail, page, page_label)
+    else:
+        return jsonify({"ok": False, "error": "action invalida"}), 400
+    return jsonify({"ok": True})
+
+
+@bp_se.route("/api/activity-log/<int:entry_id>/dismiss", methods=["POST"])
+def api_activity_log_dismiss(entry_id: int):
+    ok = _activity_log.dismiss(entry_id)
+    return jsonify({"ok": ok})
+
+
+# ============================================================
 # API — SE Engine
 # ============================================================
 
@@ -90,10 +145,34 @@ def api_se_start():
         piso = float(body["intervalo_s"])
     else:
         piso = _se_engine.PISO_S_DEFAULT
-    res = _se_engine.start(piso_s=piso) or {"ok": True, "error": None}
+    # Cualquier excepcion inesperada del arranque salia como la pagina HTML de
+    # error de Flask, y el front — que hace r.json() — informaba
+    # "Unexpected token '<'", ocultando el motivo real. Se traduce a JSON.
+    try:
+        res = _se_engine.start(piso_s=piso) or {"ok": True, "error": None}
+    except Exception as exc:
+        import traceback
+        detalle = f"{type(exc).__name__}: {exc}"
+        _activity_log.log_error(
+            "se", "Motor SE",
+            "El arranque del motor fallo con una excepcion",
+            detalle + "\n" + traceback.format_exc(limit=5),
+        )
+        return jsonify({"ok": False, "running": False,
+                        "error": "Fallo interno al arrancar el motor. " + detalle}), 500
     if not res.get("ok"):
         # Mapeo incompleto: no se arranca. El detalle va al front.
+        _activity_log.log_error(
+            "se", "Motor SE",
+            "No se pudo iniciar el motor",
+            str(res.get("error") or ""),
+        )
         return jsonify({"ok": False, "running": False, "error": res.get("error")}), 400
+    _activity_log.clear_restart()
+    _activity_log.log_info(
+        "Motor SE iniciado",
+        f"piso_s={piso}",
+    )
     return jsonify({"ok": True, "running": True})
 
 
@@ -118,6 +197,10 @@ def api_se_trace():
         # historial de disparos sobrevive y es lo que permite ver que una
         # regla con wait largo si esta actuando.
         "ultimos_disparos": estado.get("ultimos_disparos", []),
+        # Lo unico que sale del SE hacia la planta. Sobrevive a los ticks: con
+        # write-on-change la mayoria no escribe nada, y la traza sola no
+        # responde "que le mando el experto al DCS en la ultima hora".
+        "historial_escrituras": estado.get("historial_escrituras", []),
     })
 
 
@@ -137,7 +220,10 @@ def api_grabador_estado():
 @bp_se.route("/api/se/grabador/<path:regla_id>/start", methods=["POST"])
 def api_grabador_start(regla_id: str):
     """Arranca la grabacion. Vacia lo anterior: 'desde que pulso el boton'."""
-    return jsonify(grabador_start(regla_id))
+    try:
+        return jsonify(grabador_start(regla_id))
+    except GrabadorLimiteActivosError as e:
+        return jsonify({**grabador_estado(), "ok": False, "error": str(e)}), 409
 
 
 @bp_se.route("/api/se/grabador/<path:regla_id>/stop", methods=["POST"])
@@ -153,8 +239,15 @@ def api_grabador_historial(regla_id: str):
 
 @bp_se.route("/api/se/stop", methods=["POST"])
 def api_se_stop():
-    _se_engine.stop()
-    return jsonify({"ok": True, "running": False})
+    res = _se_engine.stop() or {"ok": True, "error": None}
+    if res.get("ok"):
+        _activity_log.log_info("Motor SE detenido")
+    elif res.get("error"):
+        _activity_log.log_error("se", "Motor SE", "Error al detener el motor",
+                                str(res.get("error")))
+    return jsonify({"ok": bool(res.get("ok")),
+                    "error": res.get("error"),
+                    "running": _se_engine._running})
 
 
 # ============================================================
@@ -206,6 +299,134 @@ def api_entrada_history():
     return jsonify(_get_tag_history())
 
 
+@bp_se.route("/api/se/grafico/anotaciones", methods=["GET"])
+def api_grafico_anotaciones():
+    """Dominio y pendiente POR TAG, tomados de la ultima traza del pipeline.
+
+    El Explorador de Series habla en tags (PCS7.OS01.Hopper_Nivel_PV_A) y el
+    pipeline en variables (hopper_nvl_pv_a). El puente es el mismo mapeo
+    rol<->tag que usa el motor, asi que lo que se muestra en el grafico es
+    exactamente lo que la traza dice — no una segunda cuenta hecha aparte que
+    podria discrepar de la que toman las reglas.
+
+    La pendiente de una variable se busca entre las filas marcadas como
+    pendiente cuya `fuente` es esa variable. Sin motor corriendo no hay traza:
+    se devuelve running=false y el grafico lo dice en vez de inventar.
+    """
+    from web.state import construir_mapeo
+
+    trazas = _get_trazas(1)
+    tz = (trazas[-1] if trazas else {}) or {}
+    try:
+        running = bool(_se_engine.status().get("running"))
+    except Exception:
+        running = False
+
+    por_var, pend_por_fuente = {}, {}
+    for f in (tz.get("fuzzy") or []):
+        var = f.get("var")
+        if not var:
+            continue
+        if f.get("es_pendiente"):
+            fuente = f.get("fuente")
+            if fuente and fuente not in pend_por_fuente:
+                pend_por_fuente[fuente] = f
+        else:
+            por_var[var] = f
+
+    mapeo = construir_mapeo()
+    tag_var: dict[str, str] = {}
+    for tag, rol in (mapeo.get("tag_to_pv") or {}).items():
+        tag_var[tag] = rol
+    for tag, rol in (mapeo.get("tag_to_cruda") or {}).items():
+        tag_var.setdefault(tag, rol)
+    for rol, tag in (mapeo.get("sp_to_tag") or {}).items():
+        tag_var.setdefault(tag, rol)
+
+    por_tag = {}
+    for tag, var in tag_var.items():
+        f = por_var.get(var) or {}
+        p = pend_por_fuente.get(var)
+        por_tag[tag] = {
+            "var":   var,
+            "valor": f.get("valor"),
+            "dom":   f.get("dom"),
+            "lmin":  f.get("lmin"),
+            "lmax":  f.get("lmax"),
+            "pendiente": ({
+                "var":           p.get("var"),
+                "slope_per_min": p.get("slope_per_min"),
+                "ventana_s":     p.get("ventana_s"),
+                "dom":           p.get("dom"),
+            } if p else None),
+        }
+
+    return jsonify({"running": running, "ts": tz.get("ts"), "por_tag": por_tag})
+
+
+@bp_se.route("/api/entrada/escalas", methods=["GET"])
+def api_entrada_escalas():
+    """Escala de ingenieria (lmin/lmax) de cada tag graficable.
+
+    La usa el Explorador de Series para normalizar cada serie contra SU banda
+    de operacion en vez de contra el min/max de lo que se ve. La diferencia no
+    es cosmetica: con min/max de ventana, una PV quieta se estira hasta llenar
+    la pantalla y parece estar oscilando; contra sus limites, un nivel al 70%
+    de su banda se dibuja al 70% y se puede comparar con una velocidad al 95%
+    de la suya — que es la pregunta real ("quien esta por saturar").
+
+    El cableado es el mismo que usa el fuzzy (`bindings_limites`), asi que la
+    escala del grafico y la que decide las pertenencias no pueden divergir. Se
+    prefiere el tag leido en vivo y se cae al respaldo numerico solo si ese
+    bound no tiene tag cableado, con el mismo criterio que el motor.
+    """
+    from web.state import (construir_mapeo, bindings_limites, limites_num,
+                           valor_utilizable)
+
+    mapeo = construir_mapeo()
+    var_por_tag: dict[str, str] = {}
+    for tag, var in (mapeo.get("tag_to_pv") or {}).items():
+        var_por_tag[tag] = var
+    for var, tag in (mapeo.get("sp_to_tag") or {}).items():
+        var_por_tag.setdefault(tag, var)
+
+    binds = bindings_limites()
+    nums = limites_num()
+    variables = set(var_por_tag.values())
+    tags_lim = sorted({t for (v, _b), t in binds.items() if v in variables})
+    live = _read_kepserver_tags_batch(tags_lim) if tags_lim else {}
+
+    out = {}
+    for tag, var in var_por_tag.items():
+        bounds, origen = {}, {}
+        for bound in ("lmin", "lmax"):
+            tag_lim = binds.get((var, bound))
+            if tag_lim:
+                info = live.get(tag_lim, {}) or {}
+                if valor_utilizable(info):
+                    try:
+                        bounds[bound] = float(info["value"])
+                        origen[bound] = tag_lim
+                        continue
+                    except (TypeError, ValueError):
+                        pass
+                # Bound con tag ilegible: NO cae al respaldo, mismo criterio
+                # que `_resolver_limites_sp`. Sin escala confiable, el grafico
+                # usa min/max de la ventana y lo dice.
+                continue
+            respaldo = (nums.get(var) or {})
+            if bound in respaldo:
+                try:
+                    bounds[bound] = float(respaldo[bound])
+                    origen[bound] = "respaldo numerico"
+                except (TypeError, ValueError):
+                    pass
+        if "lmin" in bounds and "lmax" in bounds and bounds["lmax"] > bounds["lmin"]:
+            out[tag] = {"var": var, "lmin": bounds["lmin"], "lmax": bounds["lmax"],
+                        "origen": origen}
+    return jsonify(out)
+
+
 # ============================================================
 # Simulación — helper compartido
 # ============================================================
@@ -224,9 +445,10 @@ def _rango_por_rol(mapeo: dict, ranges: dict) -> dict:
     for tag, rol in (mapeo.get("tag_to_cruda") or {}).items():
         if tag in ranges:
             out[rol] = ranges[tag]
-    for tag, (var, bound) in (mapeo.get("tag_to_lim") or {}).items():
+    for tag, pares in (mapeo.get("tag_to_lim") or {}).items():
         if tag in ranges:
-            out[f"{var}_{bound}"] = ranges[tag]
+            for var, bound in pares:
+                out[f"{var}_{bound}"] = ranges[tag]
     for rol, tag in (mapeo.get("sp_to_tag") or {}).items():
         if tag in ranges:
             out[rol] = ranges[tag]

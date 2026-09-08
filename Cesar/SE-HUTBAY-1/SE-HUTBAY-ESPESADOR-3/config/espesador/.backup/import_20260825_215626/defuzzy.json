@@ -1,0 +1,21 @@
+{
+  "velocidad_sp": {
+    "belief_axis": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "steps_por_accion": {
+      "AUMENTAR_SP_VEL": [
+        0.0,
+        0.5,
+        1.0
+      ],
+      "BAJAR_SP_VEL": [
+        -1.0,
+        -2.0,
+        -2.0
+      ]
+    }
+  }
+}

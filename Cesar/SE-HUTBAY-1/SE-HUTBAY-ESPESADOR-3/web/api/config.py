@@ -7,10 +7,10 @@ Rutas:
   GET/PUT/POST         /api/filtros[/reset]
   GET/PUT/POST         /api/defuzzy[/reset]
   GET/PUT/POST         /api/fuzzy[/reset]
-  GET/PUT/POST         /api/variables[/reset]
-  GET/PUT/POST         /api/permisivos[/reset]
+  GET/PUT/POST         /api/variables
+  GET/PUT/POST         /api/permisivos
   GET/POST/PUT/DELETE  /api/estados[/<nombre>][/reset]
-  GET/POST/PUT/DELETE  /api/waits[/<wait_id>][/reset]
+  GET/POST/PUT/DELETE  /api/waits[/<wait_id>]
 
 IT-7: extraído de app.py.
 """
@@ -31,9 +31,9 @@ from config import (
     VARIABLES_CRUDAS_REQUERIDAS,
 )
 from core.filters.exp_q import CONFIG_FILTRO_ESPESADOR_DEFAULT, PERIODO_LEGACY_S
+from core.jsonio import escribir_json_atomico
 from fuzzys_models_espesador import FUZZY_MODELOS
 from calculos_variables import DEFINICIONES_CALCULADAS, VARIABLES_CRUDAS
-from permisivos import PERMISIVOS
 
 from web.state import (
     _alerts,
@@ -48,11 +48,15 @@ from web.state import (
     variables_disponibles, variables_validas,
     variables_calculadas_definidas, nombres_calculadas,
     pendientes_definidas, nombres_pendientes, PENDIENTES_JSON,
+    etiquetas_por_variable, etiquetas_validas_de,
+    permisivos_definidos, nombres_permisivos,
     ESTADOS_SERIALIZADOS,
     _load_estados, _save_estados, _defaults_estados,
     _load_waits, _save_waits, _defaults_waits,
     _definiciones_lista_a_dict,
     _license_check, _license_sign_and_save, _license_now_iso,
+    LIMITES_BOUNDS, bindings_limites, limites_disponibles, limites_huerfanos,
+    limites_requeridos, limites_num,
 )
 
 bp_config = Blueprint("config", __name__)
@@ -73,11 +77,17 @@ def api_meta():
         # Incluye las filas de fuzzy.json: el editor de reglas tiene que
         # ofrecer las etiquetas que el operador acaba de crear.
         "etiquetas":   etiquetas_disponibles(),
+        # Y por variable, que es lo que el editor OFRECE. La union de arriba
+        # solo sirve para validar "existe en alguna parte"; ofrecerla entera
+        # dejaba pedir LOW a una pendiente o INC a un nivel. Ver A27.
+        "etiquetas_por_variable": etiquetas_por_variable(),
         # Mismo criterio que las etiquetas: salen de defuzzy.json en cada
         # request, para que una accion recien creada aparezca sin reiniciar.
         "acciones":    acciones_disponibles(),
         "bloques":     BLOQUES_DISPONIBLES,
-        "permisivos":  PERMISIVOS_DISPONIBLES,
+        # Idem: releidos de permisivos.json en cada request, no el dict
+        # hardcodeado del espesador.
+        "permisivos":  nombres_permisivos(),
         "setpoints":   list(SETPOINT_KEYS),
         "estados":     _load_estados(),
         "waits":       _lw(),
@@ -106,8 +116,7 @@ def _defaults_licencia() -> dict:
 
 
 def _save_licencia(cfg: dict) -> None:
-    with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(LICENCIA_JSON, cfg)
 
 
 def _load_licencia() -> dict:
@@ -339,8 +348,7 @@ def _load_reglas() -> list[dict]:
 
 
 def _save_reglas(reglas: list[dict]) -> None:
-    with open(REGLAS_JSON, "w", encoding="utf-8") as f:
-        json.dump(reglas, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(REGLAS_JSON, reglas)
 
 
 def _find_regla(reglas: list[dict], regla_id: str):
@@ -380,8 +388,8 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
             # importar, con las calculadas HARDCODEADAS del espesador.
             if v not in variables_validas():
                 return None, f"{ctx}: variable invalida '{v}'."
-            if l not in etiquetas_validas():
-                return None, f"{ctx}: etiqueta invalida '{l}'."
+            if l not in etiquetas_validas_de(v):
+                return None, _error_etiqueta(ctx, v, l)
             return [v, l], None
 
         if isinstance(fuerza, dict) and "OR" in fuerza:
@@ -405,11 +413,17 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
     if not isinstance(condiciones, list) or not condiciones:
         return None, "Campo 'if' debe ser una lista no vacia."
 
+    # El `if` de una regla es una lista con AND implicito. Si viene envuelto en
+    # un unico {"AND": [...]} se desenvuelve — PERO NO si ese grupo trae
+    # `ref_estado`: ahi el grupo ES un estado, y aplanarlo borraba la etiqueta.
+    # Una regla cuya unica condicion era un estado se guardaba como hojas
+    # sueltas y al reabrirla ya no se reconocia el estado.
     items = condiciones
     if (len(condiciones) == 1
             and isinstance(condiciones[0], dict)
             and "AND" in condiciones[0]
             and isinstance(condiciones[0]["AND"], list)
+            and not condiciones[0].get(REF_ESTADO)
             and not any(isinstance(x, dict) and "AND" in x for x in condiciones[0]["AND"])):
         items = condiciones[0]["AND"]
 
@@ -420,46 +434,63 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
         etiqueta = str(leaf[1]).strip().upper()
         if variable not in variables_validas():
             return None, f"{ctx}: variable invalida '{variable}'."
-        if etiqueta not in etiquetas_validas():
-            return None, f"{ctx}: etiqueta invalida '{etiqueta}'."
+        # Contra las etiquetas DE ESA VARIABLE, no contra la union. Ver A27.
+        if etiqueta not in etiquetas_validas_de(variable):
+            return None, _error_etiqueta(ctx, variable, etiqueta)
         return [variable, etiqueta], None
 
-    def _norm_and_group(group, ctx: str):
-        sub_items = group.get("AND", [])
-        if not isinstance(sub_items, list):
-            return None, f"{ctx}: AND debe ser una lista."
-        norm = []
-        for si, leaf in enumerate(sub_items, start=1):
-            leaf_norm, err = _norm_leaf(leaf, f"{ctx} AND hoja #{si}")
-            if err is not None:
-                return None, err
-            norm.append(leaf_norm)
-        return {"AND": norm}, None
+    # Normalizador recursivo. Antes eran tres bloques planos que solo aceptaban
+    # hojas dentro de un AND y dentro de un OR; con eso, un estado compuesto
+    # por otro estado (AND dentro de AND) y un grupo OR con estados adentro se
+    # RECHAZABAN. `prof` acota el anidamiento: un OR con un estado que a su vez
+    # tiene un subestado son tres niveles, y mas que eso no lo produce la
+    # interfaz ni se puede leer de un vistazo.
+    estados_conocidos = _load_estados()
+
+    def _norm_cond(item, ctx: str, prof: int = 0):
+        if isinstance(item, dict) and isinstance(item.get("AND"), list):
+            if prof > 2:
+                return None, f"{ctx}: anidamiento demasiado profundo."
+            sub = item["AND"]
+            norm = []
+            for si, hijo in enumerate(sub, start=1):
+                n, err = _norm_cond(hijo, f"{ctx} AND #{si}", prof + 1)
+                if err is not None:
+                    return None, err
+                norm.append(n)
+            if not norm:
+                return None, f"{ctx}: el AND esta vacio."
+            out = {"AND": norm}
+            # `ref_estado` es la etiqueta que dice de que estado salio esta
+            # copia. Se conserva solo si el estado sigue existiendo: una
+            # etiqueta que apunta a la nada confundiria mas que ayudar.
+            ref = str(item.get(REF_ESTADO) or "").strip()
+            if ref and ref in estados_conocidos:
+                out[REF_ESTADO] = ref
+            return out, None
+
+        if isinstance(item, dict) and isinstance(item.get("OR"), list):
+            if prof > 1:
+                return None, f"{ctx}: anidamiento demasiado profundo."
+            sub = item["OR"]
+            if len(sub) < 2:
+                return None, f"{ctx} (OR): debe contener al menos 2 opciones."
+            norm = []
+            for si, hijo in enumerate(sub, start=1):
+                n, err = _norm_cond(hijo, f"{ctx} OR #{si}", prof + 1)
+                if err is not None:
+                    return None, err
+                norm.append(n)
+            return {"OR": norm}, None
+
+        return _norm_leaf(item, ctx)
 
     condiciones_norm = []
     for idx, item in enumerate(items, start=1):
-        if isinstance(item, dict) and "AND" in item:
-            and_norm, err = _norm_and_group(item, f"Condicion #{idx}")
-            if err is not None:
-                return None, err
-            condiciones_norm.append(and_norm)
-            continue
-        if isinstance(item, dict) and "OR" in item:
-            sub_items = item.get("OR")
-            if not isinstance(sub_items, list) or len(sub_items) < 2:
-                return None, f"Condicion #{idx} (OR): debe contener al menos 2 hojas."
-            sub_norm = []
-            for sub_idx, leaf in enumerate(sub_items, start=1):
-                leaf_norm, err = _norm_leaf(leaf, f"Condicion #{idx} OR hoja #{sub_idx}")
-                if err is not None:
-                    return None, err
-                sub_norm.append(leaf_norm)
-            condiciones_norm.append({"OR": sub_norm})
-            continue
-        leaf_norm, err = _norm_leaf(item, f"Condicion #{idx}")
+        n, err = _norm_cond(item, f"Condicion #{idx}")
         if err is not None:
             return None, err
-        condiciones_norm.append(leaf_norm)
+        condiciones_norm.append(n)
 
     regla["if"] = condiciones_norm
 
@@ -538,6 +569,22 @@ def _normalizar_regla_payload(data: dict, require_id: bool = True) -> tuple[dict
                 return None, f"Campo '{key}' debe ser numerico."
     regla.setdefault("weight", 1.0)
     regla.setdefault("priority", 50.0)
+
+    # Minimo de activacion propio de la regla: umbral sobre la conviccion del
+    # `if` (mu_activacion). 0.0 = sin umbral, que es el comportamiento de
+    # siempre. Se guarda como float para que el motor no tenga que adivinar.
+    min_act = regla.get("min_activacion")
+    if min_act in (None, ""):
+        regla["min_activacion"] = 0.0
+    else:
+        try:
+            min_act = float(min_act)
+        except (TypeError, ValueError):
+            return None, "Campo 'min_activacion' debe ser numerico."
+        if not (0.0 <= min_act <= 1.0):
+            return None, ("Campo 'min_activacion' debe estar entre 0.0 y 1.0 "
+                          f"(valor recibido: {min_act}).")
+        regla["min_activacion"] = min_act
     return regla, None
 
 
@@ -631,8 +678,7 @@ def _defaults_filtros() -> dict:
 
 
 def _save_filtros(cfg: dict) -> None:
-    with open(FILTROS_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(FILTROS_JSON, cfg)
 
 
 def _load_filtros() -> dict:
@@ -809,8 +855,7 @@ def _defaults_defuzzy() -> dict:
 
 
 def _save_defuzzy(cfg: dict) -> None:
-    with open(DEFUZZY_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(DEFUZZY_JSON, cfg)
 
 
 def _load_defuzzy() -> dict:
@@ -904,7 +949,14 @@ def _normalizar_defuzzy_payload(data: dict) -> tuple[dict | None, str | None]:
                 steps_norm[acc] = [float(x) for x in arr]
             except (TypeError, ValueError):
                 return None, f"'{fam}.{acc}': contiene valores no numericos."
-        out[fam] = {"belief_axis": axis_f, "steps_por_accion": steps_norm}
+        lims, err_lim = _validar_limites(fam, tabla)
+        if err_lim is not None:
+            return None, err_lim
+        nums, err_num = _validar_limites_num(fam, tabla, lims)
+        if err_num is not None:
+            return None, err_num
+        out[fam] = {"belief_axis": axis_f, "steps_por_accion": steps_norm,
+                    "limites": lims, "limites_num": nums}
 
     # Una misma accion en dos familias haria ambiguo a que SP afecta.
     vistos = {}
@@ -982,16 +1034,22 @@ _load_defuzzy()
 @bp_config.route("/api/defuzzy", methods=["GET"])
 def api_get_defuzzy():
     """Tablas Sugeno + catalogo de familias SP, para no escribir nombres a mano."""
-    from config import LIMITES_SP_CONTRATO
-
     salidas = salidas_sp_disponibles()
     actual = _load_defuzzy()
     idents = {s["identificador"] for s in salidas}
     # El tag SP concreto al que escribe cada familia. La familia ES el
     # identificador del SP, pero el operador razona en tags y pseudonimos.
-    sp_por_familia = {s["identificador"]: dict(s, limites=list(
-        LIMITES_SP_CONTRATO.get(s["identificador"], []) or []))
-        for s in salidas}
+    # El tope de escritura de cada familia, ya resuelto: respaldo numerico
+    # habilitado si lo hay. `contrato.json -> limites_sp` quedo como legado que
+    # `migrar_limites_sp_del_contrato()` adopta una vez y el motor ya no lee.
+    nums = limites_num(DEFUZZY_JSON)
+    sp_por_familia = {}
+    for sp in salidas:
+        ident = sp["identificador"]
+        par = nums.get(ident) or {}
+        sp_por_familia[ident] = dict(
+            sp, limites=([par["lmin"], par["lmax"]]
+                         if "lmin" in par and "lmax" in par else []))
     return jsonify({
         "familias": sorted(actual.keys()),
         "salidas": salidas,
@@ -1002,6 +1060,11 @@ def api_get_defuzzy():
         "sp_por_familia": sp_por_familia,
         "enlaces": enlaces_defuzzy(),
         "defaults": _defaults_defuzzy(),
+        # Mismo catalogo que en Fuzzy: los limites de un SP son los que clipean
+        # la escritura al DCS y se cablean igual que los de una PV. Los numeros
+        # de `limites_sp` quedan como respaldo cuando no hay tag asignado.
+        "limites_disponibles": limites_disponibles(),
+        "limites_huerfanos": [h for h in limites_huerfanos() if h["variable"] in actual],
         "actual": actual,
     })
 
@@ -1017,6 +1080,8 @@ def api_crear_defuzzy(familia: str):
     cfg[familia] = {
         "belief_axis": list(DEFUZZY_NUEVA["belief_axis"]),
         "steps_por_accion": {k: list(v) for k, v in DEFUZZY_NUEVA["steps_por_accion"].items()},
+        "limites": _limites_heredados_del_rol(familia),
+        "limites_num": dict(LIMITES_NUM_VACIO),
     }
     _save_defuzzy(cfg)
     return jsonify({"ok": True, "familia": familia, "actual": cfg,
@@ -1085,11 +1150,22 @@ FUZZY_LABEL_MAX = 30
 #   CERCA_ALTO / CERCA_BAJO   -> idem, desde OK+HIGH y OK+LOW
 #   INC / DEC / STABLE        -> etiquetas de pendiente (pend_<var>)
 #   ON / OFF                  -> estados de permisivo
-FUZZY_LABELS_RESERVADAS = {
-    "CERCA_ALTO", "CERCA_BAJO",
-    "INC", "DEC", "STABLE",
-    "ON", "OFF",
+# Reservadas SIEMPRE: las genera el nucleo pase lo que pase.
+LABELS_RESERVADAS_NUCLEO = {
+    "CERCA_ALTO", "CERCA_BAJO",   # expandir_etiquetas_compuestas, desde OK+HIGH / OK+LOW
+    "ON", "OFF",                  # inyectar_permisivos_en_fuzzy_out
 }
+
+# Reservadas en un fuzzy de PV. INC/DEC/STABLE entran aca porque en una PV
+# significarian "tendencia" sin serlo.
+FUZZY_LABELS_RESERVADAS = LABELS_RESERVADAS_NUCLEO | {"INC", "DEC", "STABLE"}
+
+# Reservadas en un fuzzy de PENDIENTE. INC/DEC/STABLE NO estan: ahi son la
+# plantilla, no un nombre robado. Reservarlas prohibia justamente las tres
+# etiquetas que una tendencia quiere usar, y bloqueaba el guardado de la
+# pendiente recien creada. Las filas de una pendiente son tan libres como las
+# de una PV (ver "Las pendientes son configurables" en CLAUDE.md).
+PENDIENTE_LABELS_RESERVADAS = LABELS_RESERVADAS_NUCLEO
 
 
 def _defaults_fuzzy() -> dict:
@@ -1105,8 +1181,7 @@ def _defaults_fuzzy() -> dict:
 
 
 def _save_fuzzy(cfg: dict) -> None:
-    with open(FUZZY_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    escribir_json_atomico(FUZZY_JSON, cfg)
 
 
 def _load_fuzzy() -> dict:
@@ -1144,6 +1219,107 @@ FUZZY_NUEVO = {
                "OK":   [0.0, 1.0, 0.0],
                "LOW":  [0.0, 0.5, 1.0]},
 }
+
+
+def _validar_limites(ctx: str, cfg: dict,
+                     requeridos: tuple = ()) -> tuple[dict | None, str | None]:
+    """Valida el cableado `limites` de un fuzzy o de una familia de defuzzy.
+
+    El valor es el NOMBRE del tag, no un identificador de variable: un tag LIM
+    no representa ninguna variable, es el valor de un limite. Se exige que el
+    tag exista, este habilitado y siga siendo de categoria LIM.
+
+    `requeridos` son los bounds sin los cuales esa configuracion no sirve
+    (`high` mide contra lmax, `low` contra lmin, `norm` contra los dos; un SP
+    necesita los dos para poder clipear). Los que no estan en `requeridos` se
+    aceptan igual y SE CONSERVAN: cambiar el tipo de un fuzzy y volver atras no
+    tiene por que perder el cableado que ya estaba hecho.
+    """
+    if "limites" not in cfg:
+        return {}, None
+    lims = cfg.get("limites")
+    if lims is None:
+        return {}, None
+    if not isinstance(lims, dict):
+        return None, f"'{ctx}': 'limites' debe ser un objeto {{lmin|lmax: <tag>}}."
+
+    disponibles = {i["tag"] for i in limites_disponibles()}
+    out = {}
+    for bound, tag in lims.items():
+        b = str(bound).strip().lower()
+        if b not in LIMITES_BOUNDS:
+            return None, (f"'{ctx}': limite desconocido '{bound}'. "
+                          f"Validos: {list(LIMITES_BOUNDS)}.")
+        nombre = str(tag or "").strip()
+        if not nombre:
+            continue                      # "sin asignar" es un estado valido
+        if nombre not in disponibles:
+            return None, (f"'{ctx}.{b}': el tag '{nombre}' no existe, esta "
+                          "deshabilitado o ya no es de categoria LIM.")
+        out[b] = nombre
+
+    # Un mismo tag para los dos extremos daria lmin == lmax: una escala de
+    # ancho cero, que es exactamente lo que el motor rechaza al clipear.
+    if out.get("lmin") and out.get("lmin") == out.get("lmax"):
+        return None, (f"'{ctx}': lmin y lmax no pueden salir del mismo tag "
+                      f"('{out['lmin']}'): seria una escala de ancho cero.")
+
+    faltan = [b for b in requeridos if not out.get(b)]
+    if faltan:
+        return None, (f"'{ctx}': falta asignar el tag de {', '.join(faltan)}. "
+                      "Sin ese limite no hay escala contra la cual medir.")
+    return out, None
+
+
+LIMITES_NUM_VACIO = {"habilitado": False, "lmin": None, "lmax": None}
+
+
+def _validar_limites_num(ctx: str, cfg: dict,
+                         cableado: dict | None = None) -> tuple[dict | None, str | None]:
+    """Valida el respaldo numerico de los limites.
+
+    Es la red debajo del tag: cubre el bound que NO tiene tag cableado. Nace
+    **deshabilitado** — un respaldo que valiera solo por existir es lo que hacia
+    `limites_sp` del contrato, y por eso nadie sabia contra que se estaba
+    clipeando. Encenderlo es una decision explicita.
+
+    Los numeros se guardan aunque el respaldo este apagado: apagarlo y volver a
+    encenderlo no tiene por que hacer reescribirlos.
+    """
+    if "limites_num" not in cfg or cfg.get("limites_num") is None:
+        return dict(LIMITES_NUM_VACIO), None
+    num = cfg.get("limites_num")
+    if not isinstance(num, dict):
+        return None, (f"'{ctx}': 'limites_num' debe ser un objeto "
+                      "{habilitado, lmin, lmax}.")
+
+    out = {"habilitado": bool(num.get("habilitado"))}
+    for bound in LIMITES_BOUNDS:
+        v = num.get(bound)
+        if v is None or v == "":
+            out[bound] = None
+            continue
+        try:
+            out[bound] = float(v)
+        except (TypeError, ValueError):
+            return None, f"'{ctx}.limites_num.{bound}': '{v}' no es un numero."
+
+    if out["lmin"] is not None and out["lmax"] is not None \
+            and out["lmin"] >= out["lmax"]:
+        return None, (f"'{ctx}': el respaldo tiene lmin ({out['lmin']:g}) mayor o igual "
+                      f"que lmax ({out['lmax']:g}). Es una escala de ancho cero o dada "
+                      "vuelta.")
+
+    # Encendido pero sin ningun numero util no cubre nada: es un interruptor
+    # que promete un respaldo que no existe.
+    if out["habilitado"]:
+        cubiertos = [b for b in LIMITES_BOUNDS
+                     if out[b] is not None and not (cableado or {}).get(b)]
+        if not cubiertos:
+            return None, (f"'{ctx}': el respaldo esta habilitado pero no cubre ningun "
+                          "limite. Escribi un numero para el bound que no tiene tag, o "
+                          "deshabilitalo.")
+    return out, None
 
 
 def _validar_fuzzy_spec(var: str, cfg: dict) -> tuple[dict | None, str | None]:
@@ -1203,7 +1379,19 @@ def _validar_fuzzy_spec(var: str, cfg: dict) -> tuple[dict | None, str | None]:
             return None, f"'{var}.{k}': los grados deben estar en [0.0, 1.0]."
         labels_norm[k] = arr_f
 
-    return {"type": tipo, "offset": offset_f, "labels": labels_norm}, None
+    # Los limites NO se exigen aca: un fuzzy sin cablear es un estado valido
+    # (la variable no se fuzzifica y la traza lo dice), igual que una PV sin
+    # tag. Obligar a cablearlos para poder guardar la tabla impediria calibrar
+    # la membresia antes de tener los tags del DCS.
+    lims, err_lim = _validar_limites(var, cfg)
+    if err_lim is not None:
+        return None, err_lim
+    nums, err_num = _validar_limites_num(var, cfg, lims)
+    if err_num is not None:
+        return None, err_num
+
+    return {"type": tipo, "offset": offset_f, "labels": labels_norm,
+            "limites": lims, "limites_num": nums}, None
 
 
 def etiquetas_usadas_por_reglas() -> dict:
@@ -1315,8 +1503,42 @@ def api_get_fuzzy():
         "uso_en_reglas": {f"{var}|{et}": ids
                           for (var, et), ids in etiquetas_usadas_por_reglas().items()},
         "defaults": _defaults_fuzzy(),
+        # Catalogo de tags LIM para los desplegables de limites. Sale de
+        # tags.json en CADA request: por eso las celdas quedan sincronizadas
+        # solas al crear, habilitar, deshabilitar o renombrar un tag, y al
+        # sincronizar el contrato. No hay nada que refrescar a mano.
+        "limites_disponibles": limites_disponibles(),
+        # Que bound necesita cada fuzzy segun su tipo: `high` mide contra lmax,
+        # `low` contra lmin, `norm` contra los dos.
+        "limites_requeridos": {v: list(limites_requeridos(v, actual)) for v in actual},
+        # Cableado que apunta a un tag que ya no sirve. NUNCA se reemplaza solo:
+        # la pagina lo pinta en rojo y obliga a elegir reemplazo (regla A23).
+        "limites_huerfanos": [h for h in limites_huerfanos() if h["variable"] in actual],
         "actual": actual,
     })
+
+
+def _limites_heredados_del_rol(var: str) -> dict:
+    """Cableado que quedo en el campo `rol` de un tag LIM, para adoptarlo.
+
+    `migrar_roles_lim_a_bindings()` (en web/state.py) solo adopta los roles de
+    variables que YA tienen fuzzy o tabla defuzzy: no borra el cableado de una
+    variable cuya membresia todavia no existe. Esta funcion es la otra mitad —
+    cuando esa membresia se crea, el rol pendiente se adopta al vuelo.
+    """
+    from web.state import _load_tags
+
+    out = {}
+    for t in _load_tags().get("tags", []):
+        if t.get("categoria") != "lim" or not t.get("enabled", True):
+            continue
+        rol = str(t.get("rol") or "").strip()
+        if "_" not in rol:
+            continue
+        v, bound = rol.rsplit("_", 1)
+        if v == var and bound in LIMITES_BOUNDS:
+            out[bound] = t["name"]
+    return out
 
 
 @bp_config.route("/api/fuzzy/<var>", methods=["POST"])
@@ -1342,7 +1564,16 @@ def api_crear_fuzzy(var: str):
 
     cfg[var] = {"type": tipo,
                 "offset": list(FUZZY_NUEVO["offset"]),
-                "labels": {k: list(v) for k, v in FUZZY_NUEVO["labels"].items()}}
+                "labels": {k: list(v) for k, v in FUZZY_NUEVO["labels"].items()},
+                # Hereda el cableado que ya existiera en el campo `rol` de un
+                # tag LIM (config anterior al 2026-09-03). Sin esto, crear el
+                # fuzzy de una variable que ya tenia sus limites asignados los
+                # dejaria sin usar y habria que volver a elegirlos a mano.
+                "limites": _limites_heredados_del_rol(var),
+                # El respaldo numerico nace APAGADO: manda el tag, y un numero
+                # que valiera solo por existir es lo que hacia invisible al
+                # viejo `limites_sp` del contrato.
+                "limites_num": dict(LIMITES_NUM_VACIO)}
     _save_fuzzy(cfg)
     return jsonify({"ok": True, "var": var, "actual": cfg,
                     "aviso": "Creado con una plantilla neutra. Calibralo antes de usarlo."}), 201
@@ -1396,9 +1627,25 @@ def api_put_fuzzy():
 
 @bp_config.route("/api/fuzzy/reset", methods=["POST"])
 def api_reset_fuzzy():
-    """Vacia la config difusa. Ya no repuebla la plantilla del espesador."""
+    """Vacia la config difusa COMPLETA: fuzzy de PV y fuzzy de pendiente.
+
+    Las pendientes se vacian junto con el resto porque son la misma pagina y
+    la misma decision: "empezar de cero con la fuzzificacion". Dejarlas vivas
+    era peor que inconsistente — una pendiente sobrevive a la PV que le da
+    origen, y queda calculando la tendencia de una variable que ya no tiene
+    modelo difuso.
+
+    Se informa `reglas_afectadas` para que la pagina pueda decir que se rompio.
+    No se niega el vaciado: es un boton explicito de "vaciar todo", y negarlo
+    cuando hay reglas lo volveria inservible justo cuando hace falta.
+    """
+    afectadas = sorted({rid
+                        for ids in etiquetas_usadas_por_reglas().values()
+                        for rid in ids})
     _save_fuzzy({})
-    return jsonify({"ok": True, "actual": {}})
+    _save_pendientes({})
+    return jsonify({"ok": True, "actual": {}, "pendientes": {},
+                    "reglas_afectadas": afectadas})
 
 
 # ============================================================
@@ -1415,8 +1662,7 @@ def _defaults_pendientes() -> dict:
 
 
 def _save_pendientes(cfg: dict) -> None:
-    with open(PENDIENTES_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    escribir_json_atomico(PENDIENTES_JSON, cfg)
 
 
 def _load_pendientes() -> dict:
@@ -1479,9 +1725,23 @@ def _validar_pendiente_spec(nombre: str, cfg) -> tuple[dict | None, str | None]:
         et = str(etiqueta).strip().upper()
         if not et:
             return None, f"'{nombre}': hay una etiqueta con nombre vacio."
-        if et in FUZZY_LABELS_RESERVADAS:
+        if not FUZZY_LABEL_RE.match(et):
+            return None, (f"'{nombre}': nombre de etiqueta invalido '{etiqueta}'. "
+                          "Usa mayusculas, digitos y guion bajo, empezando por "
+                          "letra (ej. SUBIENDO, CAE_RAPIDO).")
+        if len(et) > FUZZY_LABEL_MAX:
+            return None, (f"'{nombre}': la etiqueta '{et}' supera "
+                          f"{FUZZY_LABEL_MAX} caracteres.")
+        if et.startswith("NO_") or et.startswith("NO-"):
+            return None, (f"'{nombre}': '{et}' choca con las etiquetas NO-<X>, que "
+                          "el nucleo genera solo para cada etiqueta que definas.")
+        # PENDIENTE_LABELS_RESERVADAS, no FUZZY_LABELS_RESERVADAS: INC/DEC/
+        # STABLE son legitimas en una tendencia.
+        if et in PENDIENTE_LABELS_RESERVADAS:
             return None, (f"'{nombre}': '{et}' es una etiqueta reservada "
-                          "(la genera el nucleo).")
+                          f"(la genera el nucleo: {sorted(PENDIENTE_LABELS_RESERVADAS)}).")
+        if et in labels_norm:
+            return None, f"'{nombre}': etiqueta duplicada '{et}'."
         if not isinstance(fila, list) or len(fila) != len(eje_f):
             return None, (f"'{nombre}': la fila '{et}' debe tener "
                           f"{len(eje_f)} valores, uno por punto del eje.")
@@ -1519,6 +1779,34 @@ def _normalizar_pendientes_payload(data) -> tuple[dict | None, str | None]:
             return None, error
         out[nombre_s] = spec
     return out, None
+
+
+def _pendientes_labels_huerfanas(actual: dict, nuevo: dict) -> list[str]:
+    """Filas de una pendiente que dejarian reglas muertas si se guardara.
+
+    Ahora que las etiquetas de una pendiente se renombran desde la pagina hace
+    falta la misma red que en el fuzzy de PV (`_huerfanas_por_guardar`): desde
+    el JSON un renombre es un borrado + un alta, y una regla que dice
+    ("pend_nivel_5min", "INC") queda muda en silencio si esa fila pasa a
+    llamarse "SUBIENDO". Se rechaza con 409; el escape es `__forzar__`.
+    """
+    uso = etiquetas_usadas_por_reglas()
+    if not uso:
+        return []
+    problemas = []
+    for nombre, spec in nuevo.items():
+        if nombre not in actual:
+            continue
+        antes   = set((actual.get(nombre) or {}).get("labels", {}).keys())
+        despues = set((spec or {}).get("labels", {}).keys())
+        for etiqueta in sorted(antes - despues):
+            reglas = (uso.get((nombre, etiqueta)) or []) \
+                   + (uso.get((nombre, f"NO-{etiqueta}")) or [])
+            if reglas:
+                problemas.append(
+                    f"'{nombre}.{etiqueta}' la usan las reglas: "
+                    + ", ".join(sorted(set(reglas))))
+    return problemas
 
 
 def _pendientes_huerfanas_por_guardar(actual: dict, nuevo: dict) -> list[str]:
@@ -1565,6 +1853,11 @@ def api_get_pendientes():
                              n for n, c in actual.items()
                              if (c or {}).get("variable") == i["identificador"])
                          for i in fuentes},
+        # Para que la pagina pueda avisar ANTES de guardar que una fila esta
+        # en uso, igual que hace la de fuzzy de PV.
+        "reservadas": sorted(PENDIENTE_LABELS_RESERVADAS),
+        "uso_en_reglas": {f"{var}|{et}": ids
+                          for (var, et), ids in etiquetas_usadas_por_reglas().items()},
     })
 
 
@@ -1576,10 +1869,18 @@ def api_put_pendientes():
     if error is not None:
         return jsonify({"error": error}), 400
     if not forzar:
-        problemas = _pendientes_huerfanas_por_guardar(_load_pendientes(), norm)
+        actual = _load_pendientes()
+        problemas = _pendientes_huerfanas_por_guardar(actual, norm)
         if problemas:
             return jsonify({
                 "error": ("No se guardo: el cambio dejaria reglas sin la pendiente "
+                          "que nombran. " + " | ".join(problemas)),
+                "huerfanas": problemas,
+            }), 409
+        problemas = _pendientes_labels_huerfanas(actual, norm)
+        if problemas:
+            return jsonify({
+                "error": ("No se guardo: el cambio dejaria reglas sin la etiqueta "
                           "que nombran. " + " | ".join(problemas)),
                 "huerfanas": problemas,
             }), 409
@@ -1668,8 +1969,7 @@ def _defaults_variables() -> dict:
 
 
 def _save_variables(cfg: dict) -> None:
-    with open(VARIABLES_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    escribir_json_atomico(VARIABLES_JSON, cfg)
 
 
 def _load_variables() -> dict:
@@ -1792,8 +2092,31 @@ def slug_identificador(texto: str) -> str:
     return s[:49]
 
 
+def _identificador_de_tag(t: dict) -> tuple[str, bool]:
+    """Identificador con el que el nucleo conoce a un tag, y si esta congelado.
+
+    El identificador nace del pseudonimo, pero en cuanto el contrato lo adopta
+    queda guardado en el campo `rol` del tag y ESE pasa a mandar. Antes se
+    recalculaba del pseudonimo en cada llamada, asi que renombrar "Velocidad
+    SP" a "Velocidad Salida del SE" cambiaba el nombre de la variable para el
+    Defuzzy y el Tracking pero no para el contrato ni para el motor (que ya
+    leian `rol`): las tablas quedaban huerfanas y las reglas dejaban de mover
+    el setpoint, en silencio.
+
+    Devuelve (identificador, congelado). `congelado=True` significa que salio
+    del rol y que el pseudonimo ya es solo la etiqueta que se muestra.
+    """
+    rol = str(t.get("rol") or "").strip()
+    if rol:
+        return rol, True
+    nombre = t.get("name") or ""
+    ultimo = nombre.split(".")[-1]
+    pseudo = (t.get("pseudonimo") or "").strip() or ultimo
+    return (slug_identificador(pseudo) or slug_identificador(ultimo)), False
+
+
 def entradas_pv_disponibles() -> tuple[list[dict], dict]:
-    """Tags de categoria PV, con su identificador derivado del pseudonimo.
+    """Tags de categoria PV, con su identificador (rol si ya esta fijado).
 
     Devuelve (items, colisiones). Dos senales distintas con el mismo
     identificador se fusionarian silenciosamente en una sola variable, asi
@@ -1808,7 +2131,7 @@ def entradas_pv_disponibles() -> tuple[list[dict], dict]:
         nombre = t["name"]
         ultimo = nombre.split(".")[-1]
         pseudo = (t.get("pseudonimo") or "").strip() or ultimo
-        ident = slug_identificador(pseudo) or slug_identificador(ultimo)
+        ident, congelado = _identificador_de_tag(t)
         vistos.setdefault(ident, []).append(nombre)
         items.append({
             "tag": nombre,
@@ -1816,6 +2139,7 @@ def entradas_pv_disponibles() -> tuple[list[dict], dict]:
             "unidad": t.get("unidad_ing", ""),
             "equipo": t.get("equipo", ""),
             "identificador": ident,
+            "congelado": congelado,
         })
 
     colisiones = {k: v for k, v in vistos.items() if len(v) > 1}
@@ -1948,13 +2272,6 @@ def api_put_variables():
     return jsonify({"ok": True, "actual": norm})
 
 
-@bp_config.route("/api/variables/reset", methods=["POST"])
-def api_reset_variables():
-    cfg = _defaults_variables()
-    _save_variables(cfg)
-    return jsonify({"ok": True, "actual": cfg})
-
-
 # ============================================================
 # Helpers — Permisivos
 # ============================================================
@@ -1964,7 +2281,8 @@ PERM_NOMBRE_RE  = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _defaults_permisivos() -> dict:
-    return _copy.deepcopy(PERMISIVOS)
+    """Sin plantilla. Ver `_defaults_estados()` en web/state.py."""
+    return {}
 
 
 def _load_permisivos() -> dict:
@@ -1980,8 +2298,7 @@ def _load_permisivos() -> dict:
 
 
 def _save_permisivos(cfg: dict) -> None:
-    with open(PERMISIVOS_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(PERMISIVOS_JSON, cfg)
 
 
 def _validar_condicion(cond, path: str) -> str | None:
@@ -2095,11 +2412,284 @@ def api_put_permisivos():
     return jsonify({"ok": True, "actual": norm})
 
 
-@bp_config.route("/api/permisivos/reset", methods=["POST"])
-def api_reset_permisivos():
-    cfg = _defaults_permisivos()
-    _save_permisivos(cfg)
-    return jsonify({"ok": True, "actual": cfg})
+
+# ============================================================
+# Estados y subestados — anidamiento, referencias y copias
+# ============================================================
+#
+# Una regla NO guarda una referencia viva al estado: guarda la COPIA de sus
+# condiciones, porque eso es lo que el motor sabe evaluar sin cambiar una
+# linea (`evaluar_condicion` baja por AND/OR y no sabe que existen los
+# estados). Lo que se agrego es la ETIQUETA `ref_estado` al lado de la copia:
+#
+#     {"ref_estado": "HOPPER_LLENO",
+#      "AND": [["hopper_nvl_pv_a", "HIGH"], ["velocidad_pv", "OK"]]}
+#
+# `evaluar_condicion` ve el "AND" y evalua; la clave de mas la ignora. Pero la
+# interfaz ya no tiene que ADIVINAR de que estado salio esa copia comparando
+# condiciones —que fallaba en cuanto el estado se editaba, y confundia dos
+# estados con las mismas condiciones—, y se puede detectar exacto cual regla
+# quedo con una copia vieja.
+#
+# ANIDAMIENTO: un estado puede nombrar a otro, UN SOLO NIVEL. La regla se
+# aplica en las dos direcciones y por eso no hay ciclos posibles:
+#   - el estado referido no puede contener referencias
+#   - un estado referido por otro no puede ganar referencias despues
+
+REF_ESTADO = "ref_estado"
+
+
+def _error_etiqueta(ctx: str, variable: str, etiqueta: str) -> str:
+    """Explica POR QUE la etiqueta no sirve para esa variable.
+
+    Un "etiqueta invalida" a secas no ayudaba: la etiqueta existe, lo que no
+    existe es esa combinacion. Y la combinacion imposible es justo la que se
+    guardaba y evaluaba 0 en silencio.
+    """
+    permitidas = sorted(etiquetas_validas_de(variable))
+    if not permitidas:
+        return (f"{ctx}: '{variable}' no tiene fuzzy definido, asi que no se le "
+                "puede preguntar por ninguna etiqueta. Creale un fuzzy (o una "
+                "pendiente) antes de nombrarla en una regla.")
+    if etiqueta in set(etiquetas_disponibles()):
+        return (f"{ctx}: '{variable}' no tiene la etiqueta '{etiqueta}'. Esa "
+                f"etiqueta existe en otra variable, pero no en esta. "
+                f"Validas para '{variable}': {permitidas}.")
+    return (f"{ctx}: etiqueta invalida '{etiqueta}'. "
+            f"Validas para '{variable}': {permitidas}.")
+
+
+def _es_hoja_cond(x) -> bool:
+    return (isinstance(x, (list, tuple)) and len(x) == 2
+            and all(isinstance(i, str) for i in x))
+
+
+def _es_grupo_and(x) -> bool:
+    return isinstance(x, dict) and isinstance(x.get("AND"), list)
+
+
+def _items_de_condicion_estado(condicion) -> list:
+    """Los items de la condicion de un estado, venga como {'AND': [...]} o lista."""
+    if _es_grupo_and(condicion):
+        return list(condicion["AND"])
+    if isinstance(condicion, list):
+        return list(condicion)
+    return []
+
+
+def _refs_de_estado(estado) -> list:
+    """Nombres de estado que la condicion de `estado` referencia."""
+    out = []
+    for it in _items_de_condicion_estado((estado or {}).get("condicion")):
+        if _es_grupo_and(it) and it.get(REF_ESTADO):
+            out.append(str(it[REF_ESTADO]))
+    return out
+
+
+def _estados_que_referencian(estados: dict, nombre: str) -> list:
+    return sorted(n for n, e in (estados or {}).items()
+                  if nombre in _refs_de_estado(e))
+
+
+def _condicion_vigente_de_estado(estados: dict, nombre: str):
+    """La condicion tal como esta HOY definida, normalizada a {'AND': [...]}.
+
+    Es lo que se copia dentro de una regla o de otro estado.
+    """
+    est = (estados or {}).get(nombre)
+    if est is None:
+        return None
+    return {"AND": _items_de_condicion_estado(est.get("condicion"))}
+
+
+def _copia_igual(copia, vigente) -> bool:
+    """Compara la copia guardada contra la definicion vigente.
+
+    Se compara solo la parte "AND", ignorando `ref_estado`: la etiqueta es de
+    la copia, no de la definicion. Las hojas se normalizan a lista porque en
+    el JSON son listas y en memoria pueden ser tuplas.
+    """
+    def norm(c):
+        items = _items_de_condicion_estado(c)
+        out = []
+        for it in items:
+            if _es_hoja_cond(it):
+                out.append([str(it[0]), str(it[1]).upper()])
+            elif _es_grupo_and(it):
+                out.append({"AND": norm(it), REF_ESTADO: it.get(REF_ESTADO)})
+            else:
+                out.append(it)
+        return out
+    return norm(copia) == norm(vigente)
+
+
+def _normalizar_estado_payload(nombre: str, data: dict, estados: dict,
+                               es_edicion: bool) -> tuple[dict | None, str | None]:
+    """Valida un estado y REGENERA las copias de los estados que referencia.
+
+    Regenerar en vez de confiar en lo que manda la pagina es a proposito: la
+    copia que se guarda es siempre la definicion vigente del estado referido,
+    no lo que el navegador tuviera cacheado.
+    """
+    if not isinstance(data, dict):
+        return None, "El payload debe ser un objeto JSON."
+    nombre_s = str(nombre).strip()
+    if not nombre_s:
+        return None, "Campo 'nombre' requerido."
+
+    tipo = str(data.get("tipo", "estado")).strip().lower()
+    if tipo not in ("estado", "subestado"):
+        return None, f"Tipo invalido: '{tipo}'. Validos: estado, subestado."
+
+    items = _items_de_condicion_estado(data.get("condicion"))
+    if not items:
+        return None, f"'{nombre_s}': debe declarar al menos una condicion."
+
+    quien_me_referencia = _estados_que_referencian(estados, nombre_s)
+
+    norm_items = []
+    refs_usadas = []
+    for i, it in enumerate(items, start=1):
+        ctx = f"'{nombre_s}' condicion #{i}"
+
+        if _es_hoja_cond(it):
+            var = str(it[0]).strip()
+            et  = str(it[1]).strip().upper()
+            if var not in variables_validas():
+                return None, f"{ctx}: variable invalida '{var}'."
+            if et not in etiquetas_validas_de(var):
+                return None, _error_etiqueta(ctx, var, et)
+            norm_items.append([var, et])
+            continue
+
+        if _es_grupo_and(it) and it.get(REF_ESTADO):
+            ref = str(it[REF_ESTADO]).strip()
+            if ref == nombre_s:
+                return None, f"{ctx}: '{nombre_s}' no puede referenciarse a si mismo."
+            if ref not in estados:
+                return None, (f"{ctx}: el estado '{ref}' no existe. "
+                              "Crealo primero o elegi otro.")
+            # --- Un solo nivel, direccion 1: el referido no puede referenciar ---
+            refs_del_referido = _refs_de_estado(estados[ref])
+            if refs_del_referido:
+                return None, (f"{ctx}: '{ref}' ya esta compuesto por otros estados "
+                              f"({', '.join(sorted(refs_del_referido))}). Se permite "
+                              "UN solo nivel de anidamiento, para que nadie tenga que "
+                              "seguir una cadena para saber que evalua un estado.")
+            if ref in refs_usadas:
+                return None, f"{ctx}: '{ref}' esta puesto dos veces."
+            refs_usadas.append(ref)
+            # La copia se REGENERA desde la definicion vigente.
+            vig = _condicion_vigente_de_estado(estados, ref)
+            norm_items.append({REF_ESTADO: ref, "AND": vig["AND"]})
+            continue
+
+        return None, (f"{ctx}: formato no reconocido. Cada condicion es "
+                      "[variable, etiqueta] o una referencia a otro estado.")
+
+    # --- Un solo nivel, direccion 2: si a mi me referencian, no puedo referenciar ---
+    if refs_usadas and quien_me_referencia:
+        return None, (f"'{nombre_s}' ya lo usan como parte de "
+                      f"{', '.join(quien_me_referencia)}, asi que no puede a su vez "
+                      "estar compuesto por otros estados. Se permite UN solo nivel "
+                      "de anidamiento.")
+
+    return {"nombre": nombre_s, "tipo": tipo,
+            "condicion": {"AND": norm_items}}, None
+
+
+def _usos_de_estado(estados: dict, reglas: list, nombre: str) -> dict:
+    """Quien usa el estado `nombre`, y cual de esas copias quedo vieja.
+
+    Es el corazon del aviso: NO se toca nada solo, se informa y decide el
+    operador. Devuelve {"reglas": [...], "estados": [...]}, cada entrada con
+    `desactualizada` segun si la copia guardada coincide con la definicion de
+    hoy.
+    """
+    vigente = _condicion_vigente_de_estado(estados, nombre)
+
+    def _revisar(condiciones, acc):
+        for it in (condiciones or []):
+            if _es_grupo_and(it):
+                if str(it.get(REF_ESTADO) or "") == nombre:
+                    acc.append(not _copia_igual(it, vigente))
+                # Un estado anidado dentro de otro grupo tambien cuenta.
+                _revisar(it.get("AND") or [], acc)
+            elif isinstance(it, dict) and isinstance(it.get("OR"), list):
+                _revisar(it["OR"], acc)
+
+    out = {"reglas": [], "estados": []}
+    for r in (reglas or []):
+        acc = []
+        _revisar((r or {}).get("if") or [], acc)
+        if acc:
+            out["reglas"].append({"id": str(r.get("id", "?")),
+                                  "desactualizada": any(acc)})
+    for n, e in (estados or {}).items():
+        if n == nombre:
+            continue
+        acc = []
+        _revisar(_items_de_condicion_estado((e or {}).get("condicion")), acc)
+        if acc:
+            out["estados"].append({"nombre": n, "desactualizada": any(acc)})
+    return out
+
+
+def _refrescar_copias_de_estado(condiciones, nombre: str, vigente) -> tuple[list, int]:
+    """Reescribe las copias de `nombre` con la definicion vigente. Devuelve (nuevas, cuantas)."""
+    cambios = 0
+    out = []
+    for it in (condiciones or []):
+        if _es_grupo_and(it):
+            hijos, n = _refrescar_copias_de_estado(it.get("AND") or [], nombre, vigente)
+            cambios += n
+            nuevo = dict(it)
+            nuevo["AND"] = hijos
+            if str(it.get(REF_ESTADO) or "") == nombre:
+                if not _copia_igual(it, vigente):
+                    cambios += 1
+                nuevo["AND"] = list(vigente["AND"])
+            out.append(nuevo)
+        elif isinstance(it, dict) and isinstance(it.get("OR"), list):
+            hijos, n = _refrescar_copias_de_estado(it["OR"], nombre, vigente)
+            cambios += n
+            nuevo = dict(it)
+            nuevo["OR"] = hijos
+            out.append(nuevo)
+        else:
+            out.append(it)
+    return out, cambios
+
+
+def _aplicar_refresco(estados: dict, nombre: str) -> dict:
+    """Propaga la definicion vigente de `nombre` a reglas y estados. Solo si lo piden."""
+    vigente = _condicion_vigente_de_estado(estados, nombre)
+    tocadas = {"reglas": [], "estados": []}
+
+    reglas = _load_reglas()
+    nuevas = []
+    for r in reglas or []:
+        cond, n = _refrescar_copias_de_estado((r or {}).get("if") or [], nombre, vigente)
+        if n:
+            r = dict(r); r["if"] = cond
+            tocadas["reglas"].append(str(r.get("id", "?")))
+        nuevas.append(r)
+    if tocadas["reglas"]:
+        _save_reglas(nuevas)
+
+    cambio_estados = False
+    for n, e in list((estados or {}).items()):
+        if n == nombre:
+            continue
+        items, cuantos = _refrescar_copias_de_estado(
+            _items_de_condicion_estado((e or {}).get("condicion")), nombre, vigente)
+        if cuantos:
+            estados[n] = dict(e); estados[n]["condicion"] = {"AND": items}
+            tocadas["estados"].append(n)
+            cambio_estados = True
+    if cambio_estados:
+        _save_estados(estados)
+    return tocadas
 
 
 # ============================================================
@@ -2120,8 +2710,30 @@ def api_get_estado(nombre: str):
     return jsonify(est)
 
 
+@bp_config.route("/api/estados/<nombre>/usos", methods=["GET"])
+def api_usos_estado(nombre: str):
+    """Quien usa este estado y cual de esas copias quedo vieja.
+
+    La pagina lo consulta antes de guardar una edicion, para poder preguntar
+    en vez de propagar sola.
+    """
+    estados = _load_estados()
+    if nombre not in estados:
+        return jsonify({"error": f"Estado '{nombre}' no encontrado"}), 404
+    usos = _usos_de_estado(estados, _load_reglas(), nombre)
+    usos["referencia_a"] = _refs_de_estado(estados[nombre])
+    return jsonify(usos)
+
+
 @bp_config.route("/api/estados", methods=["POST"])
 def api_create_estado():
+    """Alta de un estado.
+
+    Antes esto guardaba `data` tal cual, SIN VALIDAR: se podia crear un estado
+    con una variable que no existe, con una etiqueta inventada o sin ninguna
+    condicion, y el error recien aparecia —callado— cuando una regla lo usaba
+    y quedaba `no_evaluable`.
+    """
     data = request.get_json(force=True)
     nombre = str(data.get("nombre", "")).strip()
     if not nombre:
@@ -2129,7 +2741,9 @@ def api_create_estado():
     estados = _load_estados()
     if nombre in estados:
         return jsonify({"error": f"Estado '{nombre}' ya existe"}), 409
-    nuevo = {"nombre": nombre, "tipo": data.get("tipo", "estado"), "condicion": data.get("condicion", [])}
+    nuevo, error = _normalizar_estado_payload(nombre, data, estados, es_edicion=False)
+    if error is not None:
+        return jsonify({"error": error}), 400
     estados[nombre] = nuevo
     _save_estados(estados)
     return jsonify({"ok": True, "estado": nuevo}), 201
@@ -2137,24 +2751,63 @@ def api_create_estado():
 
 @bp_config.route("/api/estados/<nombre>", methods=["PUT"])
 def api_update_estado(nombre: str):
+    """Edicion de un estado.
+
+    Las reglas guardan una COPIA de las condiciones, no una referencia viva
+    (ver el bloque de arriba). Editar el estado NO toca esas copias solo: se
+    devuelve `usos`, con que reglas y que estados quedaron con la definicion
+    vieja, y la pagina pregunta. Con `propagar: true` se reescriben.
+
+    El criterio es el mismo de todo el proyecto: nunca cambiar en silencio lo
+    que termina llegando al DCS.
+    """
     estados = _load_estados()
     if nombre not in estados:
         return jsonify({"error": f"Estado '{nombre}' no encontrado"}), 404
-    data = request.get_json(force=True)
-    estados[nombre]["tipo"]      = data.get("tipo", estados[nombre].get("tipo", "estado"))
-    estados[nombre]["condicion"] = data.get("condicion", estados[nombre].get("condicion", []))
+    data = request.get_json(force=True) or {}
+    propagar = bool(data.pop("propagar", False))
+    nuevo, error = _normalizar_estado_payload(nombre, data, estados, es_edicion=True)
+    if error is not None:
+        return jsonify({"error": error}), 400
+
+    cambio = not _copia_igual(estados[nombre].get("condicion"), nuevo["condicion"])
+    estados[nombre] = nuevo
     _save_estados(estados)
-    return jsonify({"ok": True, "estado": estados[nombre]})
+
+    usos = _usos_de_estado(estados, _load_reglas(), nombre)
+    propagado = _aplicar_refresco(estados, nombre) if propagar else {"reglas": [], "estados": []}
+    if propagar:
+        usos = _usos_de_estado(_load_estados(), _load_reglas(), nombre)
+    return jsonify({"ok": True, "estado": nuevo, "condicion_cambio": cambio,
+                    "usos": usos, "propagado": propagado})
 
 
 @bp_config.route("/api/estados/<nombre>", methods=["DELETE"])
 def api_delete_estado(nombre: str):
+    """Baja de un estado.
+
+    Se niega si OTRO ESTADO lo tiene anidado: ese estado quedaria con una copia
+    huerfana que nadie puede volver a resolver. Las REGLAS, en cambio, no lo
+    impiden — su copia sigue siendo evaluable palabra por palabra, el motor no
+    cambia de comportamiento — pero se devuelven en `reglas_afectadas` para que
+    la pagina lo diga.
+    """
     estados = _load_estados()
     if nombre not in estados:
         return jsonify({"error": f"Estado '{nombre}' no encontrado"}), 404
+    usados_por = _estados_que_referencian(estados, nombre)
+    if usados_por:
+        return jsonify({
+            "error": (f"No se borro: '{nombre}' es parte de "
+                      + ", ".join(usados_por)
+                      + ". Sacalo de esos estados primero."),
+            "estados_afectados": usados_por,
+        }), 409
+    usos = _usos_de_estado(estados, _load_reglas(), nombre)
     removed = estados.pop(nombre)
     _save_estados(estados)
-    return jsonify({"ok": True, "eliminado": removed})
+    return jsonify({"ok": True, "eliminado": removed,
+                    "reglas_afectadas": [r["id"] for r in usos["reglas"]]})
 
 
 @bp_config.route("/api/estados/reset", methods=["POST"])
@@ -2224,13 +2877,6 @@ def api_delete_wait(wait_id: str):
     return jsonify({"ok": True, "eliminado": removed})
 
 
-@bp_config.route("/api/waits/reset", methods=["POST"])
-def api_reset_waits():
-    cfg = _defaults_waits()
-    _save_waits(cfg)
-    return jsonify({"ok": True})
-
-
 # ============================================================
 # Helpers — Tracking PV-SP
 # ============================================================
@@ -2248,8 +2894,7 @@ def _defaults_tracking() -> dict:
 
 
 def _save_tracking(cfg: dict) -> None:
-    with open(TRACKING_JSON, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(TRACKING_JSON, cfg)
 
 
 def _load_tracking() -> dict:
@@ -2269,7 +2914,7 @@ def _load_tracking() -> dict:
 
 
 def salidas_sp_disponibles() -> list[dict]:
-    """Tags de categoria SP, con su identificador derivado del pseudonimo.
+    """Tags de categoria SP, con su identificador (rol si ya esta fijado).
 
     Mismo criterio que las entradas PV: el identificador sale del pseudonimo
     (o del ultimo segmento del tag) y es lo que ven el motor y el defuzzy.
@@ -2283,7 +2928,7 @@ def salidas_sp_disponibles() -> list[dict]:
         nombre = t["name"]
         ultimo = nombre.split(".")[-1]
         pseudo = (t.get("pseudonimo") or "").strip() or ultimo
-        ident = slug_identificador(pseudo) or slug_identificador(ultimo)
+        ident, congelado = _identificador_de_tag(t)
         vistos.setdefault(ident, []).append(nombre)
         items.append({
             "identificador": ident,
@@ -2291,11 +2936,69 @@ def salidas_sp_disponibles() -> list[dict]:
             "pseudonimo": pseudo,
             "unidad": t.get("unidad_ing", ""),
             "equipo": t.get("equipo", ""),
+            "congelado": congelado,
         })
     colisiones = {k for k, v in vistos.items() if len(v) > 1}
     for it in items:
         it["colision"] = it["identificador"] in colisiones
     return items
+
+
+def tags_referencia_disponibles() -> list[dict]:
+    """Tags habilitados que pueden usarse como referencia de arranque.
+
+    No se filtra por categoria ni por rol a proposito: el SP con el que el DCS
+    opera el equipo puede no ser una entrada del SE (no tiene rol) y aun asi
+    ser el numero correcto para retomar el lazo. Lo unico que se exige es que
+    el tag exista y este habilitado, para que su valor tambien se vea en la
+    pagina de Tags.
+    """
+    from web.state import _load_tags
+
+    out = []
+    for t in _load_tags().get("tags", []):
+        if not t.get("enabled", True):
+            continue
+        out.append({
+            "tag": t["name"],
+            "categoria": t.get("categoria", ""),
+            "pseudonimo": (t.get("pseudonimo") or "").strip(),
+            "unidad": t.get("unidad_ing", "") or "",
+        })
+    return sorted(out, key=lambda x: x["tag"])
+
+
+def _normalizar_arranque(familia: str, spec: dict, pv_key: str,
+                         tags_ok: set) -> tuple[dict | None, str | None]:
+    """Valida el bloque `arranque` de una familia.
+
+    Compatibilidad: sin bloque, se conserva la conducta previa (sembrar con el
+    readback si lo hay). Misma regla que `arranque_definido()` en el motor.
+    """
+    from web.state import ARRANQUE_FUENTES
+
+    arr = spec.get("arranque")
+    if not isinstance(arr, dict):
+        return {"fuente": "pv" if pv_key else "ninguno", "tag": ""}, None
+
+    fuente = str(arr.get("fuente") or "").strip().lower()
+    if fuente not in ARRANQUE_FUENTES:
+        return None, (f"'{familia}': 'arranque.fuente' invalida. "
+                      f"Validas: {', '.join(ARRANQUE_FUENTES)}.")
+    tag = str(arr.get("tag") or "").strip()
+    if fuente == "tag":
+        if not tag:
+            return None, (f"'{familia}': con arranque por tag hay que elegir el tag "
+                          "de referencia.")
+        if tag not in tags_ok:
+            return None, (f"'{familia}': el tag de arranque '{tag}' no existe o esta "
+                          "deshabilitado. Habilitalo en Tags KEPserver.")
+    else:
+        tag = ""
+    if fuente == "pv" and not pv_key:
+        return None, (f"'{familia}': arranque por PV sin readback definido. "
+                      "Elegi un PV de readback o cambia la fuente.")
+    return {"fuente": fuente, "tag": tag}, None
 
 
 def _normalizar_tracking_payload(data: dict) -> tuple[dict | None, str | None]:
@@ -2309,6 +3012,7 @@ def _normalizar_tracking_payload(data: dict) -> tuple[dict | None, str | None]:
         return None, "El payload debe ser un objeto { <familia>: {pv_key, rango, habilitado} }."
 
     validas = {s["identificador"] for s in salidas_sp_disponibles()} | set(SETPOINT_KEYS)
+    tags_ok = {t["tag"] for t in tags_referencia_disponibles()}
     out = {}
     for familia, spec in data.items():
         if not VAR_NOMBRE_RE.match(str(familia)):
@@ -2329,8 +3033,12 @@ def _normalizar_tracking_payload(data: dict) -> tuple[dict | None, str | None]:
         if pv_key and rango == 0.0:
             return None, (f"'{familia}': con readback definido, 'rango' 0 bloquearia la "
                           "familia para siempre. Usa un rango > 0 o quita el readback.")
+        arranque, err = _normalizar_arranque(familia, spec, pv_key, tags_ok)
+        if err is not None:
+            return None, err
         out[familia] = {"pv_key": pv_key, "rango": rango,
-                        "habilitado": bool(spec.get("habilitado", True))}
+                        "habilitado": bool(spec.get("habilitado", True)),
+                        "arranque": arranque}
     return out, None
 
 
@@ -2342,10 +3050,11 @@ def api_get_tracking():
     """Config de tracking + catalogos para no escribir nada a mano.
 
     Las familias se sincronizan con los tags de categoria SP, y el readback
-    se elige entre las entradas PV ya declaradas en el catalogo de variables.
+    se elige entre los tags PV mapeados mas las variables calculadas: es lo
+    mismo que el motor tiene disponible como PV filtrada en cada tick.
     """
     salidas = salidas_sp_disponibles()
-    entradas_pv = list((_load_variables().get("crudas") or {}).keys())
+    entradas_pv = [it["identificador"] for it in entradas_fuzzificables()]
     actual = _load_tracking()
 
     idents = {s["identificador"] for s in salidas}
@@ -2355,6 +3064,7 @@ def api_get_tracking():
         "familias": [s["identificador"] for s in salidas],
         "salidas": salidas,
         "entradas_pv": entradas_pv,
+        "tags_referencia": tags_referencia_disponibles(),
         "huerfanas": huerfanas,
         "en_contrato": list(SETPOINT_KEYS),
         "defaults": _defaults_tracking(),
@@ -2395,8 +3105,57 @@ def api_sincronizar_tracking():
 
     nuevo = {f: v for f, v in actual.items() if f in idents}
     for i in agregadas:
-        nuevo[i] = {"pv_key": "", "rango": 0.0, "habilitado": False}
+        nuevo[i] = {"pv_key": "", "rango": 0.0, "habilitado": False,
+                    "arranque": {"fuente": "ninguno", "tag": ""}}
 
     _save_tracking(nuevo)
     return jsonify({"ok": True, "actual": nuevo,
                     "agregadas": agregadas, "quitadas": quitadas})
+
+
+# ============================================================
+# Version de la configuracion (para autoreload de la UI)
+# ------------------------------------------------------------
+# Devuelve una huella (hash) de los JSON que afectan al motor: si algo
+# cambia en disco (edicion desde otra pestana o proceso incluido), la
+# huella cambia. La UI del panel Tags KEPserver la sondea para decidir
+# si debe reiniciar el SE cuando el auto-reinicio esta activo.
+# ============================================================
+
+import hashlib as _hashlib
+
+# tags.json esta afuera a proposito: el mapeo tag->rol se aplica en
+# _init_state() y ademas cambia por cada tick que persiste el heartbeat.
+# Reiniciar el SE en cada tick seria un lazo infinito.
+_ARCHIVOS_VERSIONADOS = (
+    "contrato.json",
+    "reglas.json",
+    "permisivos.json",
+    "filtros.json",
+    "fuzzy.json",
+    "defuzzy.json",
+    "tracking.json",
+    "pendientes.json",
+    "variables.json",
+    "estados.json",
+    "waits.json",
+)
+
+
+@bp_config.route("/api/config/version", methods=["GET"])
+def api_config_version():
+    """Huella de los JSON de configuracion que impactan al motor."""
+    base = os.path.dirname(REGLAS_JSON)
+    h = _hashlib.sha1()
+    detalle = {}
+    for nombre in _ARCHIVOS_VERSIONADOS:
+        ruta = os.path.join(base, nombre)
+        try:
+            st = os.stat(ruta)
+            marca = f"{nombre}:{st.st_mtime_ns}:{st.st_size}"
+            detalle[nombre] = {"mtime_ns": st.st_mtime_ns, "size": st.st_size}
+        except FileNotFoundError:
+            marca = f"{nombre}:missing"
+            detalle[nombre] = None
+        h.update(marca.encode("utf-8"))
+    return jsonify({"version": h.hexdigest(), "archivos": detalle})

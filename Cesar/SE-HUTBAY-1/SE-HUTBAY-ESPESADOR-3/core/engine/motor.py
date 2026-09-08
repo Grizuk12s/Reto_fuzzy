@@ -330,6 +330,22 @@ def _evaluar_set_reglas(
                       mu_activacion=round(mu_activacion, 4))
             continue
 
+        # Minimo de activacion PROPIO de la regla: cuanta conviccion tienen que
+        # juntar sus condiciones (el `if`) para que la regla se considere
+        # disparable. Es distinto de `min_belief`, que es global y mira el
+        # belief final (weight x fuerza). Sin definir vale 0.0 = comportamiento
+        # de siempre (basta con que el IF no sea 0).
+        try:
+            min_activacion = float(regla.get("min_activacion") or 0.0)
+        except (TypeError, ValueError):
+            min_activacion = 0.0
+        if min_activacion > 0.0 and mu_activacion < min_activacion:
+            _reportar(regla, "descartada",
+                      f"Activacion {mu_activacion:.3f} < minimo de la regla "
+                      f"{min_activacion:.3f}",
+                      mu_activacion=round(mu_activacion, 4))
+            continue
+
         mu_fuerza = fuerza_regla(fuzzy_out, regla.get("fuerza"), fallback=mu_activacion)
         belief = float(regla.get("weight", 1.0)) * mu_fuerza
         if belief < float(min_belief):

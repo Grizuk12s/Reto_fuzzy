@@ -1,7 +1,11 @@
 {
-  "velocidad_sp": {
-    "pv_key": "",
+  "velocidad_salida_del_se": {
+    "pv_key": "velocidad_pv",
     "rango": 0.3,
-    "habilitado": true
+    "habilitado": true,
+    "arranque": {
+      "fuente": "tag",
+      "tag": "PCS7.OS01.PU009_Velocidad_SP"
+    }
   }
 }

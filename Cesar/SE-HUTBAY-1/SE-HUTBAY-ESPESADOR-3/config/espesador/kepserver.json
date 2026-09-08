@@ -1,6 +1,10 @@
 {
   "host": "host.docker.internal",
   "port": 49320,
+  "timeout_s": 2,
+  "aceptar_uncertain": false,
+  "estancado_alerta_s": 60,
+  "retencion_s": 5,
   "last_status": "connected",
   "last_message": "Conexion verificada en opc.tcp://host.docker.internal:49320"
 }

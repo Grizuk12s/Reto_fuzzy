@@ -87,6 +87,7 @@ nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
 select.form-input{cursor:pointer}
 .aviso{margin-top:8px;padding:8px 12px;border-radius:6px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);color:#f59e0b;font-size:.78rem;line-height:1.5}
 </style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
 </head>
 <body>
 <nav>
@@ -97,6 +98,7 @@ select.form-input{cursor:pointer}
   <a href="/espesador/graficos">Explorador de Series</a>
   <a href="/espesador/diagrama">Diagrama de Flujo</a>
   <a href="/espesador/postgres" class="active">PostgreSQL</a>
+  <a href="/espesador/export-import">Export / Import</a>
 </nav>
 <div class="container">
 
@@ -238,6 +240,12 @@ async function loadConfig() {
     if (data.user) document.getElementById('pgUser').value = data.user;
     if (data.password) document.getElementById('pgPassword').value = data.password;
     updateStatus(data.last_status || 'unconfigured', data.last_message || '');
+    ActivitySummary.snap('postgres_cfg', {
+      host: data.host || '',
+      port: data.port || 5432,
+      database: data.database || '',
+      user: data.user || '',
+    });
     if (data.last_status === 'connected') loadTablesStatus();
   } catch (e) {}
 }
@@ -295,6 +303,7 @@ async function testConnection() {
 async function saveConfig() {
   const data = validate();
   if (!data) return;
+  const before = ActivitySummary.getSnap('postgres_cfg');
   try {
     const res = await fetch('/api/postgres/config', {
       method: 'PUT',
@@ -304,11 +313,20 @@ async function saveConfig() {
     const result = await res.json();
     if (result.ok) {
       showResult('success', 'Configuracion guardada correctamente.');
+      ActivitySummary.snap('postgres_cfg', {
+        host: data.host, port: data.port, database: data.database, user: data.user,
+      });
+      ActivityAlerts.onSave(true, 'Configuracion PostgreSQL guardada',
+        ActivitySummary.changedFields(before, data, {
+          host: 'host', port: 'puerto', database: 'base', user: 'usuario',
+        }));
     } else {
       showResult('error', 'Error al guardar', result.error || '');
+      ActivityAlerts.onSave(false, result.error || 'Error al guardar');
     }
   } catch (e) {
     showResult('error', 'Error de red', e.message);
+    ActivityAlerts.onSave(false, e.message);
   }
 }
 
@@ -423,6 +441,7 @@ async function loadPersistencia() {
     const d = await res.json();
     document.getElementById('pgPeriodo').value = String(d.periodo_ms);
     document.getElementById('pgPersistOn').checked = !!d.enabled;
+    ActivitySummary.snap('postgres_persist', { periodo_ms: d.periodo_ms, enabled: !!d.enabled });
     renderPersistStats(d);
   } catch (e) {}
 }
@@ -460,6 +479,8 @@ function renderPersistStats(d) {
 async function savePersistencia() {
   const periodo_ms = parseInt(document.getElementById('pgPeriodo').value, 10);
   const enabled = document.getElementById('pgPersistOn').checked;
+  const before = ActivitySummary.getSnap('postgres_persist');
+  const after = { periodo_ms: periodo_ms, enabled: enabled };
   try {
     const res = await fetch('/api/postgres/persistencia', {
       method: 'PUT',
@@ -471,11 +492,21 @@ async function savePersistencia() {
       showPersist('success', 'Periodo guardado: ' + periodo_ms + ' ms'
         + (enabled ? '' : ' (persistencia apagada)') + '.');
       renderPersistStats(d.estado);
+      ActivitySummary.snap('postgres_persist', after);
+      ActivityAlerts.onSave(true, 'Persistencia PostgreSQL guardada',
+        ActivitySummary.join([
+          ActivitySummary.changedFields(before, after, {
+            periodo_ms: 'periodo_ms', enabled: 'activa',
+          }),
+          enabled ? ('cada ' + periodo_ms + ' ms') : 'persistencia apagada',
+        ]));
     } else {
       showPersist('error', 'No se pudo guardar', esc(d.error || ''));
+      ActivityAlerts.onSave(false, d.error || 'No se pudo guardar');
     }
   } catch (e) {
     showPersist('error', 'Error de red', esc(e.message));
+    ActivityAlerts.onSave(false, e.message);
   }
 }
 
@@ -528,9 +559,22 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-loadConfig();
+loadConfig().then(function () {
+  if (typeof ActivityAlerts !== 'undefined') ActivityAlerts.clearDirtyState();
+});
 loadPersistencia();
 setInterval(loadPersistencia, 5000);
+</script>
+<script src="/static/activity-summary.js"></script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'postgres',
+  pageLabel: 'PostgreSQL',
+  restartOnSave: false,
+  dirtyRoot: '.container',
+  dirtySelector: 'input, select',
+});
 </script>
 </body>
 </html>

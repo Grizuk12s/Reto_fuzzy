@@ -172,28 +172,16 @@ CONEXION
   Postgres se configura desde la vista Postgres de la UI.
 
 
-ESTADO DE ESTA VERSION -- LEER ANTES DE PROBAR
-----------------------------------------------
-  El SE **todavia no arranca**, y es el comportamiento correcto: se niega a
-  correr con el mapeo incompleto en vez de fuzzificar sobre limites en cero.
+ESTADO DE ESTA VERSION
+----------------------
+  Este bloque se mantenia a mano y quedo mintiendo: describia el estado de la
+  0.31 ("el SE todavia no arranca", 18 limites faltantes, reglas vacias), que
+  hace varias versiones dejo de ser cierto. Un LEEME que dice que el paquete
+  no funciona es peor que no tener LEEME.
 
-  Al pulsar "Iniciar Sistema" va a responder:
-
-     Mapeo de tags incompleto. LIM sin mapear: nivel_hopper_a_lmin, ...
-
-  Faltan 18 tags de limite. El contrato tiene 11 variables de proceso y el
-  nucleo exige _lmin y _lmax por cada una: 22 limites, y planta entrego 6.
-  Es un dato de planta pendiente, no un problema de configuracion.
-
-  Ademas reglas.json, defuzzy.json, permisivos.json, estados.json y waits.json
-  estan vacios: aunque se completen los limites, el motor va a leer, filtrar y
-  fuzzificar correctamente y despues no disparar ninguna regla ni mover ningun
-  setpoint. Esa logica es lo que falta definir en planta.
-
-  O sea: este paquete sirve para validar conexion, lectura de tags y trazas.
-  No para control.
-
-  Detalle completo en CLAUDE.md del proyecto.
+  La fuente de verdad del estado y del procedimiento es DESPLIEGUE.txt del
+  proyecto, que ademas trae las trampas conocidas del despliegue. El .bat de
+  exportacion lo copia como LEEME.txt justamente por eso.
 
 
 PERSISTENCIA

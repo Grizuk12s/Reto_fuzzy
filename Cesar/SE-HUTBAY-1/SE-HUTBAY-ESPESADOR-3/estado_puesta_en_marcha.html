@@ -164,24 +164,30 @@ velocidad_bomba_sp_local_lmin, ... presion_pic2391_lmax   (18)</pre>
 
 <h2>Antes de escribir a un DCS real</h2>
 
-<div class="item warn">
-  <div class="h"><span class="n">Interlock de habilitación</span><span class="chip warn">Seguridad</span></div>
-  <p>El DCS ya provisionó el handshake (<code>Exp_Enable_Ext</code>, <code>Enable_FBK</code>,
-     <code>Exp_HB</code>, <code>LIC_Auto/Manual</code>), pero el motor <b>no lo consulta</b>.
-     Debería ser <b>fail-closed</b>: si el enable no se puede leer o tiene calidad mala, no se escribe.</p>
+<div class="item ok">
+  <div class="h"><span class="n">Interlock de habilitación</span><span class="chip ok">Cerrado 2026-08-25</span></div>
+  <p>El motor consulta <code>Enable_FBK</code> en cada tick y es <b>fail-closed</b>: sin conexión,
+     tag inexistente, calidad mala o valor distinto de <code>True</code>, no se escribe ningún SP.
+     Además pulsa <code>Exp_HB</code> y pide <code>Enable_Ext</code> al arrancar.</p>
+</div>
+
+<div class="item ok">
+  <div class="h"><span class="n">La calidad de dato es real</span><span class="chip ok">Cerrado 2026-08-25</span></div>
+  <p>El conector usa <code>get_data_value()</code> y publica la severidad OPC-UA real
+     (<code>Good</code> / <code>Uncertain</code> / <code>Bad</code>) más el nombre exacto del
+     <code>StatusCode</code>. Un tag en <code>Bad</code> —o en <code>Uncertain</code>, salvo que se
+     acepte explícitamente— queda fuera del pipeline en vez de entrar disfrazado de sano.</p>
+  <p><b>La detección de congelado no usa el <code>SourceTimestamp</code>:</b> verificado contra el
+     servidor, avanza en cada lectura aunque el valor no se mueva, así que da siempre "fresco".
+     Se mide el estancamiento del <b>valor</b>, y <b>avisa sin inhibir</b> — no se puede distinguir
+     un scan congelado de un proceso genuinamente quieto.</p>
 </div>
 
 <div class="item warn">
-  <div class="h"><span class="n">La calidad de dato es inventada</span><span class="chip warn">Seguridad</span></div>
-  <p><code>connectors/kepserver.py</code> usa <code>get_value()</code>, que descarta el StatusCode
-     y el SourceTimestamp de OPC-UA: el campo <code>quality</code> que se muestra lo pone el código.
-     Con <code>get_data_value()</code> habría calidad real y detección de valores congelados.</p>
-</div>
-
-<div class="item warn">
-  <div class="h"><span class="n">Un PV caído aborta el tick entero</span><span class="chip warn">Robustez</span></div>
-  <p>Falta retener el último valor bueno con timeout e inhibir <b>solo</b> las reglas que
-     dependen de la variable degradada, en vez de detener todo el pipeline.</p>
+  <div class="h"><span class="n">Falta retener el último valor bueno</span><span class="chip warn">Robustez</span></div>
+  <p>Una PV caída ya <b>no</b> aborta el tick: desde 2026-08-21 solo se inhiben las reglas que
+     dependen de esa variable. Lo que falta es <b>retenerla con timeout</b>, para que un parpadeo
+     de un tick del KEPserver no deje al experto mudo. Es el primer pendiente de la fila.</p>
 </div>
 
 <div class="item warn">

@@ -1,0 +1,32 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.test_pipeline import store, kep, config_completa, _motor_con, _regla_simple, _wait_spec  # noqa
+import web.state as st
+
+
+def io_read(p):
+    import io as _io
+    return _io.open(p, encoding="utf-8").read()[:400]
+
+
+def test_dbg(store, kep, config_completa, monkeypatch):
+    from config import VARIABLES_PROCESO, SETPOINT_KEYS
+    import config as cfg
+    st._reset_trazas()
+    pv0, sp0 = VARIABLES_PROCESO[0], SETPOINT_KEYS[0]
+    tabla = {sp0: {"belief_axis": [0.0, 1.0], "steps_por_accion": {"SUBIR_SP": [0.0, 5.0]}}}
+    motor = _motor_con(monkeypatch, [_regla_simple(pv0, waits=[_wait_spec()])], tabla)
+    print("LIM_CONTRATO", dict(cfg.LIMITES_SP_CONTRATO))
+    print("VP", list(VARIABLES_PROCESO), "SP", list(SETPOINT_KEYS))
+    motor._run_tick()
+    tz = st._get_trazas(1)[0]
+    print("TZ_LIM", tz.get("limites_sp"))
+    print("SINLIM", motor._sp_sin_limite)
+    print("SINESC", motor._sp_sin_escritura)
+    print("DISP", tz.get("disparadas"))
+    print("FUZZY", tz.get("fuzzy"))
+    print("MAPEO_LIM", motor._mapeo["tag_to_lim"])
+    print("BIND", st.bindings_limites())
+    print("FUZZY_JSON", st.FUZZY_JSON, io_read(st.FUZZY_JSON))
+    print("CAT", st.catalogo_roles())
+    assert False

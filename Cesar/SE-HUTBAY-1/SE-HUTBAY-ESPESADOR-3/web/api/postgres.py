@@ -21,6 +21,7 @@ import time
 
 from flask import Blueprint, jsonify, request
 
+from core.jsonio import escribir_json_atomico
 from web.state import _CFG_DIR
 
 bp_postgres = Blueprint("postgres", __name__)
@@ -133,8 +134,7 @@ def _load_pg_config() -> dict:
 
 def _save_pg_config(data: dict) -> None:
     global _cfg_cache, _cfg_cache_mtime
-    with open(POSTGRES_JSON, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(POSTGRES_JSON, data)
     with _cfg_cache_lock:      # invalida: el proximo load relee
         _cfg_cache = None
         _cfg_cache_mtime = -1.0

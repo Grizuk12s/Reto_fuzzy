@@ -2,12 +2,12 @@
 # Compose del nombre de la CARPETA. Declararlo aqui lo vuelve explicito: mover
 # o renombrar el directorio ya no cambia como se llama el proyecto ni deja
 # stacks huerfanos con el nombre viejo.
-name: se-hutbay-espesador-3
+name: se-hutbay-espesador-3.2
 
 services:
   se-espesador:
     build: .
-    container_name: se-hutbay-espesador-3
+    container_name: se-hutbay-espesador-3.2
     ports:
       - "5000:5000"
     volumes:

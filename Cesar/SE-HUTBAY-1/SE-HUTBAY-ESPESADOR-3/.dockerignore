@@ -8,3 +8,4 @@ __pycache__/
 *.md
 *.txt
 !requirements.txt
+_to_delete/

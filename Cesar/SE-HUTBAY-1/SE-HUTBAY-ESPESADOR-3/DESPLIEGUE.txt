@@ -1,0 +1,402 @@
+================================================================================
+  SE-HUTBAY-ESPESADOR-3 -- Exportar y desplegar
+  Windows dev -> USB -> Windows destino -> VM Linux -> contenedor arriba
+  Unico documento de despliegue. Para ejecutar en local: COMO_EJECUTAR.txt
+================================================================================
+
+  Reemplazar <VER> por la version que se despliega (ej. 0.35).
+  Ultimo despliegue realizado con este procedimiento: 0.35
+
+
+NOVEDADES 0.35 -- LEER ANTES DE ACTUALIZAR
+------------------------------------------
+
+  Dos cosas que antes solo se podian tocar editando JSON a mano ahora tienen
+  pagina. Al levantar la version nueva, el arranque MIGRA la configuracion
+  existente sola: es aditiva e idempotente, no borra nada, y se puede volver a
+  la version anterior sin deshacer nada (los campos viejos siguen ahi).
+
+  1. LIMITES DE LAS VARIABLES -- se declaran donde se usan
+
+     Antes: el limite de una PV era el campo "rol" de un tag LIM, asignado en
+     la pagina de Tags; el tope de escritura de un SP eran dos numeros en
+     contrato.json que NINGUNA pagina editaba.
+
+     Ahora: cada fuzzy y cada familia de defuzzy tiene su propia tabla de
+     limites, donde se elige el tag por pseudonimo, mas un respaldo numerico
+     opcional. El tag siempre manda; el numero solo cubre el bound que no
+     tiene tag, y hay que encenderlo a mano.
+
+     Consecuencia practica: un mismo tag puede acotar VARIAS variables. Los
+     limites fisicos de la bomba (PU009_Speed_MIN/MAX) pueden ser a la vez la
+     escala de su PV y el tope de escritura de su setpoint, sin duplicar el
+     tag en KEPserver.
+
+     Que hace la migracion al arrancar:
+       - adopta los roles LIM viejos como cableado del fuzzy que los usa;
+       - adopta limites_sp de contrato.json como respaldo numerico de la
+         familia de defuzzy, HABILITADO (esos numeros estan clipeando hoy;
+         apagarlos dejaria el setpoint sin tope, o sea sin escritura).
+     Los avisos de la migracion quedan en la campana de alertas.
+
+     Un tag de limite que no exista en esta planta NO se reemplaza solo: queda
+     marcado en rojo en su pagina y no deja guardar hasta elegir reemplazo.
+
+  2. HANDSHAKE CON EL DCS -- se configura en Tags
+
+     ENABLE_FBK / ENABLE_EXT siempre vivieron en tags.json, pero no habia
+     forma de editarlos desde la interfaz. Ahora hay un panel en la pagina de
+     Tags, al lado del de Heartbeat, con el estado en vivo (NO EXIGIDO /
+     EXIGIDO / AUTORIZADO / DENEGADO) y el motivo cuando el DCS deniega.
+
+     Importa porque es fail-closed: mal configurado, el SE calcula todo y NO
+     escribe ningun setpoint. Verificarlo despues de levantar la version.
+
+     El handshake tambien viaja ahora en el paquete de exportacion de la UI
+     (antes no, y una planta clonada arrancaba sin permiso sin decir por que).
+
+
+ESCENARIO
+---------
+
+    Windows desarrollo                    VM Linux "ubuntu-docker"
+    (Docker Desktop)                      192.168.137.94
+         |                                usuario: operador
+         | build + save                        |
+         v                                     v
+    C:\...\Desktop\SE <VER>  --USB-->  Windows destino  --scp-->  /opt/se-<VER>
+                                       (adadministrator)              |
+                                                                      v
+                                                          contenedor :5000
+                                                                      |
+                        KEPserver + PostgreSQL  <--- OPC-UA / TCP -----+
+                        192.168.137.1:49320
+
+
+CONVENCION DE VERSIONES -- una carpeta por version, nombres fijos adentro
+-------------------------------------------------------------------------
+
+  Cambia con la version:      carpeta /opt/se-<VER>
+                              tag de imagen  se-espesador:<VER>
+                              archivo        se-espesador-<VER>.tar
+
+  NO cambia nunca:            name: se-hutbay-espesador-3
+                              container_name: se-hutbay-espesador-3
+
+  El nombre del contenedor se mantiene fijo a proposito. Si cambiara en cada
+  version, el compose de la version nueva no encontraria el contenedor viejo
+  al hacer down, y el up -d chocaria por el puerto 5000 con un contenedor
+  cuyo nombre ya no sabes. Ver TRAMPA 3.
+
+
+================================================================================
+  PARTE A -- GENERAR EL PAQUETE (Windows de desarrollo)
+================================================================================
+
+  Requisito: Docker Desktop abierto y con el icono activo.
+  Usar CMD. PowerShell tiene la ejecucion de scripts deshabilitada en este
+  equipo (ver TRAMPA 1).
+
+A.1  Preparar los archivos de la version nueva
+
+     En deploy\ hay un compose por version (0.31 ... 0.35). Para la siguiente,
+     clonar el ultimo y cambiarle el tag:
+
+       cd /d "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
+       powershell -NoProfile -Command "(gc deploy\docker-compose-0.35.yml) -replace '0\.35','<VER>' | sc deploy\docker-compose-<VER>.yml"
+
+     El de 0.35 YA ESTA CREADO: para esta version se saltea este paso.
+
+     deploy\kepserver.json NO cambia con la version: ya apunta a
+     192.168.137.1:49320.
+
+A.2  Construir, exportar y armar la carpeta
+
+       cd /d "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
+       set DEST=C:\Users\cvall\OneDrive\Desktop\SE <VER>
+       mkdir "%DEST%"
+
+       docker build -t se-espesador:<VER> .
+       docker save -o "%DEST%\se-espesador-<VER>.tar" se-espesador:<VER>
+
+       xcopy /E /I /Y config "%DEST%\config"
+       del /S /Q "%DEST%\config\*.bak"
+
+       copy /Y deploy\docker-compose-<VER>.yml "%DEST%\docker-compose.yml"
+       copy /Y deploy\kepserver.json "%DEST%\config\espesador\kepserver.json"
+       copy /Y DESPLIEGUE.txt "%DEST%\LEEME.txt"
+
+       dir "%DEST%"
+
+A.3  Verificar
+
+     El dir debe listar 4 elementos:
+
+       se-espesador-<VER>.tar    ~200-400 MB, la imagen autocontenida
+       docker-compose.yml        con image: se-espesador:<VER>
+       config\                   los JSON, con kepserver.json corregido
+       LEEME.txt
+
+     Anotar el tamano exacto en bytes del .tar: se compara en cada salto.
+     (Referencia 0.31: 211101696 bytes.)
+
+     El copy de kepserver.json es el paso que no se puede saltar. Ver TRAMPA 4.
+
+
+================================================================================
+  PARTE B -- AL USB
+================================================================================
+
+       set USB=E:\se-demo
+       mkdir "%USB%"
+       xcopy /E /I /Y "%DEST%\*" "%USB%"
+       dir "%USB%"
+
+  La letra del pendrive se ve con:  wmic logicaldisk get name,volumename
+
+  Expulsar SIEMPRE desde el explorador ("quitar hardware de forma segura").
+  Con 200 MB Windows sigue escribiendo en segundo plano aunque el xcopy ya
+  haya devuelto el prompt.
+
+
+================================================================================
+  PARTE C -- WINDOWS DESTINO -> VM LINUX
+================================================================================
+
+C.1  Del USB al disco local
+
+       xcopy /E /I /Y E:\se-demo "C:\Users\adadministrator\Desktop\SE <VER>"
+
+C.2  Probar la VM
+
+       ping -n 3 192.168.137.94
+       ssh operador@192.168.137.94 "hostname; docker --version"
+
+     Clave de operador: 1234
+     La primera conexion pide aceptar la huella del host: escribir  yes
+
+C.3  Enviar por scp
+
+       scp -r "C:\Users\adadministrator\Desktop\SE <VER>" operador@192.168.137.94:/home/operador/
+
+     Tarda varios minutos sin mostrar avance. Es normal.
+     /home/operador/ es solo zona de paso. Ver TRAMPA 2.
+
+  Si no hay scp en ese Windows (where scp no devuelve nada):
+     - SMB:  sudo mount -t cifs //10.0.10.155/se-demo /mnt/win -o username=adadministrator
+     - USB directo en la VM:  lsblk ; sudo mount /dev/sdb1 /mnt/usb
+
+
+================================================================================
+  PARTE D -- VM LINUX: DEJAR LA VERSION ARRIBA
+================================================================================
+
+       ssh operador@192.168.137.94
+
+  operador NO esta en el grupo docker: todos los comandos docker van con sudo.
+
+D.1  Mover a su carpeta de version y verificar la transferencia
+
+       ls -la /home/operador/
+       sudo mv "/home/operador/SE <VER>" /opt/se-<VER>
+       sudo chown -R operador:operador /opt/se-<VER>
+       ls -la /opt/se-<VER>
+       du -b /opt/se-<VER>/se-espesador-<VER>.tar
+
+     Ese numero debe ser identico al anotado en A.3. Si es menor, la copia
+     se corto: el docker load fallara con un error de formato.
+
+D.2  Bajar la version anterior
+
+     Las IMAGENES no se detienen; se detienen los CONTENEDORES. Y la imagen
+     anterior no se borra todavia: es el rollback.
+
+       sudo docker ps
+       cd /opt/se-<VER_ANTERIOR> && sudo docker compose down
+       sudo docker ps -a | grep espesador        # no debe devolver nada
+
+     Si quedo algo colgando, borrar por nombre (no depende del proyecto):
+
+       sudo docker rm -f se-hutbay-espesador-3
+
+D.3  Cargar la imagen nueva
+
+       cd /opt/se-<VER>
+       sudo docker load -i se-espesador-<VER>.tar     # usar Tab para completar
+       sudo docker images | grep se-espesador
+
+     Debe imprimir:  Loaded image: se-espesador:<VER>
+
+D.4  Levantar
+
+       sudo docker compose up -d
+       sudo docker compose ps
+
+     El cd a /opt/se-<VER> no es opcional: el compose monta ./config.
+
+D.5  Verificar
+
+       curl http://127.0.0.1:5000/health
+       curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/static/vendor/chart.umd.js
+       sudo docker inspect --format='{{.State.Health.Status}}' se-hutbay-espesador-3
+
+     El segundo curl debe dar 200: prueba de que los assets locales se
+     sirven y la UI no depende de internet.
+     El health tarda ~20 s en pasar de starting a healthy.
+
+     Desde el navegador de Windows, SIEMPRE con Ctrl+F5 (ver TRAMPA 5):
+
+       http://192.168.137.94:5000/
+
+     Si no responde desde Windows:   sudo ufw allow 5000/tcp
+
+D.6  Configurar conexiones desde la UI
+
+       Panel "Conexion KEPserver":  192.168.137.1 / 49320
+           -> Probar conexion -> Guardar
+       Vista Postgres: host, puerto, usuario, password, base
+           -> Probar conexion -> Guardar configuracion
+
+     Comprobar red desde la VM si algo falla:
+       ping -c 3 192.168.137.1
+       nc -zv 192.168.137.1 49320
+       nc -zv 192.168.137.1 5432
+
+D.7  Limpiar -- SOLO con la version nueva confirmada en el navegador
+
+       sudo docker rmi se-espesador:<VER_ANTERIOR>
+       rm /opt/se-<VER_ANTERIOR>/se-espesador-<VER_ANTERIOR>.tar
+       rm -f /home/operador/se-espesador-<VER>.tar
+
+     Conservar SIEMPRE una version anterior cargada. La VM no tiene internet:
+     si borras la imagen vieja y la nueva falla, hay que volver al pendrive.
+
+ROLLBACK
+
+       cd /opt/se-<VER_ANTERIOR>
+       sudo docker rm -f se-hutbay-espesador-3
+       sudo docker compose up -d
+
+     La config de cada version vive en su propia carpeta y no se toca.
+
+
+================================================================================
+  TRAMPAS -- errores reales que ya costaron tiempo
+================================================================================
+
+TRAMPA 1 -- PowerShell no ejecuta los .ps1 en este equipo
+---------------------------------------------------------
+  .\exportar_v2.ps1 falla con "la ejecucion de scripts esta deshabilitada"
+  (PSSecurityException / UnauthorizedAccess). Intentos:
+
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass   -> no basto
+    powershell -NoProfile -ExecutionPolicy Bypass -File ...      -> no basto
+
+  Antiveneno: el bloque de comandos CMD de la PARTE A hace exactamente lo
+  mismo que el script, sin depender de la politica. El script se conserva
+  como referencia de lo que debe generarse.
+
+  Variante relacionada: en PowerShell, si abres una consola nueva las
+  variables se pierden, y "$dest\archivo.tar" con $dest nulo escribe en
+  C:\archivo.tar sin dar error.
+
+
+TRAMPA 2 -- scp -r anida la carpeta si el destino ya existe
+------------------------------------------------------------
+  scp -r carpeta usuario@host:/ruta/  crea /ruta/carpeta la primera vez,
+  pero si /ruta/carpeta YA existe deja el contenido en /ruta/carpeta/carpeta.
+  Paso con SE-KB-Base, Grafico-T-Real y "SE 0.31".
+  Sintoma: "cp: cannot stat ... No such file or directory".
+
+  Antiveneno: verificar SIEMPRE con  ls -la ~  antes de mover.
+
+
+TRAMPA 3 -- docker compose down no borra el contenedor si cambio la carpeta
+----------------------------------------------------------------------------
+  Compose identifica el proyecto por el nombre del DIRECTORIO, salvo que el
+  compose declare  name:  explicito. Al renombrar /opt/se-2.0 a /opt/se-3.0,
+  el contenedor viejo quedo etiquetado con el proyecto "se-2.0", el down
+  desde la carpeta nueva no encontro nada, y el up -d choco:
+
+     Conflict. The container name "/se-hutbay-espesador-3" is already in use
+
+  Antiveneno: los compose de deploy\ llevan  name: se-hutbay-espesador-3
+  explicito, y el borrado de emergencia es por nombre:
+
+     sudo docker rm -f se-hutbay-espesador-3
+
+  No se pierde nada: la config vive en el bind mount ./config del host.
+
+
+TRAMPA 4 -- kepserver.json manda sobre KEPSERVER_URL
+-----------------------------------------------------
+  connectors/kepserver.py hace _load_config() = {**defaults, **json}: el
+  JSON PISA la variable de entorno del compose. En desarrollo el JSON dice
+  host.docker.internal, que en la VM Linux no resuelve.
+  Sintoma confuso: el compose muestra la IP correcta y el SE no ve el
+  KEPserver igual.
+
+  Antiveneno: deploy\kepserver.json ya trae 192.168.137.1:49320 y se copia
+  encima en A.2. De todas formas la IP se puede corregir desde la UI: la
+  conexion al KEPserver no condiciona el arranque del contenedor.
+
+
+TRAMPA 5 -- el navegador cachea la pagina rota
+-----------------------------------------------
+  Tras cada actualizacion, abrir con Ctrl+F5. Sin refresco forzado el
+  navegador sirve la version cacheada y parece que el arreglo no quedo.
+
+
+TRAMPA 6 -- typos en el nombre del .tar
+----------------------------------------
+  "open se-espesdaor-0.32.tar: no such file or directory" no es un problema
+  de Docker ni del paquete: son letras cambiadas de lugar.
+  Antiveneno: escribir  sudo docker load -i se-  y pulsar Tab.
+
+
+TRAMPA 7 -- docker sin sudo
+----------------------------
+  "permission denied while trying to connect to the docker API at
+  unix:///var/run/docker.sock": el usuario operador no esta en el grupo
+  docker. No esta roto; anteponer sudo. Si se quiere sin sudo:
+     sudo usermod -aG docker $USER && newgrp docker
+
+
+TRAMPA 8 -- el reloj del host invalida la licencia
+---------------------------------------------------
+  La licencia usa firma HMAC + checkpoint monotonico. Si el reloj retrocede
+  se marca como manipulada.
+     sudo timedatectl set-ntp true
+     sudo timedatectl set-timezone America/Santiago
+
+
+================================================================================
+  DIAGNOSTICO RAPIDO
+================================================================================
+
+  Sintoma                                  Causa probable / fix
+  ---------------------------------------  ------------------------------------
+  no such image se-espesador:<VER>         falto el docker load
+  contenedor en Restarting                 compose lanzado fuera de la carpeta
+                                           con config/
+  Conflict. container name in use          TRAMPA 3 -> docker rm -f por nombre
+  el navegador no abre :5000               sudo ufw allow 5000/tcp
+  la UI no ve el KEPserver                 TRAMPA 4, o IP cambiada -> corregir
+                                           en la UI y docker compose restart
+  el arreglo "no quedo"                    TRAMPA 5 -> Ctrl+F5
+  healthcheck en "starting"                todavia cargando, esperar ~20 s
+  permission denied con docker             TRAMPA 7 -> sudo
+  licencia "manipulada"                    TRAMPA 8 -> set-ntp true
+
+
+================================================================================
+  ESTADO FUNCIONAL -- leer antes de prometer control
+================================================================================
+
+  Este paquete sirve para validar conexion, lectura de tags y trazas.
+  No para control: faltan limites de planta (_lmin/_lmax por variable) y
+  reglas/defuzzy/permisivos/estados/waits pueden estar vacios. El SE se
+  niega a iniciar con el mapeo incompleto, y es el comportamiento correcto:
+  prefiere no arrancar antes que fuzzificar sobre limites en cero.
+
+  Detalle en CLAUDE.md y PUESTA_EN_MARCHA.md.

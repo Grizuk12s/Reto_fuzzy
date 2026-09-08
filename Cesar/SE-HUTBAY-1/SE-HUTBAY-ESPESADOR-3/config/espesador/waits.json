@@ -1,9 +1,16 @@
 [
   {
-    "wait_id": "wait::sp_velocidad_a_hopper",
-    "nombre": "SP Velocidad A Hopper",
+    "wait_id": "wait::bajo",
+    "nombre": "Bajo",
     "tipo": "custom",
     "variable_controlada": "velocidad_salida_del_se",
-    "descripcion": "Mide la velocidad"
+    "descripcion": "Espera tras frenar la bomba"
+  },
+  {
+    "wait_id": "wait::alto",
+    "nombre": "Alto",
+    "tipo": "custom",
+    "variable_controlada": "velocidad_salida_del_se",
+    "descripcion": "Espera tras acelerar la bomba"
   }
 ]

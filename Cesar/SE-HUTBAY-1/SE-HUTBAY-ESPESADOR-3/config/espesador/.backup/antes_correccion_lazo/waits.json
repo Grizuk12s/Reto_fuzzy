@@ -1,0 +1,16 @@
+[
+  {
+    "wait_id": "wait::bajo",
+    "nombre": "Bajo",
+    "tipo": "custom",
+    "variable_controlada": "velocidad_sp",
+    "descripcion": ""
+  },
+  {
+    "wait_id": "wait::alto",
+    "nombre": "Alto",
+    "tipo": "custom",
+    "variable_controlada": "velocidad_sp",
+    "descripcion": ""
+  }
+]

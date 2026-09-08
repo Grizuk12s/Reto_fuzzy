@@ -33,22 +33,11 @@ from config import (
     VARIABLES_EXTERNAS,
     VARIABLES_PROCESO,
 )
-from estados_espesador import ESTADOS_ESPESADOR
 from core.filters.exp_q import CONFIG_FILTRO_ESPESADOR_DEFAULT
+from core.jsonio import escribir_json_atomico
 from fuzzys_models_espesador import FUZZY_MODELOS
 from calculos_variables import DEFINICIONES_CALCULADAS, VARIABLES_CRUDAS
-from permisivos import PERMISIVOS, nombre_variable_permisivo
-from waits_catalogo import (
-    WAIT_FLOCULANTE_CRITICO,
-    WAIT_FLOCULANTE_ESTABILIDAD,
-    WAIT_TONELAJE_CRITICO,
-    WAIT_TONELAJE_ESTABILIDAD,
-    WAIT_VEL_BOMBA_CRITICO,
-    WAIT_VEL_BOMBA_ESTABILIDAD,
-    WAIT_VEL_PRESION_CAMA,
-    WAIT_VEL_SOLIDOS,
-)
-
+from permisivos import nombre_variable_permisivo
 # ============================================================
 # Rutas JSON y constantes de infraestructura
 # ============================================================
@@ -69,6 +58,7 @@ ESTADOS_JSON_PATH = os.path.join(_CFG_DIR, "estados.json")
 WAITS_JSON_PATH   = os.path.join(_CFG_DIR, "waits.json")
 TRACKING_JSON     = os.path.join(_CFG_DIR, "tracking.json")
 PENDIENTES_JSON   = os.path.join(_CFG_DIR, "pendientes.json")
+ACTIVITY_LOG_JSON = os.path.join(_CFG_DIR, "activity_log.json")
 
 # Sintonizacion con la que nace una PV que todavia no tiene filtro. Vive aqui
 # (y no en web/api/config.py) porque ahora la usan los dos: el boton
@@ -103,8 +93,7 @@ def _guardar_filtros_sembrados(cfg: dict) -> None:
     siguiente vuelve a sembrarlo.
     """
     try:
-        with open(FILTROS_JSON, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        escribir_json_atomico(FILTROS_JSON, cfg)
     except OSError as e:
         _alerts.add("config", f"No se pudo guardar filtros.json: {e}")
 
@@ -119,6 +108,13 @@ class AlertCollector:
     CATEGORIES = {
         "import":    {"label": "Error de Import",       "color": "#ef4444", "icon": "!"},
         "kep":       {"label": "Conexion KEPserver",    "color": "#f97316", "icon": "K"},
+        # Categoria aparte de "kep" A PROPOSITO. Un tick que termina bien prueba
+        # que la CONEXION anda, y por eso `_run_tick` cierra "kep" al final de
+        # cada tick sano. No prueba nada sobre los INSTRUMENTOS: una PV en Bad no
+        # impide que el tick termine bien. Con las dos cosas en la misma
+        # categoria, el aviso de calidad se auto-borraba en el mismo tick que lo
+        # creaba y no llegaba nunca a la pantalla.
+        "calidad":   {"label": "Calidad de dato",       "color": "#eab308", "icon": "Q"},
         "reglas":    {"label": "Reglas / Motor",        "color": "#f59e0b", "icon": "R"},
         "se_engine": {"label": "Motor SE",              "color": "#a855f7", "icon": "S"},
         "generator": {"label": "Generador de Datos",    "color": "#6366f1", "icon": "G"},
@@ -183,6 +179,350 @@ _alerts = AlertCollector()
 
 
 # ============================================================
+# Log de actividad de configuracion (UI / operador)
+# ============================================================
+
+class ActivityLogCollector:
+    """Historial de eventos de configuracion: sin guardar, guardados, reinicio, errores.
+
+    Solo observabilidad — no altera el pipeline. El anillo conserva como maximo
+    MAX_HISTORY entradas; las de tipo ``saved`` expiran solas a los TRANSIENT_S.
+
+    Con ``storage_path`` el anillo y los avisos fijados (sin guardar / reinicio)
+    se persisten en disco y sobreviven al reinicio del proceso Flask.
+    """
+
+    KINDS = {
+        "unsaved": {"label": "Sin guardar",        "color": "#f59e0b", "icon": "U"},
+        "saved":   {"label": "Guardado",           "color": "#22c55e", "icon": "G"},
+        "restart": {"label": "Reinicio requerido", "color": "#a855f7", "icon": "R"},
+        "error":   {"label": "Error",              "color": "#ef4444", "icon": "E"},
+        "info":    {"label": "Sistema",            "color": "#38bdf8", "icon": "i"},
+    }
+    MAX_HISTORY = 100
+    TRANSIENT_S = 5.0
+    _STORE_VERSION = 1
+
+    def __init__(self, storage_path: str | None = None):
+        self._storage_path = storage_path
+        self._entries: list[dict] = []
+        self._unsaved: dict[str, int] = {}
+        self._restart: dict[str, int] = {}
+        # Problemas de configuracion VIGENTES, uno por clave. A diferencia de
+        # log_error(), que apila un evento por cada vez que ocurre, un issue es
+        # un estado: se actualiza mientras el problema siga y se resuelve solo
+        # cuando deja de estar. Sin esto, un desfase que se revisa en cada
+        # arranque y en cada guardado llenaria el panel de copias identicas.
+        self._issues: dict[str, int] = {}
+        self._lock = threading.Lock()
+        self._next_id = 1
+        if self._storage_path:
+            with self._lock:
+                self._load_from_disk_unlocked()
+
+    def _now(self) -> float:
+        return time.time()
+
+    def _normalize_entry(self, raw: dict) -> dict | None:
+        if not isinstance(raw, dict):
+            return None
+        try:
+            eid = int(raw.get("id"))
+        except (TypeError, ValueError):
+            return None
+        kind = str(raw.get("kind") or "")
+        if kind not in self.KINDS:
+            return None
+        ts = raw.get("ts")
+        last_seen = raw.get("last_seen", ts)
+        try:
+            ts_f = float(ts)
+            last_seen_f = float(last_seen)
+        except (TypeError, ValueError):
+            return None
+        exp = raw.get("expires_at")
+        if exp is not None:
+            try:
+                exp = float(exp)
+            except (TypeError, ValueError):
+                exp = None
+        return {
+            "id": eid,
+            "kind": kind,
+            "page": str(raw.get("page") or ""),
+            "page_label": str(raw.get("page_label") or ""),
+            "message": str(raw.get("message") or ""),
+            "detail": str(raw.get("detail") or ""),
+            "ts": ts_f,
+            "last_seen": last_seen_f,
+            "expires_at": exp,
+            "pinned": bool(raw.get("pinned")),
+            "dismissed": bool(raw.get("dismissed")),
+        }
+
+    def _load_from_disk_unlocked(self):
+        raw = _leer_json(self._storage_path, {})
+        if not isinstance(raw, dict):
+            return
+        entries_in = raw.get("entries")
+        if not isinstance(entries_in, list):
+            return
+        loaded: list[dict] = []
+        for item in entries_in:
+            norm = self._normalize_entry(item)
+            if norm is not None:
+                loaded.append(norm)
+        self._entries = loaded
+        try:
+            self._next_id = max(1, int(raw.get("next_id") or 1))
+        except (TypeError, ValueError):
+            self._next_id = 1
+        if self._entries:
+            self._next_id = max(self._next_id, max(e["id"] for e in self._entries) + 1)
+        unsaved_in = raw.get("unsaved") if isinstance(raw.get("unsaved"), dict) else {}
+        restart_in = raw.get("restart") if isinstance(raw.get("restart"), dict) else {}
+        ids_vivos = {e["id"] for e in self._entries if not e["dismissed"]}
+        self._unsaved = {}
+        for k, v in unsaved_in.items():
+            try:
+                eid = int(v)
+            except (TypeError, ValueError):
+                continue
+            if eid in ids_vivos:
+                self._unsaved[str(k)] = eid
+        self._restart = {}
+        for k, v in restart_in.items():
+            try:
+                eid = int(v)
+            except (TypeError, ValueError):
+                continue
+            if eid in ids_vivos:
+                self._restart[str(k)] = eid
+        issues_in = raw.get("issues") if isinstance(raw.get("issues"), dict) else {}
+        self._issues = {}
+        for k, v in issues_in.items():
+            try:
+                eid = int(v)
+            except (TypeError, ValueError):
+                continue
+            if eid in ids_vivos:
+                self._issues[str(k)] = eid
+        self._trim()
+
+    def _persist_unlocked(self):
+        if not self._storage_path:
+            return
+        payload = {
+            "version": self._STORE_VERSION,
+            "next_id": self._next_id,
+            "unsaved": self._unsaved,
+            "restart": self._restart,
+            "issues": self._issues,
+            "entries": self._entries,
+        }
+        try:
+            escribir_json_atomico(self._storage_path, payload)
+        except OSError:
+            pass
+
+    def _trim(self):
+        if len(self._entries) > self.MAX_HISTORY:
+            drop = len(self._entries) - self.MAX_HISTORY
+            dropped_ids = {e["id"] for e in self._entries[:drop]}
+            self._entries = self._entries[drop:]
+            for d in (self._unsaved, self._restart, self._issues):
+                for k, eid in list(d.items()):
+                    if eid in dropped_ids:
+                        del d[k]
+
+    def _make(self, kind: str, page: str, page_label: str,
+              message: str, detail: str = "",
+              transient: bool = False, pinned: bool = False) -> dict:
+        now = self._now()
+        entry = {
+            "id": self._next_id,
+            "kind": kind,
+            "page": page,
+            "page_label": page_label,
+            "message": message,
+            "detail": detail,
+            "ts": now,
+            "last_seen": now,
+            "expires_at": (now + self.TRANSIENT_S) if transient else None,
+            "pinned": pinned,
+            "dismissed": False,
+        }
+        self._next_id += 1
+        self._entries.append(entry)
+        self._trim()
+        self._persist_unlocked()
+        return entry
+
+    def _resolve_entry_unlocked(self, entry_id: int):
+        for e in self._entries:
+            if e["id"] == entry_id:
+                e["dismissed"] = True
+                return
+
+    def mark_unsaved(self, page: str, page_label: str,
+                     message: str = "", detail: str = ""):
+        if not message:
+            message = f"Cambios sin guardar en {page_label}"
+        with self._lock:
+            if page in self._unsaved:
+                eid = self._unsaved[page]
+                for e in self._entries:
+                    if e["id"] == eid:
+                        e["message"] = message
+                        e["detail"] = detail
+                        e["last_seen"] = self._now()
+                        e["dismissed"] = False
+                        self._persist_unlocked()
+                        return
+            entry = self._make("unsaved", page, page_label, message, detail,
+                               pinned=True)
+            self._unsaved[page] = entry["id"]
+            self._persist_unlocked()
+
+    def clear_unsaved(self, page: str):
+        with self._lock:
+            eid = self._unsaved.pop(page, None)
+            if eid is not None:
+                self._resolve_entry_unlocked(eid)
+            self._persist_unlocked()
+
+    def log_saved(self, page: str, page_label: str,
+                  message: str = "", detail: str = ""):
+        if not message:
+            message = f"Guardado en {page_label}"
+        with self._lock:
+            eid = self._unsaved.pop(page, None)
+            if eid is not None:
+                self._resolve_entry_unlocked(eid)
+            self._make("saved", page, page_label, message, detail, transient=True)
+
+    def log_restart_needed(self, page: str, page_label: str,
+                           message: str = "", detail: str = ""):
+        if not message:
+            message = (f"Cambios en {page_label} guardados: reinicia el motor "
+                       "para aplicarlos")
+        with self._lock:
+            if page in self._restart:
+                eid = self._restart[page]
+                for e in self._entries:
+                    if e["id"] == eid:
+                        e["message"] = message
+                        e["detail"] = detail
+                        e["last_seen"] = self._now()
+                        e["dismissed"] = False
+                        self._persist_unlocked()
+                        return
+            entry = self._make("restart", page, page_label, message, detail,
+                               pinned=True)
+            self._restart[page] = entry["id"]
+            self._persist_unlocked()
+
+    def clear_restart(self, page: str | None = None):
+        with self._lock:
+            if page is None:
+                for eid in self._restart.values():
+                    self._resolve_entry_unlocked(eid)
+                self._restart.clear()
+            else:
+                eid = self._restart.pop(page, None)
+                if eid is not None:
+                    self._resolve_entry_unlocked(eid)
+            self._persist_unlocked()
+
+    def log_error(self, page: str, page_label: str,
+                  message: str, detail: str = ""):
+        with self._lock:
+            self._make("error", page, page_label, message, detail, pinned=True)
+
+    def log_issue(self, key: str, page: str, page_label: str,
+                  message: str, detail: str = ""):
+        """Alerta roja de un problema VIGENTE, una sola por `key`.
+
+        Si ya hay una abierta con esa clave se actualiza en su lugar (y se
+        vuelve a mostrar si el operador la habia descartado, porque el
+        problema sigue). `clear_issue` es la contraparte: se llama cuando la
+        revision encuentra que ya no pasa.
+        """
+        with self._lock:
+            eid = self._issues.get(key)
+            if eid is not None:
+                for e in self._entries:
+                    if e["id"] == eid:
+                        e["message"] = message
+                        e["detail"] = detail
+                        e["page"] = page
+                        e["page_label"] = page_label
+                        e["last_seen"] = self._now()
+                        e["dismissed"] = False
+                        self._persist_unlocked()
+                        return
+            entry = self._make("error", page, page_label, message, detail,
+                               pinned=True)
+            self._issues[key] = entry["id"]
+            self._persist_unlocked()
+
+    def clear_issue(self, key: str):
+        with self._lock:
+            eid = self._issues.pop(key, None)
+            if eid is not None:
+                self._resolve_entry_unlocked(eid)
+                self._persist_unlocked()
+
+    def issues_abiertos(self) -> list[str]:
+        with self._lock:
+            return sorted(self._issues)
+
+    def log_info(self, message: str, detail: str = "",
+                 page: str = "", page_label: str = "Sistema"):
+        with self._lock:
+            self._make("info", page, page_label, message, detail, transient=True)
+
+    def dismiss(self, entry_id: int) -> bool:
+        with self._lock:
+            for e in self._entries:
+                if e["id"] == entry_id and not e["dismissed"]:
+                    e["dismissed"] = True
+                    for d in (self._unsaved, self._restart, self._issues):
+                        for k, eid in list(d.items()):
+                            if eid == entry_id:
+                                del d[k]
+                    self._persist_unlocked()
+                    return True
+            return False
+
+    def _is_active(self, e: dict) -> bool:
+        if e["dismissed"]:
+            return False
+        if e["kind"] == "saved" or e["kind"] == "info":
+            exp = e.get("expires_at")
+            if exp is not None and self._now() > exp:
+                return False
+        return True
+
+    def get_active(self) -> list[dict]:
+        with self._lock:
+            out = [dict(e) for e in self._entries if self._is_active(e)]
+            out.sort(key=lambda x: x["last_seen"], reverse=True)
+            return out
+
+    def get_history(self, kind: str | None = None) -> list[dict]:
+        with self._lock:
+            out = [dict(e) for e in self._entries]
+            if kind:
+                out = [e for e in out if e["kind"] == kind]
+            out.sort(key=lambda x: x["ts"], reverse=True)
+            return out[: self.MAX_HISTORY]
+
+
+_activity_log = ActivityLogCollector(ACTIVITY_LOG_JSON)
+
+
+# ============================================================
 # Catálogos
 # ============================================================
 
@@ -236,9 +576,68 @@ def etiquetas_disponibles() -> list[str]:
     return out
 
 
+# Cuantas escrituras al DCS se conservan en memoria para auditoria. Son
+# livianas (un dict chico por tag escrito) y solo crecen cuando el SP se mueve
+# de verdad, no en cada tick.
+HISTORIAL_ESCRITURAS_MAX = 200
+
 # Compatibilidad: sigue siendo la lista base. Los call sites que validan
 # etiquetas deben usar etiquetas_disponibles(), que incluye las del fuzzy.
 ETIQUETAS_DISPONIBLES = ETIQUETAS_BASE
+
+
+def etiquetas_por_variable() -> dict:
+    """Que etiquetas tiene sentido pedirle a CADA variable.
+
+    `etiquetas_disponibles()` devuelve la union de todo, y eso alcanza para
+    validar "esta etiqueta existe en alguna parte" — pero NO para ofrecerla.
+    Ofrecer la union significaba ofrecer `LOW` sobre una pendiente cuyas filas
+    son INC/DEC/STABLE, o `INC` sobre un nivel, o `CERCA_ALTO` sobre un fuzzy
+    cuyas filas se renombraron al espanol. En los tres casos la regla se
+    guardaba, no daba error, y evaluaba 0 PARA SIEMPRE (ver A27).
+
+    Las etiquetas de una variable son:
+      - las filas de su fuzzy (`fuzzy.json`) o de su pendiente
+        (`pendientes.json`) — son configurables y de nombre libre;
+      - ON / OFF si es un pseudo-permisivo `__PERM_X`;
+      - mas las derivadas que el motor genera, consultadas a
+        `etiquetas_derivadas()`, que es LA MISMA funcion que usa el expansor.
+
+    Una variable que existe pero no esta fuzzificada devuelve lista vacia: es
+    la respuesta correcta —no hay nada que preguntarle— y la pagina lo dice en
+    vez de ofrecer etiquetas que no van a evaluar.
+    """
+    from core.fuzzy.evaluator import etiquetas_derivadas
+
+    out: dict = {}
+
+    def _agregar(nombre: str, filas):
+        base = [str(x).upper() for x in (filas or [])]
+        if not base:
+            out.setdefault(str(nombre), [])
+            return
+        out[str(nombre)] = base + etiquetas_derivadas(base)
+
+    for origen in (_leer_json(FUZZY_JSON, {}), pendientes_definidas()):
+        for var, spec in (origen or {}).items():
+            if isinstance(spec, dict):
+                _agregar(var, (spec.get("labels") or {}).keys())
+
+    # Los permisivos se inyectan como pseudo-variables con ON/OFF fijos
+    # (`inyectar_permisivos_en_fuzzy_out`), no salen de ningun fuzzy.
+    for nombre in nombres_permisivos():
+        _agregar(nombre_variable_permisivo(nombre), ["ON", "OFF"])
+
+    # Toda variable ofrecida tiene entrada, aunque sea vacia: la pagina
+    # distingue "no tiene fuzzy" de "no se conoce la variable".
+    for var in variables_disponibles():
+        out.setdefault(str(var), [])
+    return out
+
+
+def etiquetas_validas_de(variable: str) -> set:
+    """Etiquetas aceptables PARA ESA variable. Vacio = no esta fuzzificada."""
+    return set(etiquetas_por_variable().get(str(variable), []))
 
 
 def variables_calculadas_definidas() -> list[dict]:
@@ -273,6 +672,33 @@ def nombres_pendientes() -> list[str]:
     return sorted(pendientes_definidas())
 
 
+def permisivos_definidos() -> dict:
+    """Permisivos declarados en `permisivos.json`.
+
+    Antes el catalogo salia del dict `PERMISIVOS` importado de `permisivos.py`
+    — los permisivos HARDCODEADOS del espesador. Era la misma foto al importar
+    que ya se corrigio en `etiquetas_disponibles()`, `acciones_disponibles()` y
+    `variables_disponibles()`: el editor de estados y de reglas ofrecia cinco
+    `__PERM_*` de otra planta que el motor nunca iba a producir (`_run_tick`
+    evalua `cargar_permisivos_json()`, no este dict), y no ofrecia el que el
+    operador acababa de crear.
+
+    Se lee con `_leer_json` y NO con `cargar_permisivos_json()` de runner.py
+    por el mismo motivo que `roles_en_uso()`: ese cae a la plantilla del
+    espesador cuando el archivo falta, y aqui eso produce exactamente el ruido
+    que se quiere eliminar. Un archivo vacio es un estado valido: significa
+    "esta planta todavia no declaro permisivos".
+    """
+    cfg = _leer_json(PERMISIVOS_JSON, {})
+    if not isinstance(cfg, dict):
+        return {}
+    return {str(k): v for k, v in cfg.items()}
+
+
+def nombres_permisivos() -> list[str]:
+    return list(permisivos_definidos())
+
+
 def variables_disponibles() -> list[str]:
     """Variables que una regla o un permisivo pueden nombrar.
 
@@ -294,7 +720,7 @@ def variables_disponibles() -> list[str]:
     nombres.extend(v for v in nombres_pendientes() if v not in nombres)
     nombres.extend(v for v in VARIABLES_CRUDAS_REQUERIDAS if v not in nombres)
     nombres.extend(v for v in nombres_calculadas() if v not in nombres)
-    nombres.extend(nombre_variable_permisivo(p) for p in PERMISIVOS.keys())
+    nombres.extend(nombre_variable_permisivo(p) for p in nombres_permisivos())
     return nombres
 
 
@@ -353,7 +779,9 @@ VARIABLES_DISPONIBLES  = _build_variables_disponibles()
 # Compatibilidad: foto al importar. Para ofrecer o validar acciones usa
 # acciones_disponibles() / acciones_validas(), que releen defuzzy.json.
 ACCIONES_DISPONIBLES   = acciones_disponibles()
-PERMISIVOS_DISPONIBLES = list(PERMISIVOS.keys())
+# Compatibilidad: foto al importar. Para ofrecer permisivos usa
+# nombres_permisivos(), que relee permisivos.json.
+PERMISIVOS_DISPONIBLES = nombres_permisivos()
 
 VARIABLES_VALIDAS = set(VARIABLES_DISPONIBLES)
 # Constante historica: solo las base. Para validar usa etiquetas_validas().
@@ -368,31 +796,21 @@ ACCIONES_VALIDAS  = set(ACCIONES_DISPONIBLES)
 BLOQUES_VALIDOS   = set(BLOQUES_DISPONIBLES)
 
 
-def _build_estados_serializable() -> dict:
-    from core.states.builder import _resolver_condicion
-    result = {}
-    for nombre, estado in ESTADOS_ESPESADOR.items():
-        condicion = estado.get("condicion")
-        result[nombre] = {
-            "nombre": nombre,
-            "tipo": estado.get("tipo", "estado"),
-            "condicion": _resolver_condicion(condicion) if condicion else [],
-        }
-    return result
+# Los estados de fabrica del espesador se eliminaron (2026-09-01): eran una
+# plantilla de otra planta que se sembraba sola cuando faltaba estados.json y
+# que el boton "Restaurar default" reescribia. Un contrato nuevo arranca sin
+# estados, igual que arranca sin reglas y sin defuzzy.
+#
+# La constante se conserva vacia porque `web/api/config.py` la importa; no
+# borrarla evita romper cualquier import de fuera que todavia la nombre.
+ESTADOS_SERIALIZADOS: dict = {}
 
-
-ESTADOS_SERIALIZADOS = _build_estados_serializable()
-
-WAITS_CATALOGO_DISPONIBLES = [
-    WAIT_VEL_BOMBA_CRITICO,
-    WAIT_VEL_BOMBA_ESTABILIDAD,
-    WAIT_TONELAJE_CRITICO,
-    WAIT_TONELAJE_ESTABILIDAD,
-    WAIT_FLOCULANTE_CRITICO,
-    WAIT_FLOCULANTE_ESTABILIDAD,
-    WAIT_VEL_SOLIDOS,
-    WAIT_VEL_PRESION_CAMA,
-]
+# Los ocho waits de fabrica del espesador (vel_bomba, tonelaje, floculante...)
+# se eliminaron: eran una plantilla de otra planta que `_load_waits()` sembraba
+# sola cuando faltaba waits.json, y que el boton "Restaurar default" reescribia.
+# Mismo criterio que ESTADOS_SERIALIZADOS y que _defaults_defuzzy(). La
+# constante se conserva vacia porque `web/api/config.py` la importa.
+WAITS_CATALOGO_DISPONIBLES: list = []
 
 
 # ============================================================
@@ -401,7 +819,16 @@ WAITS_CATALOGO_DISPONIBLES = [
 # ============================================================
 
 def _defaults_estados() -> dict:
-    return dict(ESTADOS_SERIALIZADOS)
+    """Sin plantilla: un contrato nuevo arranca SIN estados.
+
+    Devolvia `ESTADOS_SERIALIZADOS`, los estados del espesador de fabrica.
+    Mientras `estados.json` existiera no se notaba, pero el archivo se siembra
+    con este default si falta y el boton "Vaciar estados" lo reescribia: en
+    ambos casos aparecian estados de otra planta, que nombran variables que
+    este contrato no tiene. Mismo criterio que `_defaults_defuzzy()` y
+    `_defaults_tracking()`.
+    """
+    return {}
 
 
 def _load_estados() -> dict:
@@ -417,12 +844,12 @@ def _load_estados() -> dict:
 
 
 def _save_estados(data: dict) -> None:
-    with open(ESTADOS_JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(ESTADOS_JSON_PATH, data)
 
 
 def _defaults_waits() -> list[dict]:
-    return list(WAITS_CATALOGO_DISPONIBLES)
+    """Sin plantilla: un contrato nuevo arranca SIN waits. Ver A28."""
+    return []
 
 
 def _load_waits() -> list[dict]:
@@ -438,8 +865,7 @@ def _load_waits() -> list[dict]:
 
 
 def _save_waits(data: list[dict]) -> None:
-    with open(WAITS_JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(WAITS_JSON_PATH, data)
 
 
 def _definiciones_lista_a_dict(definiciones_lista: list) -> dict:
@@ -525,8 +951,12 @@ def catalogo_roles() -> dict[str, list[str]]:
     # para que el operador pueda cablearlos al DCS si los limites de
     # ingenieria viven alla; si no los asigna, se usa el respaldo fijo de
     # variables.json (ver `limites_fijos_calculadas`).
+    # Los SETPOINTS tambien tienen limites: son los que clipean la escritura al
+    # DCS. Antes solo existian como numeros fijos en `contrato.json`, que
+    # ninguna pagina editaba; ahora se pueden cablear a un tag como cualquier
+    # otro limite y `contrato.json` queda como respaldo.
     lims = []
-    for var in list(VARIABLES_PROCESO) + nombres_calculadas():
+    for var in list(VARIABLES_PROCESO) + nombres_calculadas() + list(SETPOINT_KEYS):
         lims.append(f"{var}_lmin")
         lims.append(f"{var}_lmax")
 
@@ -539,6 +969,181 @@ def catalogo_roles() -> dict[str, list[str]]:
     }
 
 
+LIMITES_BOUNDS = ("lmin", "lmax")
+
+
+def _bindings_de_config(cfg: dict) -> dict:
+    """Extrae el cableado `limites` de un fuzzy.json / defuzzy.json ya leido."""
+    out: dict[tuple[str, str], str] = {}
+    for var, spec in (cfg or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        lims = spec.get("limites")
+        if not isinstance(lims, dict):
+            continue
+        for bound in LIMITES_BOUNDS:
+            tag = str(lims.get(bound) or "").strip()
+            if tag:
+                out[(str(var), bound)] = tag
+    return out
+
+
+def bindings_limites() -> dict[tuple[str, str], str]:
+    """Cableado (variable, bound) -> tag del DCS. UNICA fuente de verdad.
+
+    Hasta el 2026-09-03 esto vivia en el campo `rol` de los tags de categoria
+    LIM: un tag se volvia el limite de una PV cuando alguien le escribia
+    `hopper_nvl_pv_a_lmax` en la pagina de Tags. Tenia dos problemas, y el
+    segundo era el caro:
+
+      - La asignacion no se veia desde la pagina donde se usa. Mirando el fuzzy
+        de una variable era imposible saber contra que escala se estaba
+        normalizando.
+      - **Un tag tiene un solo rol**, asi que un limite fisico no podia acotar
+        dos variables. `PU009_Speed_MIN/MAX` son los limites de la bomba: son a
+        la vez la escala de la PV de velocidad Y el tope de escritura del
+        setpoint, y con el rol habia que elegir uno de los dos o duplicar el tag
+        en KEPserver.
+
+    Ahora el binding lo declara quien lo consume — `fuzzy.json` para las PV,
+    `defuzzy.json` para los SP — bajo la clave `limites`, y por NOMBRE de tag.
+    Un mismo tag puede aparecer en varias variables sin ambiguedad.
+
+    Se lee con `_leer_json` y no con los `cargar_*_json()` de `runner.py`, por
+    el mismo motivo que documenta `roles_en_uso()`: esos caen a la plantilla del
+    espesador cuando el archivo falta, y aqui eso cablearia limites de otra
+    planta.
+    """
+    out = _bindings_de_config(_leer_json(FUZZY_JSON, {}))
+    # Los SP se mezclan despues, pero no pueden pisar nada: las familias de
+    # defuzzy son identificadores de tags SP y los fuzzy, de tags PV.
+    out.update(_bindings_de_config(_leer_json(DEFUZZY_JSON, {})))
+    return out
+
+
+def _limites_num_de_spec(spec) -> dict:
+    """Respaldo numerico de un fuzzy o de una familia, si esta HABILITADO.
+
+    Formato en disco: `{"habilitado": bool, "lmin": num|null, "lmax": num|null}`.
+    Deshabilitado o sin numero devuelve `{}`: el respaldo no existe para el
+    motor mientras nadie lo encienda a mano. Es lo contrario de lo que hacia
+    `limites_sp` del contrato, que valia siempre y en silencio.
+    """
+    if not isinstance(spec, dict):
+        return {}
+    num = spec.get("limites_num")
+    if not isinstance(num, dict) or not num.get("habilitado"):
+        return {}
+    out = {}
+    for bound in LIMITES_BOUNDS:
+        try:
+            out[bound] = float(num[bound])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def limites_num(archivo: str | None = None) -> dict[str, dict]:
+    """Respaldos numericos habilitados: `{variable: {lmin, lmax}}`.
+
+    Sin argumento junta los dos archivos (PV de `fuzzy.json`, SP de
+    `defuzzy.json`), que no pueden chocar porque una familia de defuzzy es el
+    identificador de un tag SP y un fuzzy el de un tag PV.
+    """
+    rutas = [archivo] if archivo else [FUZZY_JSON, DEFUZZY_JSON]
+    out: dict[str, dict] = {}
+    for ruta in rutas:
+        for var, spec in (_leer_json(ruta, {}) or {}).items():
+            nums = _limites_num_de_spec(spec)
+            if nums:
+                out[str(var)] = nums
+    return out
+
+
+def migrar_limites_sp_del_contrato() -> list[dict]:
+    """Adopta `contrato.json -> limites_sp` como respaldo de `defuzzy.json`.
+
+    Hasta el 2026-09-03 el tope de escritura de un SP era un par de numeros en
+    el contrato que **ninguna pagina editaba**, y que valia siempre. Ahora el
+    respaldo vive junto a la tabla que lo usa, con la misma forma que el de una
+    PV y con un interruptor explicito.
+
+    Se migra **habilitado**: en esta planta esos numeros estan gobernando el
+    clipeo hoy, y apagarlos al actualizar dejaria el SP sin tope — o sea, sin
+    escritura. El "deshabilitado por defecto" es para los respaldos NUEVOS.
+
+    Aditiva e idempotente, igual que `migrar_roles_lim_a_bindings()`: no toca
+    `contrato.json` ni pisa un `limites_num` que ya exista.
+    """
+    from config import LIMITES_SP_CONTRATO
+
+    defuzzy = _leer_json(DEFUZZY_JSON, {})
+    migrados = []
+    for fam, spec in (defuzzy or {}).items():
+        if not isinstance(spec, dict) or isinstance(spec.get("limites_num"), dict):
+            continue
+        par = LIMITES_SP_CONTRATO.get(fam) or ()
+        if len(par) != 2:
+            continue
+        spec["limites_num"] = {"habilitado": True,
+                               "lmin": float(par[0]), "lmax": float(par[1])}
+        migrados.append({"familia": fam, "limites": [float(par[0]), float(par[1])]})
+    if migrados:
+        escribir_json_atomico(DEFUZZY_JSON, defuzzy)
+    return migrados
+
+
+def limites_disponibles(tags: list[dict] | None = None) -> list[dict]:
+    """Tags de categoria LIM habilitados, para los desplegables de la interfaz.
+
+    Espejo de `salidas_sp_disponibles()`. A diferencia de las PV y los SP, un
+    tag LIM **no tiene identificador propio**: no es una variable, es el valor
+    de un limite. Por eso se ofrece por pseudonimo y nombre de tag.
+    """
+    if tags is None:
+        tags = _load_tags().get("tags", [])
+    items = []
+    for t in tags:
+        if t.get("categoria") != "lim" or not t.get("enabled", True):
+            continue
+        nombre = t["name"]
+        items.append({
+            "tag": nombre,
+            "pseudonimo": (t.get("pseudonimo") or "").strip() or nombre.split(".")[-1],
+            "equipo": t.get("equipo", ""),
+            "unidad": t.get("unidad_ing", ""),
+            "instrumento": t.get("instrumento", ""),
+        })
+    items.sort(key=lambda x: (x["equipo"] or "", x["pseudonimo"]))
+    return items
+
+
+def limites_huerfanos(tags: list[dict] | None = None) -> list[dict]:
+    """Bindings que apuntan a un tag que ya no sirve, con el motivo.
+
+    Un tag borrado, deshabilitado o que cambio de categoria deja el cableado
+    colgando. NUNCA se reemplaza solo (regla A23): se reporta para que la
+    pagina lo pinte en rojo y obligue a elegir reemplazo.
+    """
+    if tags is None:
+        tags = _load_tags().get("tags", [])
+    por_nombre = {t.get("name"): t for t in tags}
+    fuera = []
+    for (var, bound), tag_name in sorted(bindings_limites().items()):
+        t = por_nombre.get(tag_name)
+        if t is None:
+            motivo = "el tag ya no existe"
+        elif t.get("categoria") != "lim":
+            motivo = f"el tag dejo de ser LIM (hoy es {str(t.get('categoria')).upper()})"
+        elif not t.get("enabled", True):
+            motivo = "el tag esta deshabilitado"
+        else:
+            continue
+        fuera.append({"variable": var, "bound": bound, "rol": f"{var}_{bound}",
+                      "tag": tag_name, "motivo": motivo})
+    return fuera
+
+
 def tracking_definido() -> dict:
     """Config de seguimiento SP -> readback, de `tracking.json`.
 
@@ -548,6 +1153,43 @@ def tracking_definido() -> dict:
     """
     cfg = _leer_json(TRACKING_JSON, {})
     return {str(k): v for k, v in cfg.items() if isinstance(v, dict)}
+
+
+ARRANQUE_FUENTES = ("tag", "pv", "ninguno")
+
+
+def arranque_definido() -> dict:
+    """Con que valor arranca cada familia de SP cuando el DCS entrega el lazo.
+
+    Vive junto al tracking (`tracking.json`, clave `arranque` de cada familia)
+    porque es la misma unidad — una familia de setpoint — y asi se configura en
+    la misma pantalla. Pero NO es lo mismo: el tracking decide si se sigue
+    empujando, esto decide con que numero se retoma.
+
+    {<familia>: {"fuente": "tag"|"pv"|"ninguno", "tag": str, "pv_key": str}}
+
+    Compatibilidad: una familia sin bloque `arranque` conserva el
+    comportamiento anterior — si tiene readback, se siembra con esa PV. Asi una
+    config existente no cambia de conducta por actualizar.
+    """
+    out: dict[str, dict] = {}
+    for familia, spec in tracking_definido().items():
+        pv_key = str((spec or {}).get("pv_key") or "").strip()
+        arr = (spec or {}).get("arranque")
+        if not isinstance(arr, dict):
+            arr = {"fuente": "pv" if pv_key else "ninguno"}
+        fuente = str(arr.get("fuente") or "").strip().lower()
+        if fuente not in ARRANQUE_FUENTES:
+            fuente = "pv" if pv_key else "ninguno"
+        tag = str(arr.get("tag") or "").strip()
+        # Una fuente mal configurada no arranca a medias: se apaga. Sembrar con
+        # un valor que no se sabe de donde salio es peor que no sembrar.
+        if fuente == "tag" and not tag:
+            fuente = "ninguno"
+        if fuente == "pv" and not pv_key:
+            fuente = "ninguno"
+        out[familia] = {"fuente": fuente, "tag": tag, "pv_key": pv_key}
+    return out
 
 
 def limites_fijos_calculadas() -> dict[str, dict]:
@@ -730,6 +1372,16 @@ def roles_en_uso(fuzzy_cfg: dict | None = None) -> dict[str, set[str]]:
     sp_en_uso = {sp for sp in SETPOINT_KEYS
                  if ((defuzzy.get(sp) or {}).get("steps_por_accion") or {})}
 
+    # Los limites de un SP en uso tambien hacen falta: son los que clipean la
+    # escritura al DCS, y sin ellos esa familia no se escribe.
+    for sp in sp_en_uso:
+        lim_en_uso |= {f"{sp}_lmin", f"{sp}_lmax"}
+
+    # ...pero un bound con respaldo numerico HABILITADO ya esta cubierto: el
+    # tag es opcional ahi, y pedirlo seria un aviso que no lleva a ninguna
+    # accion. Vale igual para PV y para SP.
+    lim_en_uso -= {f"{v}_{b}" for v, nums in limites_num().items() for b in nums}
+
     cruda_en_uso = {c for c in VARIABLES_CRUDAS_REQUERIDAS
                     if c in fuentes or c in vars_perm}
 
@@ -819,7 +1471,11 @@ def roles_huerfanos(tags: list[dict] | None = None) -> list[dict]:
     for t in tags:
         cat = t.get("categoria")
         rol = (t.get("rol") or "").strip()
-        if not rol or cat not in catalogo or cat == "otro":
+        # LIM queda fuera: su cableado ya no es el rol. Un rol LIM sobreviviente
+        # no es un huerfano sino un resto sin migrar (ver
+        # `migrar_roles_lim_a_bindings`), y los bindings colgados los reporta
+        # `limites_huerfanos()`.
+        if not rol or cat not in catalogo or cat in ("otro", "lim"):
             continue
         if rol not in catalogo[cat]:
             fuera.append({"tag": t.get("name"), "id": t.get("id"),
@@ -845,6 +1501,70 @@ def normalizar_rol(value, categoria: str) -> str:
     return rol if rol in catalogo_roles().get(categoria, []) else ""
 
 
+def migrar_roles_lim_a_bindings() -> dict:
+    """Adopta los roles LIM viejos como bindings de `fuzzy.json`/`defuzzy.json`.
+
+    Compatibilidad de una vez con la config anterior al 2026-09-03, cuando el
+    limite de una variable era el campo `rol` de un tag LIM. Es idempotente:
+    corre en cada arranque y no hace nada si ya esta todo migrado.
+
+    **Es ADITIVA: escribe el binding y NO borra el rol.** El rol queda como
+    metadato inerte (`construir_mapeo` ya no lo mira) y la pagina de Tags lo
+    muestra como "rol viejo". Blanquearlo parecia mas prolijo y era peligroso:
+    esta funcion corre en `_startup_checks()`, o sea en cada `import app` —
+    incluido el que hace el suite de tests contra la config VIVA de la planta.
+    Si el borrado del rol se persiste y la escritura del binding se pierde o se
+    pisa despues, el cableado desaparece y no queda de donde reconstruirlo. Ya
+    paso una vez. Aditivo no puede destruir nada.
+
+    Un rol cuya variable todavia no tiene fuzzy ni tabla defuzzy queda
+    `pendiente`: esta funcion lo adopta en el proximo arranque, o `crear fuzzy`
+    lo hereda al vuelo (`_limites_heredados_del_rol`).
+    """
+    with _tags_lock:
+        store = _load_tags()
+        tags = store.get("tags", [])
+        candidatos = [t for t in tags
+                      if t.get("categoria") == "lim" and str(t.get("rol") or "").strip()]
+        if not candidatos:
+            return {"migrados": [], "pendientes": []}
+
+        fuzzy   = _leer_json(FUZZY_JSON, {})
+        defuzzy = _leer_json(DEFUZZY_JSON, {})
+        migrados, pendientes = [], []
+        toco_fuzzy = toco_defuzzy = False
+
+        for t in candidatos:
+            rol = str(t["rol"]).strip()
+            if "_" not in rol:
+                continue
+            var, bound = rol.rsplit("_", 1)
+            if bound not in LIMITES_BOUNDS:
+                continue
+            destino = fuzzy if var in fuzzy else (defuzzy if var in defuzzy else None)
+            if destino is None:
+                pendientes.append({"tag": t["name"], "rol": rol})
+                continue
+            spec = destino[var]
+            if not isinstance(spec, dict):
+                continue
+            lims = spec.setdefault("limites", {})
+            if str(lims.get(bound) or "").strip():
+                continue                   # ya migrado: nada que hacer
+            lims[bound] = t["name"]
+            if destino is fuzzy:
+                toco_fuzzy = True
+            else:
+                toco_defuzzy = True
+            migrados.append({"tag": t["name"], "rol": rol})
+
+        if toco_fuzzy:
+            escribir_json_atomico(FUZZY_JSON, fuzzy)
+        if toco_defuzzy:
+            escribir_json_atomico(DEFUZZY_JSON, defuzzy)
+        return {"migrados": migrados, "pendientes": pendientes}
+
+
 def construir_mapeo(tags: list[dict] | None = None) -> dict:
     """Construye los mapeos tag<->rol que consume el motor, desde tags.json.
 
@@ -860,7 +1580,9 @@ def construir_mapeo(tags: list[dict] | None = None) -> dict:
     catalogo = catalogo_roles()
     tag_to_pv: dict[str, str] = {}
     tag_to_cruda: dict[str, str] = {}
-    tag_to_lim: dict[str, tuple[str, str]] = {}
+    # Un tag puede acotar VARIAS variables (los limites de la bomba son a la vez
+    # la escala de su PV y el tope de su SP), asi que el valor es una lista.
+    tag_to_lim: dict[str, list[tuple[str, str]]] = {}
     sp_to_tag: dict[str, str] = {}
 
     asignados: dict[str, list[str]] = {}   # "categoria::rol" -> [tags]
@@ -870,26 +1592,58 @@ def construir_mapeo(tags: list[dict] | None = None) -> dict:
             continue
         cat = t.get("categoria")
         rol = t.get("rol") or ""
-        if cat not in catalogo or not rol or rol not in catalogo[cat]:
+        # LIM aparte: su cableado ya no sale del rol del tag (ver
+        # `bindings_limites`), asi que un rol viejo que sobrevivio a la
+        # migracion no debe volver a mapear nada.
+        if cat == "lim" or cat not in catalogo or not rol or rol not in catalogo[cat]:
             continue
 
         nombre = t["name"]
-        asignados.setdefault(f"{cat}::{rol}", []).append(nombre)
+        clave = f"{cat}::{rol}"
+        # Rol ya tomado: el segundo tag NO mapea. Antes se asignaba igual y
+        # ganaba el ULTIMO recorrido, asi que a que tag le escribia el SE (o de
+        # cual leia una PV) dependia del orden del archivo. Un tag agregado
+        # despues podia robarle la escritura al de produccion sin que nada
+        # fallara. Ahora gana el primero — resultado estable — y el conflicto
+        # queda en `duplicados` para que arriba se decida que hacer.
+        duplicado = clave in asignados
+        asignados.setdefault(clave, []).append(nombre)
+        if duplicado:
+            continue
 
         if cat == "pv":
             tag_to_pv[nombre] = rol
         elif cat == "cruda":
             tag_to_cruda[nombre] = rol
-        elif cat == "lim":
-            var, bound = rol.rsplit("_", 1)      # "torque_lmin" -> ("torque", "lmin")
-            tag_to_lim[nombre] = (var, bound)
         elif cat == "sp":
             sp_to_tag[rol] = nombre
+
+    # --- LIM: el cableado lo declara quien consume el limite ---
+    # `fuzzy.json` para las PV y `defuzzy.json` para los SP. Un binding a un tag
+    # inexistente, deshabilitado o que ya no es LIM simplemente no mapea: el rol
+    # queda como faltante y `limites_huerfanos()` explica por que.
+    por_nombre = {t.get("name"): t for t in tags}
+    roles_lim = set(catalogo.get("lim", ()))
+    for (var, bound), tag_name in bindings_limites().items():
+        rol = f"{var}_{bound}"
+        if rol not in roles_lim:
+            continue                       # variable fuera del contrato vigente
+        t = por_nombre.get(tag_name)
+        if not t or t.get("categoria") != "lim" or not t.get("enabled", True):
+            continue
+        asignados.setdefault(f"lim::{rol}", []).append(tag_name)
+        tag_to_lim.setdefault(tag_name, []).append((var, bound))
 
     faltantes = {
         cat: [r for r in roles if f"{cat}::{r}" not in asignados]
         for cat, roles in catalogo.items() if roles
     }
+    # Un limite con respaldo numerico HABILITADO ya esta cubierto: ahi el tag
+    # es opcional. Sin esta resta, cualquier planta que trabaje con numeros
+    # veria el mapeo incompleto para siempre.
+    con_numero = {f"{v}_{b}" for v, nums in limites_num().items() for b in nums}
+    if con_numero and faltantes.get("lim"):
+        faltantes["lim"] = [r for r in faltantes["lim"] if r not in con_numero]
     duplicados = {k: v for k, v in asignados.items() if len(v) > 1}
 
     # Un rol declarado en el contrato pero que ninguna etapa posterior usa no
@@ -949,8 +1703,23 @@ def _load_tags() -> dict:
 
 
 def _save_tags(data: dict) -> None:
-    with open(TAGS_JSON, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    escribir_json_atomico(TAGS_JSON, data)
+
+
+# Lock del READ-MODIFY-WRITE de tags.json, no solo de la escritura.
+#
+# `escribir_json_atomico` garantiza que el archivo nunca queda a medias, pero
+# eso no alcanza aca: el patron real es `store = _load_tags()` → modificar →
+# `_save_tags(store)`, y sobre eso escriben CUATRO productores — el generador de
+# datos, el heartbeat, el reconciliador de SP y las rutas HTTP de la pagina de
+# Tags. Sin cubrir el read, dos de ellos leen la misma version, cada uno aplica
+# su cambio sobre esa copia y el segundo `_save_tags` publica un archivo entero
+# y consistente al que le falta el cambio del primero. Ya se perdieron datos por
+# esto una vez.
+#
+# Es RLock porque hay caminos anidados: una ruta que ya tiene el lock puede
+# llamar a un helper que lo vuelve a pedir.
+_tags_lock = threading.RLock()
 
 
 # ============================================================
@@ -1048,8 +1817,7 @@ def _license_check() -> dict:
                 cfg["last_seen_at"] = _license_now_iso()
             cfg["signature"] = _license_sign(cfg)
             try:
-                with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
-                    json.dump(cfg, f, indent=2, ensure_ascii=False)
+                escribir_json_atomico(LICENCIA_JSON, cfg)
                 _license_last_persist_ts = time.time()
             except OSError:
                 pass
@@ -1101,8 +1869,7 @@ def _license_check() -> dict:
         now_ts = time.time()
         if (now_ts - _license_last_persist_ts) >= _LICENSE_PERSIST_MIN_INTERVAL_SEC:
             try:
-                with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
-                    json.dump(cfg, f, indent=2, ensure_ascii=False)
+                escribir_json_atomico(LICENCIA_JSON, cfg)
                 _license_last_persist_ts = now_ts
             except OSError:
                 pass
@@ -1130,8 +1897,7 @@ def _license_sign_and_save(cfg: dict) -> dict:
     global _license_last_persist_ts
     with _license_lock:
         cfg["signature"] = _license_sign(cfg)
-        with open(LICENCIA_JSON, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        escribir_json_atomico(LICENCIA_JSON, cfg)
         _license_last_persist_ts = time.time()
     return cfg
 
@@ -1291,23 +2057,34 @@ class TagGenerator:
             self._ranges.update(gen_cfg["ranges"])
 
     def _save_config(self):
-        store = _load_tags()
-        store["generator"] = {
-            "intervalo_s": self._intervalo_s,
-            "n_ciclo": self._n_ciclo,
-            "ranges": self._ranges,
-        }
-        _save_tags(store)
+        with _tags_lock:
+            store = _load_tags()
+            store["generator"] = {
+                "intervalo_s": self._intervalo_s,
+                "n_ciclo": self._n_ciclo,
+                "ranges": self._ranges,
+            }
+            _save_tags(store)
 
     def _worker(self):
-        while not self._stop_event.is_set():
-            try:
-                self._write_tick()
-                self._tick += 1
-            except Exception as e:
-                self._last_error = str(e)
-                _alerts.add("generator", str(e), traceback.format_exc())
-            self._stop_event.wait(self._intervalo_s)
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    self._write_tick()
+                    self._tick += 1
+                except Exception as e:
+                    self._last_error = str(e)
+                    _alerts.add("generator", str(e), traceback.format_exc())
+                self._stop_event.wait(self._intervalo_s)
+        except BaseException as e:
+            self._last_error = f"Worker generador muerto: {e}"
+            _alerts.add("generator",
+                        f"El hilo del generador murio: {e}",
+                        traceback.format_exc())
+            raise
+        finally:
+            self._running = False
+            _kep.close_thread_client()      # ver SEEngine._worker (B1.2)
 
     # Categorias que participan del pipeline del SE (las unicas simulables).
     CATEGORIAS_SIMULABLES = ("pv", "cruda", "lim", "sp")
@@ -1401,9 +2178,15 @@ class TagGenerator:
             _alerts.add("kep", f"Generador: {e}", traceback.format_exc())
 
     def start(self):
-        if self._running:
-            return
         self._load_config()
+        if self._running:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            _alerts.add("generator",
+                        "Generador marcado corriendo pero con el hilo muerto. "
+                        "Se rearranca limpio.")
+            self._running = False
+            self._thread = None
         self._stop_event.clear()
         self._tick = 0
         self._last_error = None
@@ -1415,8 +2198,13 @@ class TagGenerator:
         if not self._running:
             return
         self._stop_event.set()
-        if self._thread:
+        if self._thread is not None:
             self._thread.join(timeout=3)
+            if self._thread.is_alive():
+                _alerts.add("generator",
+                            "El hilo del generador no respondio al stop. "
+                            "Se conserva running=True para impedir un segundo generador.")
+                return
         self._running = False
         self._thread = None
 
@@ -1506,63 +2294,90 @@ class HeartbeatManager:
         self._cfg = merged
 
     def _save_config(self):
-        store = _load_tags()
-        store["heartbeat"] = self._cfg
-        _save_tags(store)
+        with _tags_lock:
+            store = _load_tags()
+            store["heartbeat"] = self._cfg
+            _save_tags(store)
 
     def _next_value(self):
         return self._cfg["value_a"] if (self._tick % 2 == 0) else self._cfg["value_b"]
 
     def _worker(self):
-        while not self._stop_event.is_set():
-            try:
-                lic = _license_check()
-                if not lic["valid"]:
-                    self._last_error = f"Heartbeat bloqueado: {lic['reason']}"
-                    self._last_write_ok = False
-                    self._last_echo_ok = False
-                    _alerts.add("licencia", f"Heartbeat bloqueado: {lic['reason']}")
-                    self._last_ts = time.time()
-                    self._tick += 1
-                    self._stop_event.wait(max(0.2, float(self._cfg.get("intervalo_s", 2.0))))
-                    continue
-
-                val_out = self._next_value()
-                dtype = self._cfg.get("data_type", "Float")
-                res = _kep.write_tag(self._cfg["tag_out"], val_out, dtype)
-                self._last_out = val_out
-                self._last_write_ok = bool(res.get("ok"))
-                if not self._last_write_ok:
-                    self._last_error = res.get("error") or "Escritura fallida"
-                    _alerts.add("heartbeat", f"HB write: {self._last_error}")
-                else:
-                    _alerts.resolve_category("heartbeat")
-
-                read = _kep.read_tags_batch([self._cfg["tag_in"]])
-                info = read.get(self._cfg["tag_in"], {}) or {}
-                self._last_in = info.get("value")
+        try:
+            while not self._stop_event.is_set():
                 try:
-                    self._last_echo_ok = bool(
-                        info.get("connected") and info.get("exists")
-                        and self._last_in is not None
-                        and float(self._last_in) == float(val_out)
-                    )
-                except Exception:
-                    self._last_echo_ok = False
+                    lic = _license_check()
+                    if not lic["valid"]:
+                        self._last_error = f"Heartbeat bloqueado: {lic['reason']}"
+                        self._last_write_ok = False
+                        self._last_echo_ok = False
+                        _alerts.add("licencia", f"Heartbeat bloqueado: {lic['reason']}")
+                        self._last_ts = time.time()
+                        self._tick += 1
+                        self._stop_event.wait(max(0.2, float(self._cfg.get("intervalo_s", 2.0))))
+                        continue
 
-                if self._last_write_ok:
-                    self._last_error = None
-                self._last_ts = time.time()
-            except Exception as e:
-                self._last_error = str(e)
-                _alerts.add("heartbeat", str(e), traceback.format_exc())
-            self._tick += 1
-            self._stop_event.wait(max(0.2, float(self._cfg.get("intervalo_s", 2.0))))
+                    val_out = self._next_value()
+                    dtype = self._cfg.get("data_type", "Float")
+                    res = _kep.write_tag(self._cfg["tag_out"], val_out, dtype)
+                    self._last_out = val_out
+                    self._last_write_ok = bool(res.get("ok"))
+                    if not self._last_write_ok:
+                        self._last_error = res.get("error") or "Escritura fallida"
+                        _alerts.add("heartbeat", f"HB write: {self._last_error}")
+                    else:
+                        _alerts.resolve_category("heartbeat")
+
+                    tag_in = str(self._cfg.get("tag_in") or "").strip()
+                    if not tag_in:
+                        # Sin eco declarado: es un heartbeat de solo escritura
+                        # (patron real del handshake PCS7). No hay nada que
+                        # verificar.
+                        self._last_in = None
+                        self._last_echo_ok = None
+                    else:
+                        read = _kep.read_tags_batch([tag_in])
+                        info = read.get(tag_in, {}) or {}
+                        self._last_in = info.get("value")
+                        try:
+                            self._last_echo_ok = bool(
+                                info.get("connected") and info.get("exists")
+                                and self._last_in is not None
+                                and float(self._last_in) == float(val_out)
+                            )
+                        except Exception:
+                            self._last_echo_ok = False
+
+                    if self._last_write_ok:
+                        self._last_error = None
+                    self._last_ts = time.time()
+                except Exception as e:
+                    self._last_error = str(e)
+                    _alerts.add("heartbeat", str(e), traceback.format_exc())
+                self._tick += 1
+                self._stop_event.wait(max(0.2, float(self._cfg.get("intervalo_s", 2.0))))
+        except BaseException as e:
+            self._last_error = f"Worker heartbeat muerto: {e}"
+            _alerts.add("heartbeat",
+                        f"El hilo del heartbeat murio: {e}. El DCS puede "
+                        "reaccionar como si el SE hubiera crasheado.",
+                        traceback.format_exc())
+            raise
+        finally:
+            self._running = False
+            _kep.close_thread_client()      # ver SEEngine._worker (B1.2)
 
     def start(self):
-        if self._running:
-            return
         self._load_config()
+        # Reset de hilo zombie (worker crasheado entre pulsos).
+        if self._running:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            _alerts.add("heartbeat",
+                        "Heartbeat marcado corriendo pero con el hilo muerto. "
+                        "Se rearranca limpio.")
+            self._running = False
+            self._thread = None
         self._stop_event.clear()
         self._tick = 0
         self._last_error = None
@@ -1577,8 +2392,13 @@ class HeartbeatManager:
         if not self._running:
             return
         self._stop_event.set()
-        if self._thread:
+        if self._thread is not None:
             self._thread.join(timeout=3)
+            if self._thread.is_alive():
+                _alerts.add("heartbeat",
+                            "El hilo del heartbeat no respondio al stop. "
+                            "Se conserva running=True para impedir un segundo pulso.")
+                return
         self._running = False
         self._thread = None
         self._cfg["enabled"] = False
@@ -1599,6 +2419,9 @@ class HeartbeatManager:
             elif k == "data_type":
                 if v in ("Float", "Int", "Boolean", "String"):
                     self._cfg[k] = v
+            elif k == "tag_in":
+                # tag_in='' es valido: significa heartbeat sin eco (el DCS solo vigila el pulso).
+                self._cfg[k] = str(v).strip()
             else:
                 s = str(v).strip()
                 if s:
@@ -1677,15 +2500,25 @@ SP_TO_TAG = {
 # contar. Vive a nivel de modulo, asi que sobrevive a stop/start del motor.
 # ============================================================
 _GRABADOR_MAX = 500
+_GRABADOR_MAX_ACTIVOS = 5
 _grabadores: dict[str, deque] = {}
 _grabadores_activos: set[str] = set()
 _grabador_lock = threading.Lock()
+
+
+class GrabadorLimiteActivosError(Exception):
+    """Ya hay el maximo de reglas grabando en paralelo."""
 
 
 def grabador_start(regla_id: str) -> dict:
     """Empieza (o reinicia) la grabacion de una regla. Vacia lo anterior."""
     rid = str(regla_id)
     with _grabador_lock:
+        if rid not in _grabadores_activos and len(_grabadores_activos) >= _GRABADOR_MAX_ACTIVOS:
+            raise GrabadorLimiteActivosError(
+                f"Maximo {_GRABADOR_MAX_ACTIVOS} reglas grabando a la vez. "
+                "Detene una antes de empezar otra."
+            )
         _grabadores[rid] = deque(maxlen=_GRABADOR_MAX)
         _grabadores_activos.add(rid)
     return grabador_estado(rid)
@@ -1703,7 +2536,8 @@ def grabador_estado(regla_id: str | None = None) -> dict:
     with _grabador_lock:
         activos = sorted(_grabadores_activos)
         buffers = {k: len(v) for k, v in _grabadores.items()}
-    out = {"activos": activos, "buffers": buffers, "max": _GRABADOR_MAX}
+    out = {"activos": activos, "buffers": buffers, "max": _GRABADOR_MAX,
+           "max_activos": _GRABADOR_MAX_ACTIVOS}
     if regla_id is not None:
         rid = str(regla_id)
         out["regla_id"] = rid
@@ -1793,6 +2627,10 @@ def _grabar_evaluaciones(evaluadas: list[dict], efectos: dict, tick: int, t_s: f
                 # Un disparo que no movio el SP no reinicia su wait: hay que
                 # poder distinguirlo de uno que si actuo.
                 "movio_sp": efecto.get("movio_sp"),
+                # Y hay que poder decir POR QUE no movio: tracking, limite,
+                # paso 0 de la tabla o familia inhibida son cosas distintas.
+                "motivo_sin_efecto": efecto.get("motivo_sin_efecto"),
+                "movio_planta": efecto.get("movio_planta"),
                 "waits_revertidos": list(efecto.get("waits_revertidos") or []),
                 "repeticiones": 1,
             })
@@ -1820,24 +2658,63 @@ def _nueva_traza(tick: int, t_s: float, mapeo: dict) -> dict:
             "listo": mapeo.get("listo", False),
             "listo_en_uso": mapeo.get("listo_en_uso", False),
         },
-        "lectura": [], "filtro": [], "limites": {}, "derivadas": {},
+        "lectura": [], "estancadas": [], "retenidos": [], "filtro": [],
+        "limites": {}, "derivadas": {},
         "derivadas_omitidas": [], "pendientes_omitidas": [], "tracking": [],
         "fuzzy": [], "fuzzy_omitidas": [], "permisivos": {}, "reglas": [],
         "waits_activos": [], "disparadas": [], "defuzzy": [], "escritura": {},
     }
 
 
-def _traza_lectura(mapeo: dict, live: dict, fallas: dict) -> list[dict]:
+def valor_utilizable(info: dict) -> bool:
+    """¿Se puede decidir sobre este dato? (B1.4)
+
+    Un unico criterio para las tres lecturas que importan — PV/CRUDA/LIM, el
+    valor inicial de un SP y la reconciliacion con el DCS. Estaban cada una con
+    su propio `exists and value is not None`, que era el mismo chequeo tres
+    veces; ahora que hay una politica de calidad de verdad, tres copias es el
+    camino corto a que una quede atras.
+
+    NO cubre el handshake: ahi la exigencia es mas dura (`Good` a secas, sin
+    excepcion configurable) porque un permiso que no se puede verificar es un
+    permiso denegado. Ver `_chequear_handshake_dcs`.
+    """
+    if not info.get("exists") or info.get("value") is None:
+        return False
+    calidad = info.get("quality", "Unknown")
+    if calidad == "Good":
+        return True
+    if calidad == "Uncertain":
+        return _kep.get_aceptar_uncertain()
+    return False
+
+
+def _traza_lectura(mapeo: dict, live: dict, fallas: dict,
+                   retenidos: list | None = None) -> list[dict]:
     """Una fila por tag mapeado: valor, calidad y si fallo."""
     fallidos = {f["tag"] for grupo in fallas.values() for f in grupo}
+    # Un tag retenido no es ninguno de los dos estados que habia. La calidad
+    # que muestra la fila es la de ESTA lectura (mala), pero el valor que uso
+    # el pipeline es el retenido — mostrar el valor nuevo seria mentir sobre
+    # que numero decidio.
+    retenidos_por_tag = {r["tag"]: r for r in (retenidos or [])}
     filas = []
 
     def _add(tag, cat, rol):
         info = live.get(tag, {})
+        ret = retenidos_por_tag.get(tag)
         filas.append({
             "tag": tag, "categoria": cat, "rol": rol,
-            "valor": info.get("value"),
+            "valor": (ret["valor"] if ret else info.get("value")),
+            "retenido": bool(ret),
+            "retenido_edad_s": (ret["edad_s"] if ret else None),
             "quality": info.get("quality", "Unknown"),
+            # B1.4: el nombre exacto del StatusCode. "Bad" no le dice a nadie
+            # a donde ir; "BadNotConnected" (cable) y "BadUserAccessDenied"
+            # (permisos en el KEPserver) son dos viajes distintos.
+            "status_code": info.get("status_code", ""),
+            "source_ts": info.get("source_ts"),
+            "estancado_s": info.get("estancado_s", 0.0),
             "ok": tag not in fallidos,
         })
 
@@ -1845,8 +2722,13 @@ def _traza_lectura(mapeo: dict, live: dict, fallas: dict) -> list[dict]:
         _add(tag, "pv", rol)
     for tag, rol in mapeo.get("tag_to_cruda", {}).items():
         _add(tag, "cruda", rol)
-    for tag, (var, bound) in mapeo.get("tag_to_lim", {}).items():
-        _add(tag, "lim", f"{var}_{bound}")
+    for tag, pares in mapeo.get("tag_to_lim", {}).items():
+        # Un tag puede acotar varias variables: una fila por cada uso, para que
+        # la traza no oculte que el mismo instrumento alimenta a dos escalas.
+        for var, bound in pares:
+            _add(tag, "lim", f"{var}_{bound}")
+    for sp_key, tag in mapeo.get("sp_to_tag", {}).items():
+        _add(tag, "sp", sp_key)
     return filas
 
 
@@ -1888,6 +2770,117 @@ def _sp_en_limite(valor, lims) -> str | None:
     if v <= ll + 1e-9:
         return "min"
     return None
+
+
+def _traza_valor_tag_sp(tag: str | None, live: dict) -> dict:
+    """Lectura del tag SP tal como llego de OPC en este tick (sin retencion)."""
+    if not tag:
+        return {"valor": None, "quality": "Unknown", "ok": False}
+    info = live.get(tag) or {}
+    valor = None
+    if info.get("value") is not None:
+        try:
+            valor = float(info["value"])
+        except (TypeError, ValueError):
+            pass
+    return {
+        "valor": round(valor, 4) if valor is not None else None,
+        "quality": info.get("quality", "Unknown"),
+        "ok": valor_utilizable(info),
+    }
+
+
+def _traza_defuzzy_setpoints(setpoints: dict, sp_antes: dict, mapeo: dict,
+                             live: dict, sp_escritos: dict,
+                             limites_sp: dict) -> list[dict]:
+    """Filas del paso 8: planta (tag), escrito (DCS) e interno (SE)."""
+    sp_to_tag = mapeo.get("sp_to_tag", {})
+    filas = []
+    for k, v in setpoints.items():
+        tag = sp_to_tag.get(k)
+        planta = _traza_valor_tag_sp(tag, live)
+        escrito = None
+        if tag and tag in sp_escritos:
+            escrito = round(float(sp_escritos[tag]), 4)
+        interno_antes = round(float(sp_antes.get(k, 0.0)), 4)
+        interno_despues = round(float(v), 4)
+        interno_delta = round(interno_despues - interno_antes, 4)
+        filas.append({
+            "sp": k,
+            "tag": tag,
+            "planta": planta["valor"],
+            "planta_ok": planta["ok"],
+            "planta_quality": planta["quality"],
+            "escrito": escrito,
+            "interno": {
+                "antes": interno_antes,
+                "despues": interno_despues,
+                "delta": interno_delta,
+            },
+            # Compatibilidad: el historial 7b aun usa estos campos como interno.
+            "antes": interno_antes,
+            "despues": interno_despues,
+            "delta": interno_delta,
+            "limites": list(limites_sp.get(k, (None, None))),
+            "en_limite": _sp_en_limite(v, limites_sp.get(k)),
+            "inhibido": False,
+            "inhibido_motivo": None,
+        })
+    return filas
+
+
+def _traza_par_sp(antes, despues) -> dict:
+    """Par antes/despues/delta con redondeo; tolera None."""
+    try:
+        a = round(float(antes), 3) if antes is not None else None
+    except (TypeError, ValueError):
+        a = None
+    try:
+        d = round(float(despues), 3) if despues is not None else None
+    except (TypeError, ValueError):
+        d = None
+    if a is None or d is None:
+        delta = None
+    else:
+        delta = round(d - a, 3)
+    return {"antes": a, "despues": d, "delta": delta}
+
+
+def _traza_setpoints_disparo(sp_prev: dict, setpoints: dict, mapeo: dict,
+                             live: dict, escrito_antes: dict,
+                             escrito_despues: dict,
+                             tags_escritos: set) -> dict:
+    """Efecto de un disparo: planta (tag/DCS) e interno (SE), por familia."""
+    sp_to_tag = mapeo.get("sp_to_tag", {})
+    out: dict = {}
+    for k, val in setpoints.items():
+        tag = sp_to_tag.get(k)
+        planta_info = _traza_valor_tag_sp(tag, live)
+        planta_a = planta_info["valor"]
+        planta_d = planta_a
+        if tag and tag in tags_escritos and tag in escrito_despues:
+            planta_d = round(float(escrito_despues[tag]), 4)
+        interno = _traza_par_sp(sp_prev.get(k, 0.0), val)
+        planta = _traza_par_sp(planta_a, planta_d)
+        out[k] = {
+            "planta": planta,
+            "interno": interno,
+            # Compatibilidad: alias del interno.
+            "antes": interno["antes"],
+            "despues": interno["despues"],
+            "delta": interno["delta"],
+        }
+    return out
+
+
+def _movio_planta(setpoints_efecto: dict) -> bool:
+    """True si algun SP de planta cambio en este disparo (post-escritura)."""
+    for det in (setpoints_efecto or {}).values():
+        p = det.get("planta") or {}
+        delta = p.get("delta")
+        if delta is not None and abs(float(delta)) > SP_DEADBAND:
+            return True
+    return False
 
 
 def _traza_waits(estado_waits: dict, t_s: float) -> list[dict]:
@@ -1933,6 +2926,12 @@ def _reset_trazas() -> None:
 # quiere una banda de verdad (p. ej. 0.1 % de velocidad), este es el lugar.
 SP_DEADBAND = 1e-6
 
+# Tope del presupuesto de rampa de un SP. Acota cuanto puede crecer el paso
+# permitido cuando ese setpoint estuvo un rato sin escribirse; con 1.0 s, el
+# valor declarado en `rate_sp` es tambien el paso maximo de un solo write.
+# El razonamiento completo esta en `SEEngine._aplicar_rate_limit`.
+RATE_DT_MAX_S = 1.0
+
 
 class _SaltarPersistencia(Exception):
     """Corta el armado del payload cuando este tick no toca guardar."""
@@ -1967,9 +2966,17 @@ class SEEngine:
 
         self._setpoints: dict = {}
         self._limites_sp: dict = {}
+        # Cableado limite -> tag de los SP (foto del start) y familias que este
+        # tick no tienen limites utilizables. Ver `_resolver_limites_sp`.
+        self._bindings_sp: dict = {}
+        self._bindings_pv: set = set()
+        self._sp_sin_limite: dict = {}
+        self._limites_num: dict = {}
+        self._limites_num_sp: dict = {}
         # Ultimo valor efectivamente escrito al DCS por SP. Es la referencia
         # del write-on-change: si el SP no cambio, no se escribe.
         self._sp_escritos: dict = {}
+        self._sp_rate_t: dict = {}
         self._sp_escrituras = 0
         self._sp_omitidos = 0
         self._last_action_time: dict = {}
@@ -1986,6 +2993,12 @@ class SEEngine:
                              "tag_to_lim": {}, "sp_to_tag": {}}
         self._last_read: dict = {}
         self._last_fallas: dict = {"pv": [], "cruda": [], "lim": []}
+        self._last_estancadas: list = []
+        self._last_retenidos: list = []
+        self._hubo_aviso_calidad: bool = False
+        # tag -> (ultimo valor utilizable, `_t_s` en que se leyo). Es la memoria
+        # que sostiene la retencion del ultimo valor bueno.
+        self._ultimo_bueno: dict[str, tuple[float, float]] = {}
         # Roles que el pipeline consume de verdad (ver roles_en_uso). Es el
         # criterio para decidir por que faltante se alerta y por cual no.
         self._en_uso: dict = {}
@@ -2010,6 +3023,20 @@ class SEEngine:
         # setpoint: se dejan de empujar hasta que el DCS se ponga al dia.
         self._tracking: dict = {}
         self._sp_retenidos: dict = {}
+        # Siembra bumpless: cada vez que el DCS ENTREGA el lazo (flanco del
+        # handshake FBK: denegado -> concedido), el SP de la familia se
+        # reescribe con el valor con el que el equipo venia operando.
+        # `_sp_semilla_cfg` es {familia: {fuente, tag, pv_key}} y
+        # `_sp_semilla_pendiente` las familias armadas por el ultimo flanco y
+        # todavia sin sembrar.
+        self._sp_semilla_cfg: dict = {}
+        self._sp_semilla_pendiente: set = set()
+        # Ultimo estado del permiso del DCS. None = todavia sin evaluar; el
+        # primer permiso concedido tras arrancar TAMBIEN es entrega de lazo.
+        self._handshake_permiso_prev: bool | None = None
+        # Familias sembradas en ESTE tick. El tracking las tiene que dejar
+        # pasar una vez (ver `_evaluar_tracking`).
+        self._sp_recien_sembrados: set = set()
         # Lo que impide arrancar, detectado en _init_state y leido por start().
         self._problemas_arranque: list[str] = []
         # Lo que degrada pero NO impide arrancar (ej. una PV sin fuzzy).
@@ -2019,6 +3046,13 @@ class SEEngine:
         # wait de 10 min no se ve disparar NUNCA ahi. Este historial sobrevive
         # al anillo y es lo que contesta "esta funcionando o no".
         self._historial_disparos: deque = deque(maxlen=50)
+        # Historial de ESCRITURAS al DCS. La traza es un anillo de 60 ticks
+        # (segundos, en ciclo libre) y el write-on-change hace que la mayoria
+        # de los ticks no escriban nada: mirando solo la traza es imposible
+        # responder "que le mando el experto a la planta en la ultima hora".
+        # Esto sobrevive a los ticks y es el registro de auditoria de lo unico
+        # que sale del SE hacia el DCS.
+        self._historial_escrituras: deque = deque(maxlen=HISTORIAL_ESCRITURAS_MAX)
 
     def _leer_sp_actuales(self, solo: list[str] | None = None) -> tuple[dict, dict]:
         """Lee del DCS el valor vigente de cada SP del contrato.
@@ -2046,14 +3080,22 @@ class SEEngine:
         vals, malos = {}, {}
         for sp_key, tag in sp_tags.items():
             info = live.get(tag, {})
-            if info.get("exists") and info.get("value") is not None:
+            if valor_utilizable(info):
                 vals[sp_key] = float(info["value"])
             else:
                 malos[sp_key] = (f"no se pudo leer su valor actual ({tag}, "
-                                 f"calidad {info.get('quality', 'Unknown')})")
+                                 f"calidad {info.get('quality', 'Unknown')}"
+                                 + (f"/{info['status_code']}"
+                                    if info.get("status_code") else "") + ")")
         return vals, malos
 
     def _init_state(self):
+        # El motor solo toma el contrato nuevo en cada start(); releer aqui
+        # alinea config.py con contrato.json en disco (import, edicion manual,
+        # o guardado desde otra pestana) antes de armar el mapeo.
+        import config as cfg_mod
+        cfg_mod.recargar_contrato()
+
         from core.filters.exp_q import ExpQFilter
         from runner import (cargar_reglas_json, cargar_permisivos_json,
                             cargar_filtros_json)
@@ -2086,6 +3128,15 @@ class SEEngine:
         self._vars_calc.reset()
         self._limites_calc = limites_fijos_calculadas()
 
+        # Se declaran ACA y no mas abajo: los bloques de pendientes y de
+        # tracking que siguen les agregan avisos. Estaban declaradas despues
+        # de su primer uso, asi que cualquier aviso (tipico: una familia de
+        # tracking que no esta en el contrato) reventaba el arranque entero
+        # con UnboundLocalError. El front recibia la pagina de error 500 de
+        # Flask e informaba "Unexpected token '<'", que no decia nada.
+        problemas: list[str] = []
+        advertencias: list[str] = []
+
         # --- Fuzzy de pendiente: de pendientes.json, uno o varios por PV ---
         from core.fuzzy.pendientes import PendientesOnline
         cfg_pend = pendientes_definidas()
@@ -2104,13 +3155,24 @@ class SEEngine:
                           if f in SETPOINT_KEYS and c.get("habilitado", True)
                           and str(c.get("pv_key") or "").strip()}
         self._sp_retenidos = {}
+        # Siembra bumpless desde la PV. Usa el mismo `pv_key` que declara
+        # tracking.json pero NO mira `habilitado`: son dos cosas distintas.
+        # El tracking decide si se sigue empujando; la siembra decide con que
+        # valor arranca el SP cuando el DCS entrega el lazo, y eso tiene que
+        # valer igual con el tracking apagado.
+        self._sp_semilla_cfg = {f: c for f, c in arranque_definido().items()
+                                if f in SETPOINT_KEYS and c.get("fuente") != "ninguno"}
+        # Arrancar el motor ya NO siembra: el disparador es el flanco del
+        # ENABLE del DCS. Un arranque con el permiso ya concedido lo detecta
+        # igual el flanco (`_handshake_permiso_prev` empieza en None).
+        self._sp_semilla_pendiente = set()
+        self._handshake_permiso_prev = None
+        self._sp_recien_sembrados = set()
         sin_familia = [f for f in tracking_definido() if f not in SETPOINT_KEYS]
         if sin_familia:
             advertencias.append("tracking de familias que no estan en el contrato "
                                 "(se ignoran): " + ", ".join(sorted(sin_familia)))
 
-        problemas: list[str] = []
-        advertencias: list[str] = []
         # Familias de SP que el motor calcula pero NO escribe al DCS. Es la
         # alternativa a negarse a arrancar: el pipeline corre completo y solo
         # se retiene la escritura de lo que no se puede hacer con seguridad.
@@ -2123,9 +3185,27 @@ class SEEngine:
             # partiria de un valor inventado y daria un salto al operador. Se
             # inhibe la escritura y se reintenta la lectura en cada tick.
             self._sp_inhibidos[sp_key] = f"{motivo}; sin arranque bumpless no se escribe"
-        # --- Limites de SP: del contrato. Sin ellos no hay clipeo ---
-        self._limites_sp = {k: tuple(v) for k, v in LIMITES_SP_CONTRATO.items()
-                            if k in SETPOINT_KEYS}
+        # --- Limites de SP: del tag si esta cableado, del contrato si no ---
+        # El cableado se fotografia aca, como todo lo demas: el motor toma la
+        # configuracion nueva en su proximo start(). Los VALORES, en cambio, se
+        # releen en cada tick (`_resolver_limites_sp`), asi que un limite de
+        # ingenieria que cambia en el DCS se sigue solo.
+        self._bindings_sp = {k: v for k, v in bindings_limites().items()
+                             if k[0] in SETPOINT_KEYS}
+        self._sp_sin_limite: dict[str, str] = {}
+        # Respaldos numericos: los de las PV (fuzzy.json) y los de los SP
+        # (defuzzy.json). Solo traen los HABILITADOS a mano. El respaldo nunca
+        # le gana al tag; solo cubre el bound que no tiene tag asignado.
+        # Cableado de las PV, para saber que bound NO debe caer al respaldo.
+        self._bindings_pv = {k for k in bindings_limites()
+                             if k[0] not in SETPOINT_KEYS}
+        self._limites_num = limites_num(FUZZY_JSON)
+        self._limites_num_sp = limites_num(DEFUZZY_JSON)
+        # Arranque: todavia no se leyo ningun tag, asi que el clipeo bumpless
+        # usa el respaldo. El primer tick lo reemplaza por lo leido.
+        self._limites_sp = {k: (v["lmin"], v["lmax"])
+                            for k, v in self._limites_num_sp.items()
+                            if k in SETPOINT_KEYS and "lmin" in v and "lmax" in v}
 
         # El valor que trae el DCS puede caer fuera del rango declarado (SP
         # viejo, limite recien cambiado). Se entra al rango de una vez, para no
@@ -2139,14 +3219,11 @@ class SEEngine:
         self._setpoints = {k: _en_rango(k, sp_vals.get(k, 0.0))
                            for k in SETPOINT_KEYS}
 
-        # Sin limites no hay clipeo, y escribir al DCS sin tope es la unica
-        # cosa que este archivo no puede permitirse. Antes eso impedia
-        # arrancar; ahora se inhibe SOLO esa familia y el resto del SE corre.
-        for sp_key in SETPOINT_KEYS:
-            if sp_key not in self._limites_sp:
-                self._sp_inhibidos.setdefault(
-                    sp_key,
-                    "sin limites en contrato.json (se escribiria al DCS sin tope)")
+        # La falta de limites ya NO se inhibe aca. Antes era un veredicto de
+        # arranque y quedaba pegado toda la corrida; con los limites leidos de
+        # un tag eso seria falso apenas el tag conteste. Pasa a evaluarse en
+        # cada tick (`_resolver_limites_sp` -> `_sp_sin_limite`), asi la familia
+        # se libera sola en cuanto sus limites vuelven a ser legibles.
         if self._sp_inhibidos:
             advertencias.append(
                 "setpoints inhibidos (se calculan pero NO se escriben al DCS): "
@@ -2154,6 +3231,13 @@ class SEEngine:
 
         self._last_action_time = {}
         self._hist = {}
+        # OBLIGATORIO limpiarlo junto con el reloj: `_ultimo_bueno` fecha con
+        # `_t_s`, que vuelve a 0 en cada arranque. Una marca del arranque
+        # anterior daria una edad NEGATIVA — o sea, dentro de la ventana para
+        # siempre — y el motor arrancaria reteniendo valores de la corrida
+        # pasada sin que nada lo delate.
+        self._ultimo_bueno = {}
+        self._last_retenidos = []
         self._t0 = time.monotonic()
         self._t_s = 0.0
         self._tick = 0
@@ -2163,11 +3247,25 @@ class SEEngine:
         self._dormido_s = 0.0
         # Arranque: el primer tick escribe siempre, aunque el SP no cambie.
         self._sp_escritos = {}
+        # tag -> `_t_s` de su ultima escritura efectiva. Se limpia con el reloj
+        # por el mismo motivo que `_ultimo_bueno`: `_t_s` vuelve a 0.
+        self._sp_rate_t = {}
         self._sp_escrituras = 0
         self._sp_omitidos = 0
         self._last_events = []
         self._historial_disparos.clear()
+        self._historial_escrituras.clear()
         self._last_error = None
+
+        # Handshake DCS (fail-closed). Si el DCS no habilita el control externo
+        # via enable_fbk_tag, ese tick no se escribe ningun SP. La config vive
+        # en tags.json bajo "handshake"; con enabled=false el motor opera sin
+        # restricciones (util para simulador local y bring-up).
+        hs = (_load_tags().get("handshake") or {})
+        self._handshake_enabled = bool(hs.get("enabled"))
+        self._handshake_fbk_tag = str(hs.get("enable_fbk_tag") or "").strip()
+        self._handshake_ext_tag = str(hs.get("enable_ext_tag") or "").strip()
+        self._handshake_ultimo = None  # ultimo estado observado, para la traza
 
         # --- Filtro Exp-Q: de filtros.json, no del default del espesador ---
         # Con el default hardcodeado, cualquier contrato que no fuera el del
@@ -2225,11 +3323,29 @@ class SEEngine:
                 "roles sin tag asignado que hoy no usa nadie (el SE corre igual): "
                 + " | ".join(f"{cat.upper()}: " + ", ".join(roles)
                              for cat, roles in sorted(ociosos.items())))
-        if self._mapeo.get("duplicados"):
+        duplicados = self._mapeo.get("duplicados") or {}
+        if duplicados:
             advertencias.append(
-                "roles con mas de un tag asignado (gana el ultimo leido; "
-                "corrigelo en Tags KEPserver): "
-                + ", ".join(sorted(self._mapeo["duplicados"])))
+                "roles con mas de un tag asignado (se usa el primero y se ignora "
+                "el resto; corrigelo en Tags KEPserver): "
+                + ", ".join(f"{k} -> {', '.join(v)}" for k, v in sorted(duplicados.items())))
+        # Un SP ambiguo no se escribe. Para una PV, elegir mal significa leer el
+        # sensor equivocado; para un SP significa MOVER el equipo equivocado, y
+        # eso no se resuelve con una advertencia que nadie lee. La familia se
+        # calcula y se grafica, pero la escritura queda retenida hasta que
+        # quede un solo tag con ese rol.
+        for clave, tags_dup in sorted(duplicados.items()):
+            cat, _, rol = clave.partition("::")
+            if cat != "sp" or rol not in SETPOINT_KEYS:
+                continue
+            self._sp_inhibidos[rol] = (
+                f"rol asignado a {len(tags_dup)} tags ({', '.join(tags_dup)}): "
+                "ambiguo, no se escribe hasta que quede uno solo")
+            _alerts.add("config",
+                        f"Setpoint '{rol}' con mas de un tag asignado: no se escribe.",
+                        detail="Dejar un solo tag con ese rol en Tags KEPserver. "
+                               "Escribir el setpoint en el tag equivocado mueve un "
+                               "equipo que nadie pidio mover.")
 
         self._problemas_arranque = problemas
         self._advertencias_arranque = advertencias
@@ -2281,65 +3397,196 @@ class SEEngine:
         TAG_TO_PV    = self._mapeo["tag_to_pv"]
         TAG_TO_CRUDA = self._mapeo["tag_to_cruda"]
         TAG_TO_LIM   = self._mapeo["tag_to_lim"]
+        SP_TO_TAG    = self._mapeo.get("sp_to_tag", {})
 
         all_tags = list(TAG_TO_PV.keys()) + list(TAG_TO_CRUDA.keys()) + list(TAG_TO_LIM.keys())
+        # Piggyback del handshake: entra al mismo lote que el resto. Desde B1.2
+        # la sesion OPC-UA es persistente, asi que ya no ahorra una conexion,
+        # pero sigue valiendo por otra razon: leerlo en el mismo lote garantiza
+        # que la autorizacion y las PV sobre las que se decide vengan de la
+        # misma pasada, en vez de dos lecturas separadas en el tiempo.
+        if self._handshake_enabled and self._handshake_fbk_tag \
+                and self._handshake_fbk_tag not in all_tags:
+            all_tags.append(self._handshake_fbk_tag)
+        # Piggyback de los SP: se leen para detectar intervencion manual del
+        # operador desde el DCS. Van en el mismo lote por el mismo motivo que
+        # el handshake — una sola pasada de lectura por tick.
+        for sp_tag in SP_TO_TAG.values():
+            if sp_tag and sp_tag not in all_tags:
+                all_tags.append(sp_tag)
         live = _read_kepserver_tags_batch(all_tags)
         self._last_read = live          # lo consume la traza
 
         # Registro de fallas por rol — lo consume la traza para explicar
         # exactamente que falto, en vez de un "no se pudo leer" generico.
         fallas = {"pv": [], "cruda": [], "lim": []}
+        retenidos: list[dict] = []
 
-        def _ok(info):
-            return info.get("exists") and info.get("value") is not None
+        def _detalle(info):
+            """Motivo legible de la falla. Sin esto la traza dice 'Bad' y nada más."""
+            return {"quality": info.get("quality", "Unknown"),
+                    "status_code": info.get("status_code", ""),
+                    "conectado": bool(info.get("connected"))}
+
+        ventana_ret = _kep.get_retencion_s()
+
+        def _resolver(tag, rol, info):
+            """Valor usable de un tag, con retención del último bueno.
+
+            Devuelve el valor o None. Un tag que acaba de llegar bien refresca
+            su marca; uno que se cayo sigue valiendo su ultimo valor bueno
+            durante `retencion_s` segundos.
+
+            **El reloj es el del motor, no el del servidor.** El `source_ts` de
+            este servidor es la hora de la LECTURA, no la del ultimo cambio (ver
+            B1.4), asi que no sirve como edad del dato. Se cuenta desde el ultimo
+            tick en que el tag estuvo utilizable, igual que `estancado_s`.
+            """
+            if valor_utilizable(info):
+                try:
+                    val = float(info["value"])
+                except (TypeError, ValueError):
+                    pass
+                else:
+                    self._ultimo_bueno[tag] = (val, self._t_s)
+                    return val
+            if ventana_ret <= 0:
+                return None
+            previo = self._ultimo_bueno.get(tag)
+            if previo is None:
+                return None                 # nunca estuvo bien: no hay nada que retener
+            val, t_bueno = previo
+            edad = self._t_s - t_bueno
+            if edad > ventana_ret:
+                return None                 # se agoto la retencion: ahora si desaparece
+            retenidos.append({"rol": rol, "tag": tag, "valor": val,
+                              "edad_s": round(edad, 2), **_detalle(info)})
+            return val
 
         inputs = {}
         for tag, var in TAG_TO_PV.items():
             info = live.get(tag, {})
-            if _ok(info):
-                inputs[var] = float(info["value"])
+            val = _resolver(tag, var, info)
+            if val is not None:
+                inputs[var] = val
             else:
-                fallas["pv"].append({"rol": var, "tag": tag,
-                                     "quality": info.get("quality", "Unknown")})
+                fallas["pv"].append({"rol": var, "tag": tag, **_detalle(info)})
 
         crudas = {}
         for tag, var in TAG_TO_CRUDA.items():
             info = live.get(tag, {})
-            if _ok(info):
-                crudas[var] = float(info["value"])
+            val = _resolver(tag, var, info)
+            if val is not None:
+                crudas[var] = val
             else:
                 crudas[var] = 0.0
-                fallas["cruda"].append({"rol": var, "tag": tag,
-                                        "quality": info.get("quality", "Unknown")})
+                fallas["cruda"].append({"rol": var, "tag": tag, **_detalle(info)})
 
         limites = {}
-        for tag, (var, bound) in TAG_TO_LIM.items():
+        for tag, pares in TAG_TO_LIM.items():
             info = live.get(tag, {})
-            if var not in limites:
-                limites[var] = {}
-            if _ok(info):
-                limites[var][bound] = float(info["value"])
-            else:
+            # Una sola lectura del tag alimenta a todas las variables que acota.
+            for var, bound in pares:
+                if var not in limites:
+                    limites[var] = {}
+                val = _resolver(tag, f"{var}_{bound}", info)
+                if val is not None:
+                    limites[var][bound] = val
+                    continue
                 # Antes se rellenaba con 0.0 y el tick seguia. Un limite en 0
                 # no es "sin dato": es una escala inventada. Con lmin=lmax=0 un
                 # fuzzy `norm` da OK=1.0 perfecto para siempre, y un `high`
                 # mide el offset contra cero. El motor se veia verde mientras
                 # decidia sobre una variable que ya no significaba nada.
                 fallas["lim"].append({"rol": f"{var}_{bound}", "tag": tag,
-                                      "quality": info.get("quality", "Unknown")})
+                                      **_detalle(info)})
 
         self._last_fallas = fallas
+        self._last_retenidos = retenidos
+        self._last_estancadas = self._detectar_estancadas(live, TAG_TO_PV)
+        hubo_aviso = bool(self._last_estancadas
+                          and any(e["rol"] in self._en_uso.get("pv", set())
+                                  for e in self._last_estancadas))
+
+        if retenidos:
+            hubo_aviso = True
+            # Sin los segundos en el mensaje: `AlertCollector.add` deduplica por
+            # texto exacto y la edad cambia en cada tick (ver A18).
+            _alerts.add("calidad",
+                        f"Usando el ultimo valor bueno (hasta {ventana_ret:.0f} s) "
+                        f"porque la calidad se cayo: "
+                        + ", ".join(sorted(r["rol"] for r in retenidos)),
+                        detail="Si la calidad no vuelve antes de ese plazo, la "
+                               "variable sale del pipeline y las reglas que la "
+                               "nombran quedan no_evaluable. Ver el paso 1 de la traza.")
 
         # Solo se alerta por lo que alguna etapa posterior usa. Una PV que
         # nadie fuzzifica ni nombra en una regla puede faltar sin consecuencia.
         for cat in ("pv", "lim"):
-            usados = [f["rol"] for f in fallas[cat]
+            usados = [f for f in fallas[cat]
                       if f["rol"] in self._en_uso.get(cat, set())]
             if usados:
-                _alerts.add("kep", f"{cat.upper()} en uso que no se pudieron leer "
-                                   f"(quedan fuera del fuzzy): " + ", ".join(sorted(usados)))
+                hubo_aviso = True
+                # El motivo va en el aviso: "Bad/BadNotConnected" y
+                # "Uncertain/UncertainLastUsableValue" mandan al operador a
+                # lugares muy distintos, y antes las dos decian lo mismo.
+                detalle = ", ".join(
+                    f"{f['rol']} ({f['quality']}"
+                    + (f"/{f['status_code']}" if f.get("status_code") else "")
+                    + ")"
+                    for f in sorted(usados, key=lambda x: x["rol"]))
+                _alerts.add("calidad", f"{cat.upper()} en uso que no se pudieron usar "
+                                       f"(quedan fuera del fuzzy): {detalle}")
 
+        self._hubo_aviso_calidad = hubo_aviso
         return inputs, crudas, limites
+
+    def _detectar_estancadas(self, live: dict, tag_to_pv: dict) -> list[dict]:
+        """PV cuyo valor no cambia desde hace demasiado. Avisa, no inhibe.
+
+        Es la parte de B1.4 que el backlog planteaba con el SourceTimestamp. No
+        se puede: verificado contra el servidor, el SourceTimestamp avanza en
+        CADA lectura aunque el valor no se mueva, asi que como detector de
+        congelado da siempre "fresco". El conector mide entonces el
+        estancamiento del VALOR, que es la mejor senal disponible (un float
+        analogico real jitterea en los ultimos bits).
+
+        AVISA Y NO SACA LA VARIABLE DEL PIPELINE, a diferencia de una calidad
+        mala. El motivo es que este detector no puede distinguir un scan
+        congelado de un proceso genuinamente quieto: un nivel en un tanque lleno
+        o un readback de velocidad clavado en su setpoint no se mueven, y estan
+        perfectos. Inhibir por esto dejaria al experto mudo justo en regimen
+        estacionario, que es cuando mas se lo necesita. Es un diagnostico para
+        el instrumentista, no un interlock.
+
+        Solo mira PV: un tag LIM vale 90.0 para siempre y eso es correcto.
+        """
+        umbral = _kep.get_estancado_alerta_s()
+        if umbral <= 0:
+            return []
+        estancadas = [
+            {"rol": var, "tag": tag,
+             "estancado_s": float(live[tag].get("estancado_s") or 0.0),
+             "valor": live[tag].get("value")}
+            for tag, var in tag_to_pv.items()
+            if tag in live and float(live[tag].get("estancado_s") or 0.0) >= umbral
+        ]
+        en_uso = [e for e in estancadas if e["rol"] in self._en_uso.get("pv", set())]
+        if en_uso:
+            # El mensaje NO lleva los segundos ni el valor a proposito.
+            # `AlertCollector.add` deduplica por mensaje EXACTO: con el numero
+            # adentro, cada tick generaria una alerta nueva — a ~6 tick/s son
+            # cientos de miles por dia en una lista que se recorre entera en
+            # cada add. Con el mensaje estable se incrementa `count` y ya. El
+            # numero que cambia vive en la traza, que es su lugar.
+            _alerts.add("calidad",
+                        f"PV sin cambiar de valor desde hace mas de {umbral:.0f} s "
+                        f"(posible scan congelado; se siguen usando): "
+                        + ", ".join(sorted(e["rol"] for e in en_uso)),
+                        detail="El detector no distingue un scan congelado de un "
+                               "proceso quieto: avisa y no inhibe. Ver el paso 1 "
+                               "de la traza para los segundos y el valor.")
+        return sorted(estancadas, key=lambda e: -e["estancado_s"])
 
     # Cada cuanto se reintenta leer el valor de un SP inhibido por lectura.
     REINTENTO_SP_S = 5.0
@@ -2370,11 +3617,73 @@ class SEEngine:
             # Arranque bumpless tardio: se toma el valor del DCS como
             # referencia de escritura para no mandarle un salto al operador.
             tag = self._mapeo["sp_to_tag"].get(sp_key)
-            if tag:
+            # Si la familia todavia espera su siembra desde la PV, NO se toma
+            # este valor como referencia de escritura: hacerlo daria por
+            # cumplida la primera escritura sin haberla hecho nunca.
+            if tag and sp_key not in getattr(self, "_sp_semilla_pendiente", set()):
                 self._sp_escritos[tag] = float(valor)
             self._sp_inhibidos.pop(sp_key, None)
             _alerts.add("se_engine", f"SP {sp_key}: valor leido del DCS, "
                                      "escritura habilitada.")
+
+    def _reconciliar_sp_con_dcs(self) -> list[dict]:
+        """Adopta como propio el valor del SP si el operador lo movio en el DCS.
+
+        Sin esto, el operador HMI mueve un SP a mano y el SE lo revierte en el
+        proximo write-on-change: `_sp_escritos` tiene el valor viejo, el DCS
+        tiene el nuevo, y el SE detecta "cambio" en la direccion contraria.
+
+        Solo se reconcilia lo que el SE efectivamente escribio alguna vez
+        (`tag in self._sp_escritos`). Sin esa condicion, el primer tick tras
+        arrancar detectaria "todo cambio" y adoptaria valores que el arranque
+        bumpless ya trato. Las familias inhibidas o retenidas por tracking
+        tampoco entran: como el SE no las esta escribiendo, no tiene sentido
+        hablar de "intervencion externa" — su valor en el DCS es libre.
+
+        No se clipea el valor adoptado. El operador puede haber movido a
+        proposito fuera del rango de reglas; el clipeo natural del defuzzy en
+        la proxima escritura ya lo acota. Pisar en silencio la intervencion
+        seria peor.
+
+        Devuelve la lista de reconciliaciones aplicadas (para la traza).
+        """
+        eventos: list[dict] = []
+        SP_TO_TAG = self._mapeo.get("sp_to_tag", {})
+        if not SP_TO_TAG:
+            return eventos
+        inhibidos_o_retenidos = set(getattr(self, "_sp_inhibidos", {}).keys()) \
+                              | set(getattr(self, "_sp_retenidos", {}).keys())
+        for sp_key, tag in SP_TO_TAG.items():
+            if sp_key in inhibidos_o_retenidos:
+                continue
+            if tag not in self._sp_escritos:
+                continue
+            info = (self._last_read or {}).get(tag) or {}
+            # Adoptar un readback de calidad dudosa seria peor que no
+            # reconciliar: el SE se llevaria como "lo que quiso el operador" un
+            # valor que el servidor mismo no sostiene, y despues lo defenderia.
+            if not valor_utilizable(info):
+                continue
+            try:
+                dcs_val = float(info["value"])
+            except (TypeError, ValueError):
+                continue
+            escrito = float(self._sp_escritos[tag])
+            if abs(dcs_val - escrito) <= SP_DEADBAND:
+                continue
+            eventos.append({
+                "sp": sp_key, "tag": tag,
+                "antes": round(escrito, 4),
+                "dcs":   round(dcs_val, 4),
+                "delta": round(dcs_val - escrito, 4),
+            })
+            self._sp_escritos[tag] = dcs_val
+            self._setpoints[sp_key] = dcs_val
+        if eventos:
+            _alerts.add("se_engine",
+                        "Intervencion manual detectada — SP adoptados del DCS: "
+                        + ", ".join(f"{e['sp']}={e['dcs']}" for e in eventos))
+        return eventos
 
     def _evaluar_tracking(self, valores: dict) -> dict[str, str]:
         """Familias cuyo proceso todavia no alcanzo el setpoint escrito.
@@ -2393,7 +3702,15 @@ class SEEngine:
         familia queda sin efecto.
         """
         retenidos: dict[str, str] = {}
+        recien = getattr(self, "_sp_recien_sembrados", set()) or set()
         for familia, cfg in (self._tracking or {}).items():
+            # Familia recien sembrada: `_sp_escritos` todavia tiene el SP viejo,
+            # asi que el tracking la compararia contra un objetivo que el SE
+            # acaba de descartar y la retendria para siempre — el deadlock que
+            # la siembra existe para romper. Se la deja escribir una vez; en el
+            # tick siguiente ya compara contra el SP sembrado.
+            if familia in recien:
+                continue
             pv_key = str(cfg.get("pv_key") or "").strip()
             try:
                 rango = float(cfg.get("rango", 0.0))
@@ -2424,6 +3741,371 @@ class SEEngine:
                     f"{objetivo:.2f} (desvio {desvio:.2f} > rango {rango:.2f})")
         return retenidos
 
+    def _armar_semilla_por_enable(self) -> bool:
+        """Arma la siembra en el FLANCO del ENABLE del DCS (denegado -> dado).
+
+        El disparador de la siembra no es arrancar el motor: es el momento en
+        que el DCS ENTREGA el lazo. Entre medio el operador pudo mover la bomba
+        a mano durante horas, asi que el SP que el SE tenia guardado ya no
+        describe nada — retomar con ese numero es exactamente el salto que la
+        siembra existe para evitar.
+
+        Un arranque con el permiso ya concedido cuenta como flanco: para el SE
+        es igual de nuevo, porque todavia no escribio nada en esta corrida.
+
+        Sin handshake exigido no hay entrega de lazo que detectar, y entonces
+        no se siembra: el SE ya escribe siempre y el SP vive continuo.
+        """
+        if not self._handshake_enabled or not self._handshake_fbk_tag:
+            self._handshake_permiso_prev = None
+            return False
+        permiso = self._chequear_handshake_dcs() is None
+        previo = self._handshake_permiso_prev
+        self._handshake_permiso_prev = permiso
+        if not permiso or previo is True:
+            return False
+        # Flanco: se rearma TODA la familia con readback declarado. Lo que
+        # quedara pendiente hasta leer su PV lo resuelve la siembra.
+        self._sp_semilla_pendiente = set(self._sp_semilla_cfg)
+        if self._sp_semilla_pendiente:
+            _alerts.add("handshake",
+                        "El DCS concedio el control externo: los SP se siembran "
+                        "con el valor actual de su PV antes de volver a escribir.",
+                        detail="Se rearma en cada flanco del ENABLE (FBK de "
+                               "denegado a concedido).")
+        return True
+
+    def _valor_de_arranque(self, sp_key: str, valores: dict):
+        """Valor con el que retoma esta familia, o None si todavia no se puede.
+
+        `fuente = "tag"` es el caso de planta: el SP con el que el DCS venia
+        operando el equipo. Ese tag no tiene por que estar mapeado a un rol del
+        SE — es una referencia de lectura, no una entrada del pipeline — asi
+        que se lee a demanda en vez de meterlo al barrido de cada tick. Solo se
+        lee mientras la siembra esta pendiente, o sea un puñado de ticks por
+        entrega de lazo.
+
+        `fuente = "pv"` es el comportamiento historico y sigue disponible para
+        una planta sin ese SP de referencia.
+        """
+        cfg = self._sp_semilla_cfg.get(sp_key) or {}
+        fuente = cfg.get("fuente")
+        if fuente == "pv":
+            pv_key = cfg.get("pv_key")
+            if not pv_key or pv_key not in (valores or {}):
+                return None, pv_key or "?"
+            try:
+                return float(valores[pv_key]), pv_key
+            except (TypeError, ValueError):
+                return None, pv_key
+        if fuente == "tag":
+            tag_ref = cfg.get("tag")
+            if not tag_ref:
+                return None, "?"
+            info = (self._last_read or {}).get(tag_ref)
+            if info is None:
+                try:
+                    info = (_read_kepserver_tags_batch([tag_ref]) or {}).get(tag_ref) or {}
+                except Exception as exc:      # noqa: BLE001
+                    _alerts.add("kep", f"Arranque de {sp_key}: no se pudo leer "
+                                       f"{tag_ref} ({exc}).")
+                    return None, tag_ref
+            if not valor_utilizable(info):
+                return None, tag_ref
+            try:
+                return float(info.get("value")), tag_ref
+            except (TypeError, ValueError):
+                return None, tag_ref
+        return None, "?"
+
+    def _sembrar_setpoints(self, valores: dict) -> list[dict]:
+        """Al recibir el lazo, el SP arranca en el valor con el que se venia operando.
+
+        Retomar con el SP que el SE tenia guardado no sirve: entre medio el
+        operador pudo mover el equipo a mano durante horas, y entonces la
+        primera escritura del experto es un salto — y ademas deja al tracking
+        en deadlock, porque el proceso nunca converge a un objetivo que nadie
+        estuvo siguiendo.
+
+        De donde sale el numero lo decide la config por familia
+        (`arranque_definido`): el SP de referencia del DCS, la PV de readback,
+        o nada. El valor se clipea a los limites vigentes. De ahi en adelante
+        manda el defuzzy hasta el proximo flanco del ENABLE.
+
+        Se reintenta en cada tick mientras la referencia no sea legible; hasta
+        que se siembre, la familia no se escribe (ver `_familias_sin_escritura`).
+        """
+        eventos: list[dict] = []
+        self._sp_recien_sembrados = set()
+        for sp_key in sorted(self._sp_semilla_pendiente):
+            tag = self._mapeo.get("sp_to_tag", {}).get(sp_key)
+            valor, origen = self._valor_de_arranque(sp_key, valores)
+            if valor is None:
+                continue                      # sin referencia legible: reintenta
+            lims = self._limites_sp.get(sp_key)
+            recortado = False
+            if lims:
+                dentro = min(max(valor, float(lims[0])), float(lims[1]))
+                recortado = abs(dentro - valor) > SP_DEADBAND
+                valor = dentro
+            antes = float(self._setpoints.get(sp_key, valor))
+            self._setpoints[sp_key] = valor
+            self._sp_semilla_pendiente.discard(sp_key)
+            self._sp_recien_sembrados.add(sp_key)
+            eventos.append({
+                "sp": sp_key, "tag": tag,
+                "fuente": (self._sp_semilla_cfg.get(sp_key) or {}).get("fuente"),
+                "origen": origen,
+                "antes": round(antes, 4), "despues": round(valor, 4),
+                "recortado_a_limite": recortado,
+            })
+            _alerts.add("se_engine",
+                        f"SP {sp_key}: sembrado desde {origen} al recibir "
+                        "el lazo del DCS. Arranque bumpless contra el proceso.",
+                        detail="Se siembra en cada flanco del ENABLE (FBK de "
+                               "denegado a concedido); despues manda el defuzzy.")
+        return eventos
+
+    def _diagnostico_sin_efecto(self, acciones_con_belief: list,
+                                sp_prev: dict) -> tuple[str, str]:
+        """Por que este disparo no movio ningun setpoint, accion por accion.
+
+        Devuelve (detalle, causa). El detalle lleva numeros y va a la traza;
+        la causa es una etiqueta ESTABLE para la alerta, porque
+        `AlertCollector.add` deduplica por mensaje exacto y un texto con
+        beliefs y valores adentro generaria una alerta nueva por tick.
+
+        Antes se contestaba siempre lo mismo — "limite alcanzado o paso 0 en la
+        tabla defuzzy" — aunque el motivo real fuera otro (tracking, handshake,
+        familia inhibida, sin limites legibles). Ese texto mandaba a mirar el
+        lugar equivocado y era el error silencioso mas caro del pipeline: la
+        traza decia "limite" mientras la escritura estaba retenida.
+        """
+        from core.engine.defuzzy import step_por_accion_tabla
+
+        bloqueadas = dict(getattr(self, "_sp_sin_escritura", {}) or {})
+        motivos: list[str] = []
+        causas: list[str] = []
+        for accion, belief in (acciones_con_belief or []):
+            try:
+                fam, step = step_por_accion_tabla(accion, belief, self._defuzzy)
+            except Exception as exc:
+                motivos.append(f"{accion}: no se pudo resolver la accion ({exc})")
+                causas.append("accion no resoluble")
+                continue
+            if fam in bloqueadas:
+                motivos.append(f"{accion} -> {fam}: {bloqueadas[fam]}")
+                causas.append("escritura retenida (la familia no se escribe)")
+                continue
+            if abs(step) <= SP_DEADBAND:
+                motivos.append(f"{accion} -> {fam}: la tabla defuzzy da paso "
+                               f"{step:.6g} para belief {float(belief):.3f}")
+                causas.append("paso 0 en la tabla defuzzy")
+                continue
+            lims = self._limites_sp.get(fam)
+            actual = float(sp_prev.get(fam, 0.0))
+            if lims:
+                lmin, lmax = float(lims[0]), float(lims[1])
+                if step > 0 and actual >= lmax - SP_DEADBAND:
+                    motivos.append(f"{accion} -> {fam}: SP en el limite superior "
+                                   f"({lmax:.6g}), el paso {step:+.6g} se recorta")
+                    causas.append("SP en el limite superior")
+                    continue
+                if step < 0 and actual <= lmin + SP_DEADBAND:
+                    motivos.append(f"{accion} -> {fam}: SP en el limite inferior "
+                                   f"({lmin:.6g}), el paso {step:+.6g} se recorta")
+                    causas.append("SP en el limite inferior")
+                    continue
+            else:
+                motivos.append(f"{accion} -> {fam}: la familia no tiene limites "
+                               "utilizables, el paso no se aplica")
+                causas.append("sin limites utilizables")
+                continue
+            motivos.append(f"{accion} -> {fam}: paso {step:+.6g} calculado pero el "
+                           "SP quedo igual (por debajo de la banda muerta)")
+            causas.append("paso por debajo de la banda muerta")
+        detalle = "; ".join(motivos) or "el disparo no traia acciones sobre setpoints"
+        # Causas unicas y ordenadas: el texto de la alerta tiene que ser el
+        # mismo tick tras tick mientras la situacion no cambie.
+        causa = ", ".join(sorted(set(causas))) or "sin acciones sobre setpoints"
+        return detalle, causa
+
+    def _resolver_limites_sp(self, limites: dict) -> None:
+        """Fija los limites vigentes de cada SP con lo leido en ESTE tick.
+
+        Son los que clipean la escritura al DCS. Por bound, en este orden:
+
+          1. hay tag cableado y se pudo leer  -> ese valor;
+          2. no hay tag cableado y hay respaldo numerico HABILITADO -> el numero;
+          3. hay tag cableado y NO se pudo leer -> la familia se bloquea.
+          4. ni tag ni respaldo -> la familia se bloquea.
+
+        El caso 3 es fail-closed a proposito y NO cae al numero del contrato:
+        el servidor acaba de decir que ese limite no es confiable, y clipear
+        contra un numero viejo seria decidir el tope de escritura con un dato
+        que el DCS no sostiene. Es el mismo criterio con el que una PV sin su
+        limite sale del fuzzy en vez de fuzzificarse contra una escala
+        inventada. La retencion del ultimo valor bueno ya cubre el parpadeo:
+        aca solo llega lo que estuvo caido mas de `retencion_s`.
+
+        Una familia bloqueada sale de `self._limites_sp`, asi que
+        `apply_actions_tabla` ni siquiera le aplica el paso — el objetivo
+        interno tampoco acumula.
+        """
+        from config import SETPOINT_KEYS
+
+        vigentes: dict[str, tuple] = {}
+        bloqueadas: dict[str, str] = {}
+        for sp_key in SETPOINT_KEYS:
+            leidos = limites.get(sp_key) or {}
+            num = self._limites_num_sp.get(sp_key) or {}
+            par: dict[str, float] = {}
+            faltan: list[str] = []
+            for bound in LIMITES_BOUNDS:
+                tag = self._bindings_sp.get((sp_key, bound))
+                if tag:
+                    if bound in leidos:
+                        par[bound] = float(leidos[bound])
+                    else:
+                        faltan.append(f"{bound}: el tag {tag} no se pudo leer")
+                elif bound in num:
+                    par[bound] = float(num[bound])
+                else:
+                    faltan.append(f"{bound}: sin tag cableado ni respaldo numerico habilitado")
+            if faltan:
+                bloqueadas[sp_key] = ("sin limites, no se escribe al DCS sin tope ("
+                                      + "; ".join(faltan) + ")")
+                continue
+            if par["lmin"] >= par["lmax"]:
+                bloqueadas[sp_key] = (f"limites invertidos: lmin={par['lmin']:.6g} >= "
+                                      f"lmax={par['lmax']:.6g}. Es una escala inventada.")
+                continue
+            vigentes[sp_key] = (par["lmin"], par["lmax"])
+
+        self._limites_sp = vigentes
+        self._sp_sin_limite = bloqueadas
+        if bloqueadas:
+            # Sin numeros en el texto: `AlertCollector.add` deduplica por mensaje
+            # exacto y un limite leido de un tag cambia solo (ver A18).
+            _alerts.add("calidad",
+                        "Setpoints sin limites utilizables (se calculan pero NO se "
+                        "escriben al DCS): " + ", ".join(sorted(bloqueadas)),
+                        detail="El motivo por familia esta en el paso 8 de la traza.")
+
+    def _familias_sin_escritura(self) -> dict[str, str]:
+        """Familias cuyo SP no se escribira en este tick y su motivo.
+
+        Misma logica que `_write_setpoints`: inhibidos de config, tracking y
+        handshake. El objetivo interno no debe acumularse cuando la salida esta
+        bloqueada — si no, el experto se desacopla del DCS en silencio.
+        """
+        bloqueadas = dict(getattr(self, "_sp_inhibidos", {}))
+        # Falta de limites: se recalcula en cada tick, asi que la familia se
+        # libera sola en cuanto el limite vuelve a ser legible.
+        for fam, motivo in (getattr(self, "_sp_sin_limite", {}) or {}).items():
+            bloqueadas.setdefault(fam, motivo)
+        # Fail-closed hasta la siembra: el DCS entrego el lazo pero todavia no
+        # se pudo leer la PV con la que arranca la familia. Escribir ahora
+        # mandaria el SP viejo, que es justo lo que la siembra evita. Se libera
+        # sola en cuanto la PV se lee.
+        for fam in sorted(getattr(self, "_sp_semilla_pendiente", set()) or ()):
+            cfg_arr = (getattr(self, "_sp_semilla_cfg", {}) or {}).get(fam) or {}
+            ref = cfg_arr.get("tag") if cfg_arr.get("fuente") == "tag" else cfg_arr.get("pv_key")
+            bloqueadas.setdefault(
+                fam, f"siembra pendiente tras el ENABLE del DCS: esperando "
+                     f"'{ref or '?'}' para arrancar el SP en su valor")
+        for fam, motivo in (getattr(self, "_sp_retenidos", {}) or {}).items():
+            bloqueadas.setdefault(fam, f"tracking: {motivo}")
+        if self._handshake_enabled and self._handshake_fbk_tag:
+            motivo_hs = self._chequear_handshake_dcs()
+            if motivo_hs is not None:
+                for sp_key in self._mapeo.get("sp_to_tag", {}):
+                    bloqueadas.setdefault(sp_key, f"handshake DCS: {motivo_hs}")
+        return bloqueadas
+
+    def _alinear_setpoints_con_escrito(self, familias) -> list[dict]:
+        """Adopta `_sp_escritos` como objetivo interno en las familias dadas.
+
+        Solo actua donde ya hay referencia de lo que el DCS acepto. Las familias
+        con rampa en curso (objetivo por delante del escrito pero sin bloqueo)
+        no entran aqui.
+        """
+        eventos: list[dict] = []
+        for sp_key in familias or ():
+            tag = self._mapeo.get("sp_to_tag", {}).get(sp_key)
+            if not tag or tag not in self._sp_escritos:
+                continue
+            escrito = float(self._sp_escritos[tag])
+            interno = float(self._setpoints.get(sp_key, escrito))
+            if abs(interno - escrito) <= SP_DEADBAND:
+                continue
+            eventos.append({
+                "sp": sp_key,
+                "tag": tag,
+                "antes": round(interno, 4),
+                "despues": round(escrito, 4),
+                "delta": round(escrito - interno, 4),
+            })
+            self._setpoints[sp_key] = escrito
+        return eventos
+
+    def _chequear_handshake_dcs(self) -> str | None:
+        """Fail-closed: devuelve el motivo por el cual NO se debe escribir SP,
+        o None si el DCS habilita el control externo.
+
+        Es fail-closed: sin poder verificar el permiso (tag no existe, sin
+        conexion, calidad mala, valor no True), retorna un motivo — asi el
+        motor NO escribe. Un handshake que no se puede leer es indistinguible
+        de un handshake denegado.
+
+        Lee de `self._last_read` (poblado por _read_tags al inicio del tick):
+        no abre una sesion OPC-UA extra.
+        """
+        tag = self._handshake_fbk_tag
+        info = (self._last_read or {}).get(tag) or {}
+        if not info:
+            self._handshake_ultimo = {"ok": False, "motivo": "sin lectura previa"}
+            return f"no se leyo {tag} en este tick"
+        if not info.get("connected"):
+            self._handshake_ultimo = {"ok": False, "motivo": "sin conexion"}
+            return f"sin conexion OPC-UA al leer {tag}"
+        if not info.get("exists"):
+            self._handshake_ultimo = {"ok": False, "motivo": "tag inexistente"}
+            return f"{tag} no existe en KEPserver"
+        val = info.get("value")
+        quality = str(info.get("quality") or "Good")
+        try:
+            permiso = bool(val) and quality.lower() == "good"
+        except Exception:
+            permiso = False
+        if not permiso:
+            self._handshake_ultimo = {"ok": False,
+                                      "motivo": f"denegado (val={val}, q={quality})"}
+            return f"{tag}={val} (calidad {quality})"
+        self._handshake_ultimo = {"ok": True, "motivo": None}
+        return None
+
+    def _pedir_control_dcs(self, pedir: bool) -> None:
+        """Escribe enable_ext=True al arrancar / False al detener.
+
+        No aborta el arranque/parada si la escritura falla: el motor puede
+        arrancar (aunque el fail-closed impedira escribir SP hasta que el
+        DCS confirme). Se registra en alertas para que se vea en la UI.
+        """
+        if not self._handshake_enabled or not self._handshake_ext_tag:
+            return
+        accion = "solicitar control externo" if pedir else "soltar control externo"
+        try:
+            res = _kep.write_tag(self._handshake_ext_tag, bool(pedir), "Boolean")
+            if not res.get("ok"):
+                _alerts.add("handshake",
+                            f"No se pudo {accion} ({self._handshake_ext_tag}={pedir}): "
+                            f"{res.get('error') or 'error desconocido'}. "
+                            "Los SP seguiran inhibidos hasta que el DCS confirme.")
+        except Exception as e:
+            _alerts.add("handshake",
+                        f"Excepcion al {accion} ({self._handshake_ext_tag}={pedir}): {e}")
+
     def _write_setpoints(self) -> dict:
         """Escribe al KEPserver los setpoints QUE CAMBIARON (write-on-change).
 
@@ -2441,11 +4123,8 @@ class SEEngine:
         # Familias inhibidas: se calculan y se grafican, pero NO se escriben.
         # Es lo que reemplaza al viejo "el SE no arranca": el problema queda
         # acotado a su setpoint en vez de dejar la planta sin experto.
-        # Inhibidos: por configuracion (sin limites, sin lectura inicial).
-        # Retenidos: por tracking, transitorio, se libera solo.
-        bloqueadas = dict(getattr(self, "_sp_inhibidos", {}))
-        for fam, motivo in (getattr(self, "_sp_retenidos", {}) or {}).items():
-            bloqueadas.setdefault(fam, f"tracking: {motivo}")
+        bloqueadas = self._familias_sin_escritura()
+
         inhibidos = {sp_key: tag for sp_key, tag in self._mapeo["sp_to_tag"].items()
                      if sp_key in bloqueadas}
         sp_vals = {tag: float(self._setpoints.get(sp_key, 0.0))
@@ -2461,22 +4140,30 @@ class SEEngine:
         sin_cambio = [t for t in sp_vals if t not in cambiados]
         self._sp_omitidos += len(sin_cambio)
 
+        cambiados, rampas = self._aplicar_rate_limit(cambiados)
+        # Una rampa puede recortar el paso a menos que la banda muerta: entonces
+        # no hay nada que escribir en este tick, pero SIGUE habiendo un objetivo
+        # pendiente. No se cuenta como "sin cambio" — el proximo tick reintenta.
+        cambiados = {t: v for t, v in cambiados.items()
+                     if t not in self._sp_escritos
+                     or abs(v - self._sp_escritos[t]) > SP_DEADBAND}
+
         if not cambiados:
             return {"escritos": [], "sin_cambio": sin_cambio, "error": None,
-                    "inhibidos": detalle_inhibidos}
+                    "inhibidos": detalle_inhibidos, "rampas": rampas}
 
         lic = _license_check()
         if not lic["valid"]:
             self._last_error = f"SE bloqueado: {lic['reason']}"
             _alerts.add("licencia", f"Escritura SP bloqueada: {lic['reason']}")
-            return {"escritos": [], "sin_cambio": sin_cambio,
+            return {"escritos": [], "sin_cambio": sin_cambio, "rampas": rampas,
                     "inhibidos": detalle_inhibidos, "error": self._last_error}
         try:
             res = _kep.write_float_batch(cambiados) or {}
         except Exception as e:
             self._last_error = f"Write SP: {e}"
             _alerts.add("kep", f"SE Write SP: {e}", traceback.format_exc())
-            return {"escritos": [], "sin_cambio": sin_cambio,
+            return {"escritos": [], "sin_cambio": sin_cambio, "rampas": rampas,
                     "inhibidos": detalle_inhibidos, "error": self._last_error}
 
         # Solo se mueve la referencia de los tags que el DCS ACEPTO. Los que
@@ -2484,8 +4171,42 @@ class SEEngine:
         # ve como pendientes y el proximo tick los reintenta.
         escritos = list(res.get("escritos", list(cambiados)))
         fallidos = dict(res.get("fallidos", {}))
+        # Foto del valor previo ANTES de pisar `_sp_escritos`: es lo que
+        # permite mostrar "de 50.13 a 50.26" en el historial.
+        antes_de_escribir = {t: self._sp_escritos[t]
+                             for t in set(escritos) | set(fallidos)
+                             if t in self._sp_escritos}
         self._sp_escritos.update({t: cambiados[t] for t in escritos if t in cambiados})
+        # Reloj del rate limit: solo avanza cuando la escritura se concreto. Si
+        # el DCS rechazo el tag, su presupuesto de rampa sigue acumulando — que
+        # es lo correcto, porque el setpoint no se movio.
+        for t in escritos:
+            self._sp_rate_t[t] = self._t_s
         self._sp_escrituras += len(escritos)
+
+        # --- Auditoria: que se le mando al DCS, cuando, y desde que valor ---
+        # Se registran tambien los RECHAZADOS: "el experto quiso mover el SP y
+        # el DCS no lo acepto" es justamente el evento que hay que poder
+        # reconstruir despues, y si solo se guardaran los exitosos no quedaria
+        # ni rastro.
+        tag_a_sp = {t: k for k, t in self._mapeo.get("sp_to_tag", {}).items()}
+        for tag in sorted(set(escritos) | set(fallidos)):
+            ok = tag in escritos
+            valor = cambiados.get(tag)
+            self._historial_escrituras.append({
+                "ts_wall": time.time(),
+                "t_s":     round(self._t_s, 2),
+                "tick":    self._tick,
+                "tag":     tag,
+                "sp":      tag_a_sp.get(tag, ""),
+                "valor":   round(float(valor), 4) if valor is not None else None,
+                "anterior": (round(float(antes_de_escribir[tag]), 4)
+                             if tag in antes_de_escribir else None),
+                "delta":   (round(float(valor) - float(antes_de_escribir[tag]), 4)
+                            if valor is not None and tag in antes_de_escribir else None),
+                "ok":      ok,
+                "error":   None if ok else fallidos.get(tag),
+            })
 
         error = None
         if fallidos:
@@ -2496,7 +4217,84 @@ class SEEngine:
 
         return {"escritos": sorted(escritos), "sin_cambio": sin_cambio,
                 "fallidos": sorted(fallidos), "inhibidos": detalle_inhibidos,
-                "error": error}
+                "rampas": rampas, "error": error}
+
+    def _aplicar_rate_limit(self, objetivos: dict) -> tuple[dict, list]:
+        """Limita la VELOCIDAD de cambio de cada SP al escribir. Rampa, no descarta.
+
+        Recibe {tag: valor objetivo} y devuelve {tag: valor a escribir ahora}
+        mas el detalle para la traza.
+
+        **Rampea, no descarta**, y ahi esta toda la decision. El tracking si
+        descarta el paso — a proposito, porque el proceso quedo atras y acumular
+        mandaria un salto de varios pasos juntos al liberarse. Un rate limit es
+        lo contrario: la accion es valida y el objetivo es correcto, lo unico
+        que no se acepta es llegar de un salto. Descartar aca perderia la
+        decision del experto; lo que se hace es entregarla en varios ticks.
+
+        Consecuencias buscadas de rampear al ESCRIBIR y no al calcular:
+
+        - `self._setpoints` (el objetivo interno) avanza completo, asi que el
+          mecanismo de *el wait cuenta solo si la regla actuo* ve que el SP se
+          movio y NO revierte el wait. Correcto: la regla actuo de verdad, solo
+          que su efecto viaja en rampa.
+        - `_sp_escritos` guarda lo que el DCS acepto, que es lo que compara
+          `_reconciliar_sp_con_dcs`. Un SP a mitad de rampa no se lee como
+          intervencion manual del operador.
+        - El write-on-change reintenta solo: mientras quede diferencia entre el
+          objetivo y lo escrito, el tag sigue apareciendo como cambiado.
+        """
+        from config import RATE_SP_CONTRATO
+        if not RATE_SP_CONTRATO or not objetivos:
+            return objetivos, []
+
+        # Rate por TAG: el contrato lo declara por familia de SP.
+        rate_por_tag = {tag: RATE_SP_CONTRATO[fam]
+                        for fam, tag in self._mapeo["sp_to_tag"].items()
+                        if fam in RATE_SP_CONTRATO}
+        if not rate_por_tag:
+            return objetivos, []
+
+        # Presupuesto = rate x tiempo desde la ultima escritura de ESTE tag,
+        # PERO acotado a `RATE_DT_MAX_S`. El tope es la parte importante y se
+        # descubrio verificando en el contenedor: sin el, el presupuesto se
+        # acumula durante las pausas — tracking reteniendo, handshake denegado,
+        # write rechazado, motor recien arrancado — y al liberarse el DCS recibe
+        # de una sola vez todo lo acumulado. Medido: tras 5 s retenido por
+        # tracking, el SP saltaba 3.94 unidades en un solo write. Eso es
+        # exactamente lo que un limite de velocidad existe para impedir, y la
+        # pausa es cuando mas dana: el equipo lleva un rato quieto.
+        #
+        # Con el tope en 1.0 s, `rate_sp` gana una segunda lectura util y facil
+        # de explicar: es tambien **el paso maximo de un solo write**. La rampa
+        # sigue avanzando a `rate` u/s porque el tick dura decimas de segundo.
+        # (Si alguien subiera `piso_s` por encima de 1 s, la rampa iria mas
+        # lenta que el rate declarado. Es el lado conservador del error.)
+        salida = dict(objetivos)
+        rampas = []
+        for tag, objetivo in objetivos.items():
+            rate = rate_por_tag.get(tag)
+            if rate is None:
+                continue
+            actual = self._sp_escritos.get(tag)
+            if actual is None:
+                # Primera escritura tras arrancar. NO se rampea: es el arranque
+                # bumpless, que justamente parte del valor vigente en el DCS —
+                # rampear hacia el valor que el DCS ya tiene no tiene sentido.
+                continue
+            t_prev = self._sp_rate_t.get(tag)
+            dt = self._t_s if t_prev is None else max(0.0, self._t_s - t_prev)
+            paso_max = rate * min(dt, RATE_DT_MAX_S)
+            delta = float(objetivo) - float(actual)
+            if paso_max <= 0 or abs(delta) <= paso_max:
+                continue
+            permitido = actual + (paso_max if delta > 0 else -paso_max)
+            salida[tag] = permitido
+            rampas.append({"tag": tag, "objetivo": round(float(objetivo), 4),
+                           "escrito": round(float(permitido), 4),
+                           "falta": round(float(objetivo) - permitido, 4),
+                           "rate": rate, "dt_s": round(dt, 3)})
+        return salida, rampas
 
     def _run_tick(self):
         """Ejecuta un tick del pipeline del SE."""
@@ -2523,20 +4321,42 @@ class SEEngine:
         tz = _nueva_traza(self._tick, self._t_s, self._mapeo)
 
         inputs_raw, crudas, limites = self._read_tags()
-        tz["lectura"] = _traza_lectura(self._mapeo, self._last_read, self._last_fallas)
+        tz["lectura"] = _traza_lectura(self._mapeo, self._last_read,
+                                       self._last_fallas, self._last_retenidos)
+        tz["estancadas"] = self._last_estancadas
+        tz["retenidos"] = self._last_retenidos
+
+        # Limites de los SP con lo leido en ESTE tick. Va antes de todo lo que
+        # decide sobre setpoints: el clipeo, el rango bumpless del reintento y
+        # el defuzzy miran `self._limites_sp`.
+        self._resolver_limites_sp(limites)
+        tz["limites_sp"] = {
+            "vigentes": {k: [round(v[0], 4), round(v[1], 4)]
+                         for k, v in sorted(self._limites_sp.items())},
+            "bloqueadas": dict(sorted(self._sp_sin_limite.items())),
+            "cableados": {f"{k[0]}_{k[1]}": v
+                          for k, v in sorted(self._bindings_sp.items())},
+        }
 
         # Reintento de los SP que no se pudieron leer al arrancar. Sin esto,
         # un KEPserver que tardo un segundo de mas en responder dejaba la
         # familia inhibida hasta que alguien reiniciara el motor a mano.
         self._reintentar_sp_inhibidos()
 
+        # Resincronizacion con el DCS: si el operador movio un SP a mano en
+        # el HMI, el SE lo adopta como propio. Va ANTES del defuzzy para que
+        # las reglas partan del valor real del DCS, no del ultimo que el SE
+        # escribio.
+        tz["resync_sp"] = self._reconciliar_sp_con_dcs()
+
         if self._last_fallas.get("cruda"):
             roles = [f["rol"] for f in self._last_fallas["cruda"]
                      if f["rol"] in self._en_uso.get("cruda", set())]
             if roles:
-                _alerts.add("kep", "Sensores crudos no legibles (valen 0.0 y degradan "
-                                   f"permisivos y variables calculadas): "
-                                   + ", ".join(sorted(roles)))
+                self._hubo_aviso_calidad = True
+                _alerts.add("calidad", "Sensores crudos no legibles (valen 0.0 y degradan "
+                                       f"permisivos y variables calculadas): "
+                                       + ", ".join(sorted(roles)))
         # El filtro pesa cada muestra por su edad en segundos, asi que el
         # suavizado configurado en filtros.json vale igual corra el lazo a
         # 5 s o a 50 ms. Sin filtro (contrato sin ninguna PV) el tick sigue
@@ -2569,6 +4389,37 @@ class SEEngine:
         # Una calculada es una PV mas aguas abajo: se fuzzifica, la nombran
         # las reglas y los permisivos la leen.
         valores = {**inputs, **calculadas}
+
+        # --- Entrega de lazo: el SP arranca en su PV ---
+        # El flanco del ENABLE arma la siembra y la siembra la aplica, las dos
+        # ANTES del tracking y de las reglas: si no, el tick evaluaria contra
+        # un objetivo que ya no es el que va a salir al DCS.
+        if self._armar_semilla_por_enable():
+            tz["semilla_flanco_enable"] = True
+        semilla = self._sembrar_setpoints(valores)
+        if semilla:
+            tz["semilla_sp"] = semilla
+        if self._sp_semilla_pendiente:
+            tz["semilla_pendiente"] = [
+                {"sp": f,
+                 "fuente": (self._sp_semilla_cfg.get(f) or {}).get("fuente", ""),
+                 "origen": ((self._sp_semilla_cfg.get(f) or {}).get("tag")
+                            if (self._sp_semilla_cfg.get(f) or {}).get("fuente") == "tag"
+                            else (self._sp_semilla_cfg.get(f) or {}).get("pv_key", ""))}
+                for f in sorted(self._sp_semilla_pendiente)]
+
+        # --- Respaldo numerico de las PV (fuzzy.json -> limites_num) ---
+        # `setdefault`: el tag SIEMPRE gana. El respaldo solo cubre el bound
+        # que no tiene tag cableado, y solo si alguien lo encendio a mano. Un
+        # bound CON tag que no se pudo leer NO cae aca a proposito: el servidor
+        # acaba de decir que ese limite no es confiable, y fuzzificar contra un
+        # numero viejo seria decidir sobre una escala que el DCS no sostiene.
+        for var, bounds in self._limites_num.items():
+            destino = limites.setdefault(var, {})
+            for bound, val in bounds.items():
+                if (var, bound) in self._bindings_pv:
+                    continue
+                destino.setdefault(bound, val)
 
         # Limites de las calculadas: manda el tag si esta mapeado y se leyo;
         # si no, el respaldo fijo de variables.json. Sin ninguno de los dos, la
@@ -2662,6 +4513,13 @@ class SEEngine:
         tz["tracking"] = [{"sp": k, "motivo": v}
                           for k, v in sorted(self._sp_retenidos.items())]
 
+        # Fase 2: sin salida al DCS, el objetivo interno no acumula pasos
+        # fantasma. Se alinea a lo ultimo aceptado antes de evaluar reglas.
+        self._sp_sin_escritura = self._familias_sin_escritura()
+        alineados = self._alinear_setpoints_con_escrito(self._sp_sin_escritura)
+        if alineados:
+            tz["setpoints_alineados"] = alineados
+
         sp_antes = dict(self._setpoints)
 
         motor_out = motor_mod.evaluar_reglas(
@@ -2675,6 +4533,8 @@ class SEEngine:
 
         self._last_events = []
         tick_events = []
+        escrito_antes_tick = dict(self._sp_escritos)
+        live_tick = self._last_read or {}
         for evento in motor_out.get("fired", []):
             acciones_con_belief = [(a, evento.get("belief", 0.5)) for a in evento.get("acciones", [])]
             ev_ok = True
@@ -2692,11 +4552,9 @@ class SEEngine:
                     # accion. Hay que reasignar lo que devuelve.
                     nuevos = apply_actions_tabla(acciones_con_belief, self._setpoints,
                                                  self._limites_sp, self._defuzzy)
-                    # Las familias retenidas por tracking NO se mueven: se
-                    # descarta el paso en vez de acumularlo. Como el SP no se
-                    # movio, `revertir_waits` mas abajo tampoco deja armado el
-                    # wait — que es lo que pide el estandar.
-                    for fam in self._sp_retenidos:
+                    # Familias sin escritura (tracking, handshake, inhibidos):
+                    # el paso del defuzzy se descarta, no se acumula en memoria.
+                    for fam in self._sp_sin_escritura:
                         if fam in nuevos:
                             nuevos[fam] = self._setpoints.get(fam, nuevos[fam])
                     self._setpoints.update(nuevos)
@@ -2720,14 +4578,21 @@ class SEEngine:
                        for k, v in self._setpoints.items()
                        if abs(float(v) - float(sp_prev.get(k, 0.0))) > SP_DEADBAND}
             revertidos = []
+            motivo = None
             if not movidos:
                 revertidos = motor_mod.revertir_waits(evento, self._last_action_time)
+                # El motivo REAL, accion por accion. Se calcula siempre que el
+                # disparo no movio nada — no solo cuando ademas revirtio un
+                # wait — porque es el dato que explica la traza.
+                detalle, causa = self._diagnostico_sin_efecto(
+                    acciones_con_belief, sp_prev)
+                motivo = ev_error or detalle
                 if revertidos and acciones_con_belief:
-                    motivo = ev_error or ("el setpoint no se movio (limite alcanzado "
-                                          "o paso 0 en la tabla defuzzy)")
                     _alerts.add("se_engine",
                                 f"Regla {evento.get('id', '?')}: disparo sin efecto, "
-                                f"su wait no se reinicia ({motivo}).")
+                                f"su wait no se reinicia — {causa}.",
+                                detail="El detalle con valores esta en el paso 7 "
+                                       "de la traza (motivo del disparo sin efecto).")
             tick_events.append({
                 "regla_id": evento.get("id", "?"),
                 "bloque":   evento.get("bloque", ""),
@@ -2738,68 +4603,120 @@ class SEEngine:
                 # Observabilidad del punto anterior: sin esto, "disparo" y
                 # "disparo que no hizo nada" se ven exactamente igual.
                 "movio_sp": bool(movidos),
+                # Por que no movio. Vacio cuando si movio.
+                "motivo_sin_efecto": motivo,
                 "delta_sp": movidos,
                 "waits_revertidos": revertidos,
+                "sp_prev": sp_prev,
             })
 
         if tick_events:
             self._last_events = tick_events[-5:]
-            for ev in tick_events:
-                self._historial_disparos.append({
-                    **ev,
-                    "t_s": round(self._t_s, 2),
-                    "ts_wall": time.time(),
-                    "tick": self._tick,
-                    # Efecto real sobre los setpoints: un disparo cuyo SP no se
-                    # movio (por clipeo al limite) se ve igual de claro aca.
-                    "setpoints": {
-                        k: {"antes": round(float(sp_antes.get(k, 0.0)), 3),
-                            "despues": round(float(v), 3),
-                            "delta": round(float(v) - float(sp_antes.get(k, 0.0)), 3)}
-                        for k, v in self._setpoints.items()
-                    },
-                })
 
         # DESPUES de aplicar las acciones: un disparo sin efecto revierte su
         # wait, y la foto tiene que mostrar los waits que quedaron de verdad.
         tz["waits_activos"] = _traza_waits(self._last_action_time, self._t_s)
 
         tz["disparadas"] = tick_events
-        # Grabadores por regla: se les pasa el efecto real de las que dispararon.
+
+        tz["escritura"] = self._write_setpoints()
+        post_alineados = self._alinear_setpoints_con_escrito(
+            {d["sp"] for d in (tz["escritura"].get("inhibidos") or [])})
+        if post_alineados:
+            tz.setdefault("setpoints_alineados", []).extend(post_alineados)
+
+        tz["defuzzy"] = _traza_defuzzy_setpoints(
+            self._setpoints, sp_antes, self._mapeo,
+            live_tick, self._sp_escritos, self._limites_sp,
+        )
+
+        tags_escritos = set(tz["escritura"].get("escritos") or [])
+        for ev in tick_events:
+            sp_prev_ev = ev.pop("sp_prev", sp_antes)
+            ev["setpoints"] = _traza_setpoints_disparo(
+                sp_prev_ev, self._setpoints, self._mapeo, live_tick,
+                escrito_antes_tick, self._sp_escritos, tags_escritos,
+            )
+            ev["movio_planta"] = _movio_planta(ev["setpoints"])
+            # Se agrupa por REPETICION, igual que el grabador por regla. Una
+            # regla que dispara sin efecto no rearma su wait y vuelve a
+            # disparar en el tick siguiente: en ciclo libre son ~10 filas por
+            # segundo, y el anillo de 50 quedaba lleno de la misma fila en 5 s,
+            # tapando todo lo anterior. Mientras la regla, sus acciones y el
+            # desenlace no cambien, se cuenta en la misma entrada.
+            ahora = time.time()
+            entrada = {
+                **ev,
+                "t_s": round(self._t_s, 2),
+                "ts_wall": ahora,
+                "ts_wall_ultimo": ahora,
+                "tick": self._tick,
+                "tick_ultimo": self._tick,
+                "repeticiones": 1,
+            }
+            firma = (
+                str(entrada.get("regla_id")),
+                tuple(entrada.get("acciones") or []),
+                bool(entrada.get("ok")),
+                str(entrada.get("error") or ""),
+                bool(entrada.get("movio_sp")),
+                bool(entrada.get("movio_planta")),
+                # Un cambio de motivo (de "tracking" a "limite", por ejemplo)
+                # abre fila nueva: si no, el historial mostraria el primer
+                # motivo para siempre aunque la causa ya sea otra.
+                str(entrada.get("motivo_sin_efecto") or ""),
+            )
+            ult = self._historial_disparos[-1] if self._historial_disparos else None
+            if ult is not None and ult.get("_firma") == firma:
+                ult["repeticiones"] = int(ult.get("repeticiones", 1)) + 1
+                ult["ts_wall_ultimo"] = ahora
+                ult["t_s_ultimo"] = entrada["t_s"]
+                ult["tick_ultimo"] = self._tick
+                # Se conserva el ULTIMO valor: es el estado actual de la regla.
+                ult["belief"] = entrada.get("belief")
+                ult["setpoints"] = entrada.get("setpoints")
+                ult["delta_sp"] = entrada.get("delta_sp")
+                ult["motivo_sin_efecto"] = entrada.get("motivo_sin_efecto")
+            else:
+                entrada["_firma"] = firma
+                entrada["t_s_ultimo"] = entrada["t_s"]
+                self._historial_disparos.append(entrada)
+
+        # Grabadores por regla: efecto enriquecido tras la escritura.
         _grabar_evaluaciones(
             tz["reglas"],
             {str(ev["regla_id"]): {
                 "acciones": ev.get("acciones", []),
                 "ok": ev.get("ok"),
                 "error": ev.get("error"),
-                # "disparo" y "disparo que no movio nada" son estados muy
-                # distintos y en el grabador se veian identicos.
                 "movio_sp": ev.get("movio_sp"),
+                "motivo_sin_efecto": ev.get("motivo_sin_efecto"),
+                "movio_planta": ev.get("movio_planta"),
                 "waits_revertidos": ev.get("waits_revertidos", []),
-                "setpoints": {
-                    k: {"antes": round(float(sp_antes.get(k, 0.0)), 3),
-                        "despues": round(float(v), 3),
-                        "delta": round(float(v) - float(sp_antes.get(k, 0.0)), 3)}
-                    for k, v in self._setpoints.items()
-                },
+                "setpoints": ev.get("setpoints", {}),
             } for ev in tick_events},
             self._tick, self._t_s,
         )
-        tz["defuzzy"] = [
-            {"sp": k,
-             "antes":   round(float(sp_antes.get(k, 0.0)), 4),
-             "despues": round(float(v), 4),
-             "delta":   round(float(v) - float(sp_antes.get(k, 0.0)), 4),
-             "limites": list(self._limites_sp.get(k, (None, None))),
-             # Un SP pegado a su limite absorbe todos los pasos siguientes: la
-             # regla dispara, el defuzzy calcula, y el valor no se mueve. Sin
-             # esta marca, eso se lee como "la regla no funciona".
-             "en_limite": _sp_en_limite(v, self._limites_sp.get(k)),
-             "tag":     self._mapeo["sp_to_tag"].get(k)}
-            for k, v in self._setpoints.items()
-        ]
-
-        tz["escritura"] = self._write_setpoints()
+        inhibidos_sp = {d["sp"]: d["motivo"]
+                        for d in (tz["escritura"].get("inhibidos") or [])}
+        for row in tz["defuzzy"]:
+            sp_key = row["sp"]
+            tag = row.get("tag")
+            if sp_key in inhibidos_sp:
+                row["inhibido"] = True
+                row["inhibido_motivo"] = inhibidos_sp[sp_key]
+            if tag and tag in self._sp_escritos:
+                row["escrito"] = round(float(self._sp_escritos[tag]), 4)
+        # Handshake DCS al final del tick — la traza ya vio si termino
+        # bloqueando la escritura o no. Se publica aparte de `escritura` porque
+        # el pulso Exp_HB sigue vivo aunque el permiso baje.
+        if self._handshake_enabled:
+            tz["handshake"] = {
+                "enabled": True,
+                "fbk_tag": self._handshake_fbk_tag,
+                "ext_tag": self._handshake_ext_tag,
+                "ultimo":  self._handshake_ultimo,
+            }
         if tz["escritura"].get("error"):
             tick_error = tz["escritura"]["error"]
         _traza_push(tz)
@@ -2819,9 +4736,10 @@ class SEEngine:
             for tag, var in self._mapeo["tag_to_cruda"].items():
                 if var in crudas:
                     entrada_vals[tag] = crudas[var]
-            for tag, (var, bound) in self._mapeo["tag_to_lim"].items():
-                if var in limites and bound in limites[var]:
-                    entrada_vals[tag] = limites[var][bound]
+            for tag, pares in self._mapeo["tag_to_lim"].items():
+                for var, bound in pares:
+                    if var in limites and bound in limites[var]:
+                        entrada_vals[tag] = limites[var][bound]
             salida_vals = {tag: float(self._setpoints.get(sp_key, 0.0))
                            for sp_key, tag in self._mapeo["sp_to_tag"].items()}
             store = _load_tags()
@@ -2846,6 +4764,12 @@ class SEEngine:
         if tick_error is None:
             _alerts.resolve_category("se_engine")
             _alerts.resolve_category("kep")
+        # La calidad se cierra por su cuenta: un tick que termina bien no dice
+        # nada sobre los instrumentos, y un tick que termina mal no significa
+        # que la calidad se haya arreglado. Solo se limpia cuando la lectura de
+        # este tick no tuvo nada que avisar.
+        if getattr(self, "_hubo_aviso_calidad", False) is False:
+            _alerts.resolve_category("calidad")
 
     def _worker(self):
         """Ciclo libre: leer -> pipeline -> escribir SP -> volver a empezar.
@@ -2858,31 +4782,48 @@ class SEEngine:
         y no un tiempo muerto que se suma.
         """
         t_prev = time.monotonic()
-        while not self._stop_event.is_set():
-            t_ini = time.monotonic()
-            try:
-                self._run_tick()
-                self._tick += 1
-            except Exception as e:
-                self._last_error = str(e)
-                _alerts.add("se_engine", str(e), traceback.format_exc())
+        try:
+            while not self._stop_event.is_set():
+                t_ini = time.monotonic()
+                try:
+                    self._run_tick()
+                    self._tick += 1
+                except Exception as e:
+                    self._last_error = str(e)
+                    _alerts.add("se_engine", str(e), traceback.format_exc())
 
-            self._dur_tick_s = time.monotonic() - t_ini
-            if self._dur_tick_s > self._dur_tick_max_s:
-                self._dur_tick_max_s = self._dur_tick_s
+                self._dur_tick_s = time.monotonic() - t_ini
+                if self._dur_tick_s > self._dur_tick_max_s:
+                    self._dur_tick_max_s = self._dur_tick_s
 
-            # Periodo real medido, suavizado: en ciclo libre no hay periodo
-            # nominal que reportar, solo el que se logra.
-            periodo = t_ini - t_prev
-            t_prev = t_ini
-            self._periodo_s = (periodo if self._periodo_s <= 0.0
-                               else 0.9 * self._periodo_s + 0.1 * periodo)
+                # Periodo real medido, suavizado: en ciclo libre no hay periodo
+                # nominal que reportar, solo el que se logra.
+                periodo = t_ini - t_prev
+                t_prev = t_ini
+                self._periodo_s = (periodo if self._periodo_s <= 0.0
+                                   else 0.9 * self._periodo_s + 0.1 * periodo)
 
-            # Piso: solo se duerme lo que falte para completarlo.
-            restante = self._piso_s - self._dur_tick_s
-            self._dormido_s = max(0.0, restante)
-            if restante > 0:
-                self._stop_event.wait(restante)
+                # Piso: solo se duerme lo que falte para completarlo.
+                restante = self._piso_s - self._dur_tick_s
+                self._dormido_s = max(0.0, restante)
+                if restante > 0:
+                    self._stop_event.wait(restante)
+        except BaseException as e:
+            self._last_error = f"Worker muerto: {e}"
+            _alerts.add("se_engine",
+                        f"El hilo del motor murio: {e}. Los SP dejan de escribirse.",
+                        traceback.format_exc())
+            raise
+        finally:
+            # Marca honesta: si el hilo termina por lo que sea, `running` cae.
+            # Antes se dejaba en True y start() lo tomaba como "ya andando",
+            # devolvia ok sin arrancar hilo nuevo, y la planta quedaba muda.
+            self._running = False
+            # La sesion OPC-UA es persistente y vive atada a ESTE hilo (B1.2).
+            # Sin cerrarla, parar el motor la dejaria abierta en el KEPserver
+            # hasta que venciera su session_timeout de una hora, y cada
+            # stop/start iria sumando una sesion huerfana mas.
+            _kep.close_thread_client()
 
     def start(self, piso_s: float | None = None,
               intervalo_s: float | None = None) -> dict:
@@ -2912,8 +4853,18 @@ class SEEngine:
             piso_s = intervalo_s if intervalo_s is not None else self.PISO_S_DEFAULT
         piso_s = min(max(0.0, float(piso_s)), self.PISO_S_MAX)
 
+        # Un `_running=True` con hilo muerto significa que el worker crasheo
+        # entre ticks. Antes se devolvia ok=True y no se arrancaba nada; el
+        # operador veia "corriendo" y la planta estaba muda. Ahora se resetea
+        # el estado y se arranca limpio.
         if self._running:
-            return {"ok": True, "error": None}
+            if self._thread is not None and self._thread.is_alive():
+                return {"ok": True, "error": None}
+            _alerts.add("se_engine",
+                        "Se detecto un motor marcado como corriendo pero con el hilo "
+                        "muerto. Se rearranca limpio.")
+            self._running = False
+            self._thread = None
 
         self._piso_s = piso_s
         self._init_state()
@@ -2939,22 +4890,50 @@ class SEEngine:
         self._thread.start()
         self._running = True
         self._last_error = None
+        # Handshake: pedir al DCS el control externo. El primer tick del motor
+        # leera enable_fbk; si el DCS todavia no confirmo, ese tick no escribe SP.
+        self._pedir_control_dcs(True)
         return {"ok": True, "error": None}
 
-    def stop(self):
+    def stop(self) -> dict:
+        """Detiene el motor. Devuelve {"ok": bool, "error": str|None}.
+
+        Si el hilo no responde al join, NO se marca `_running=False`. Con esa
+        marca, un start() posterior lanzaria un segundo hilo mientras el
+        primero sigue escribiendo SP al DCS — dos motores compitiendo por los
+        mismos tags. Es preferible dejar `_running=True` con un error visible:
+        el operador reintenta stop() o reinicia el proceso, pero no queda un
+        motor zombie escribiendo en la sombra.
+        """
         if not self._running:
-            return
+            return {"ok": True, "error": None}
+        # Handshake: soltar el control ANTES de matar el hilo. Asi el DCS ve
+        # enable_ext=false y no queda esperando un experto muerto.
+        self._pedir_control_dcs(False)
         self._stop_event.set()
-        if self._thread:
+        if self._thread is not None:
             self._thread.join(timeout=3)
+            if self._thread.is_alive():
+                err = ("El hilo del motor no respondio al stop (join timeout). "
+                       "Se mantiene `running=True` para impedir que un nuevo "
+                       "start() lance un segundo motor. Reintente detener o "
+                       "reinicie el proceso.")
+                self._last_error = err
+                _alerts.add("se_engine", err)
+                return {"ok": False, "error": err}
+        # El finally del worker ya puso _running=False; se conserva por si el
+        # hilo termino antes de ser lanzado (raro pero posible).
         self._running = False
         self._thread = None
+        return {"ok": True, "error": None}
 
     def status(self) -> dict:
         # En ciclo libre no hay periodo nominal que informar: el periodo es
         # una MEDICION. `piso_s` es el unico parametro; el resto sale del lazo.
+        thread_alive = bool(self._thread is not None and self._thread.is_alive())
         return {
             "running":      self._running,
+            "thread_alive": thread_alive,
             "tick":         self._tick,
             "t_s":          round(self._t_s, 1),
             "setpoints":    {k: round(v, 3) for k, v in self._setpoints.items()},
@@ -2962,7 +4941,9 @@ class SEEngine:
             "last_error":   self._last_error,
             # Degradaciones aceptadas (ej. PV sin fuzzy): el SE corre igual.
             "advertencias": list(self._advertencias_arranque),
-            "ultimos_disparos": list(self._historial_disparos)[-10:],
+            # `_firma` es interna (agrupacion de repetidos): no viaja a la API.
+            "ultimos_disparos": [{k: v for k, v in d.items() if k != "_firma"}
+                                 for d in list(self._historial_disparos)[-10:]],
             "piso_s":       self._piso_s,
             "piso_ms":      int(round(self._piso_s * 1000)),
             "periodo_ms":   round(self._periodo_s * 1000, 1),
@@ -2972,6 +4953,14 @@ class SEEngine:
             "dormido_ms":   round(self._dormido_s * 1000, 1),
             "sp_escrituras": self._sp_escrituras,
             "sp_omitidos":   self._sp_omitidos,
+            # Mas nuevas primero: es como se lee un registro de auditoria.
+            "historial_escrituras": list(self._historial_escrituras)[::-1],
+            "handshake": {
+                "enabled": bool(getattr(self, "_handshake_enabled", False)),
+                "enable_fbk_tag": getattr(self, "_handshake_fbk_tag", ""),
+                "enable_ext_tag": getattr(self, "_handshake_ext_tag", ""),
+                "ultimo": getattr(self, "_handshake_ultimo", None),
+            },
         }
 
 
@@ -3009,9 +4998,12 @@ HTML_PAGE       = _load_template("index.html")
 DIAGRAM_PAGE    = _load_template("diagrama.html")
 ENTRADA_PAGE    = _load_template("entrada.html")
 POSTGRES_PAGE   = _load_template("postgres.html")
+EXPORT_IMPORT_PAGE = _load_template("export_import.html")
 GRAFICOS_PAGE   = _load_template("graficos.html")
 TRAZA_PAGE      = _load_template("traza.html")
 HISTORIAL_PAGE  = _load_template("historial.html")
+ALERTAS_HIST_PAGE = _load_template("alertas_historial.html")
+ESCRITURAS_PAGE = _load_template("escrituras.html")
 
 # CHART_VARS se mantiene por compatibilidad (usado por otros modulos),
 # pero el nuevo Explorador de Series construye sus datasets desde el
@@ -3054,6 +5046,36 @@ def _startup_checks():
                 json.load(f)
         except Exception as e:
             _alerts.add("config", f"Error parseando {name}", str(e))
+
+    # 2b. Migracion de los roles LIM viejos al cableado nuevo (idempotente).
+    #     Va DESPUES de validar los JSON: si fuzzy.json esta corrupto, adoptar
+    #     bindings sobre lo que _leer_json devuelve ({}) borraria roles sin
+    #     migrar nada.
+    try:
+        mig = migrar_roles_lim_a_bindings()
+        if mig["migrados"]:
+            _alerts.add("config",
+                        f"Se migraron {len(mig['migrados'])} limite(s) del campo 'rol' "
+                        "del tag al fuzzy/defuzzy que los usa.",
+                        detail="; ".join(f"{m['tag']} -> {m['rol']}"
+                                         for m in mig["migrados"]))
+        if mig["pendientes"]:
+            _alerts.add("config",
+                        "Tags LIM con rol viejo cuya variable todavia no tiene fuzzy ni "
+                        "tabla defuzzy: se adoptan solos cuando la crees.",
+                        detail="; ".join(f"{m['tag']} -> {m['rol']}"
+                                         for m in mig["pendientes"]))
+        mig_sp = migrar_limites_sp_del_contrato()
+        if mig_sp:
+            _alerts.add("config",
+                        "Los limites de escritura de los setpoints se movieron de "
+                        "contrato.json al defuzzy que los usa, y ahora se editan en "
+                        "la pagina de Defuzzificacion.",
+                        detail="; ".join(f"{m['familia']}: {m['limites']}"
+                                         for m in mig_sp))
+    except Exception as e:
+        _alerts.add("config", f"No se pudo migrar los limites: {e}",
+                    traceback.format_exc())
 
     # 3. Carga de reglas
     try:

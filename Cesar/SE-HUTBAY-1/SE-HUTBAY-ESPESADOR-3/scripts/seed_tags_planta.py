@@ -27,6 +27,11 @@ import os
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
+
+from core.jsonio import escribir_json_atomico  # noqa: E402  (necesita RAIZ en sys.path)
+
 CATALOGO = os.path.join(RAIZ, "config", "espesador", "tags_planta_pcs7.json")
 TAGS_JSON = os.path.join(RAIZ, "config", "espesador", "tags.json")
 
@@ -105,8 +110,7 @@ def sembrar(dry_run: bool = False, suspender_reto: bool = True) -> dict:
         hb.setdefault("enabled", True)
 
     if not dry_run:
-        with open(TAGS_JSON, "w", encoding="utf-8") as f:
-            json.dump(store, f, indent=2, ensure_ascii=False)
+        escribir_json_atomico(TAGS_JSON, store)
 
     return {
         "agregados": agregados,

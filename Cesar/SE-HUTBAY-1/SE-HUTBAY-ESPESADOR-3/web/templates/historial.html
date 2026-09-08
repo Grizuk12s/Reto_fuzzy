@@ -38,6 +38,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;background:#0f
 select,button{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 11px;font-size:.8rem;cursor:pointer}
 button:hover{border-color:#38bdf8}
 </style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
 </head>
 <body>
 <header>
@@ -90,11 +91,32 @@ function hace(ts) {
   return (s / 3600).toFixed(1) + ' h';
 }
 
+function _efectoSpHistorial(sps, tipo) {
+  return Object.keys(sps).map(function(k) {
+    const det = sps[k] || {};
+    const x = det[tipo] || det;
+    if (!x || x.antes === undefined) return esc(k) + ' —';
+    const movio = x.delta !== null && x.delta !== undefined
+      && Math.abs(Number(x.delta)) > 1e-9;
+    return '<span class="' + (movio ? 'ok' : 'mut') + '">' + esc(k) + ' '
+      + num(x.antes, 2) + ' → ' + num(x.despues, 2)
+      + (x.delta !== null && x.delta !== undefined
+          ? ' (' + (Number(x.delta) >= 0 ? '+' : '') + num(x.delta, 3) + ')' : '')
+      + '</span>';
+  }).join('<br>');
+}
+
 async function toggleGrabacion() {
   const accion = _grabando ? 'stop' : 'start';
   if (accion === 'start' && !confirm('Empezar a grabar "' + REGLA + '"?\n\n'
       + 'Se descarta lo grabado antes: el historial arranca de cero desde ahora.')) return;
-  await fetch('/api/se/grabador/' + encodeURIComponent(REGLA) + '/' + accion, {method: 'POST'});
+  const r = await fetch('/api/se/grabador/' + encodeURIComponent(REGLA) + '/' + accion, {method: 'POST'});
+  const d = await r.json();
+  if (!r.ok) {
+    alert(d.error || 'No se pudo iniciar la grabacion.');
+    cargar();
+    return;
+  }
   cargar();
 }
 
@@ -126,18 +148,13 @@ function renderTabla(d) {
                no_evaluada: 'b-mut', invalida: 'b-bad'};
   document.getElementById('tabla').innerHTML =
     '<table><thead><tr><th>Hace</th><th>Desde</th><th>Hasta</th><th>Estado</th>'
-    + '<th>Motivo</th><th>Veces</th><th>Belief</th><th>Efecto en el SP</th>'
+    + '<th>Motivo</th><th>Veces</th><th>Belief</th><th>Planta (tag)</th><th>Interno SE</th>'
     + '</tr></thead><tbody>'
     + es.map(function(e) {
         const disparo = e.estado === 'disparo';
         const sps = e.setpoints || {};
-        const efecto = Object.keys(sps).map(function(k) {
-          const x = sps[k];
-          const movio = Math.abs(Number(x.delta)) > 1e-9;
-          return '<span class="' + (movio ? 'ok' : 'mut') + '">' + esc(k) + ' '
-            + num(x.antes, 2) + ' &rarr; ' + num(x.despues, 2)
-            + ' (' + (Number(x.delta) >= 0 ? '+' : '') + num(x.delta, 3) + ')</span>';
-        }).join('<br>');
+        const efectoPlanta = _efectoSpHistorial(sps, 'planta');
+        const efectoInterno = _efectoSpHistorial(sps, 'interno');
         const acciones = (e.acciones || []).length
           ? '<div style="color:#fb923c;font-size:.72rem">' + (e.acciones || []).map(esc).join(', ') + '</div>'
           : '';
@@ -153,12 +170,19 @@ function renderTabla(d) {
         // Un disparo que no movio el SP no reinicio su wait. Es justo lo que
         // esta pagina existe para responder ("¿por que esta regla no actua?"),
         // y sin marcarlo se leia igual que un disparo efectivo.
-        const nulo = (disparo && e.movio_sp === false)
-          ? '<div class="warn" style="font-size:.7rem">disparo sin efecto: el setpoint no se '
-            + 'movio, su wait no se reinicio'
+        const sinEfecto = e.movio_planta === false
+          || (e.movio_planta === undefined && e.movio_sp === false);
+        const nulo = (disparo && sinEfecto)
+          ? '<div class="warn" style="font-size:.7rem">disparo sin efecto en planta'
             + ((e.waits_revertidos || []).length
                 ? ' (' + e.waits_revertidos.map(esc).join(', ') + ')' : '')
             + '</div>'
+            // El motivo real (tracking, limite, paso 0, familia inhibida). Sin
+            // esto la pagina decia QUE no paso, pero no POR QUE.
+            + (e.motivo_sin_efecto
+                ? '<div class="mut" style="font-size:.66rem">'
+                  + esc(e.motivo_sin_efecto) + '</div>'
+                : '')
           : '';
         return '<tr class="' + (disparo ? 'disparo' : '') + '">'
           + '<td class="mono mut">' + hace(e.ts_wall_ultimo || e.ts_wall) + '</td>'
@@ -169,7 +193,8 @@ function renderTabla(d) {
           + '<td class="mono">' + (Number(e.repeticiones) > 1
               ? '<b>&times;' + e.repeticiones + '</b>' : '1') + '</td>'
           + '<td class="mono">' + num(e.belief, 3) + '</td>'
-          + '<td class="mono" style="font-size:.72rem">' + (efecto || '—') + acciones + '</td>'
+          + '<td class="mono" style="font-size:.72rem">' + (efectoPlanta || '—') + acciones + '</td>'
+          + '<td class="mono" style="font-size:.72rem;color:#94a3b8">' + (efectoInterno || '—') + '</td>'
           + '</tr>';
       }).join('') + '</tbody></table>';
 }
@@ -183,22 +208,43 @@ async function cargar() {
     return;
   }
   try {
-    const d = await (await fetch('/api/se/grabador/' + encodeURIComponent(REGLA))).json();
+    const [d, g] = await Promise.all([
+      (await fetch('/api/se/grabador/' + encodeURIComponent(REGLA))).json(),
+      (await fetch('/api/se/grabador')).json(),
+    ]);
     _grabando = !!d.grabando;
+    const maxAct = g.max_activos || 5;
+    const nAct = (g.activos || []).length;
 
     document.getElementById('pill').className = 'pill' + (_grabando ? ' on' : '');
     document.getElementById('pill-txt').textContent = _grabando ? 'GRABANDO' : 'DETENIDO';
+    const alLimite = nAct >= maxAct && !_grabando;
     document.getElementById('btn-grab').textContent = _grabando ? '■ Detener' : '● Grabar';
+    document.getElementById('btn-grab').disabled = alLimite;
     document.getElementById('btn-grab').style.borderColor = _grabando ? '#ef4444' : '';
-    document.getElementById('sub').innerHTML = 'Regla <code>' + esc(REGLA) + '</code>'
-      + ' · ultimo evento ' + fecha((d.resumen || {}).ultimo_ts);
-
-    // El buffer es un anillo: cuando se llena, lo viejo se cae. Hay que decirlo
-    // o el "grabando desde" de arriba pasa a ser mentira.
-    document.getElementById('banner').innerHTML = (d.resumen || {}).truncado
-      ? '<div class="banner">Buffer lleno (' + d.max + ' eventos): los mas antiguos se '
-        + 'van descartando. Los contadores de arriba cuentan solo lo que sigue guardado.</div>'
+    document.getElementById('btn-grab').title = alLimite
+      ? 'Ya hay ' + maxAct + ' reglas grabando. Detene una en la traza antes de empezar otra.'
       : '';
+    document.getElementById('sub').innerHTML = 'Regla <code>' + esc(REGLA) + '</code>'
+      + ' · ultimo evento ' + fecha((d.resumen || {}).ultimo_ts)
+      + ' · grabando ' + nAct + '/' + maxAct + ' en total';
+
+    let banners = '';
+    if (nAct > 0) {
+      banners += '<div class="banner" style="margin-bottom:8px">Grabando '
+        + nAct + '/' + maxAct + ': '
+        + (g.activos || []).map(function(id) { return '<code>' + esc(id) + '</code>'; }).join(', ')
+        + (nAct >= maxAct ? ' &mdash; <b>limite alcanzado</b>' : '')
+        + '</div>';
+    } else {
+      banners += '<div class="banner" style="margin-bottom:8px">Podes grabar hasta '
+        + maxAct + ' reglas a la vez desde la traza del pipeline.</div>';
+    }
+    if ((d.resumen || {}).truncado) {
+      banners += '<div class="banner">Buffer lleno (' + d.max + ' eventos): los mas antiguos se '
+        + 'van descartando. Los contadores de arriba cuentan solo lo que sigue guardado.</div>';
+    }
+    document.getElementById('banner').innerHTML = banners;
 
     renderResumen(d);
     renderTabla(d);
@@ -216,6 +262,14 @@ document.getElementById('auto').addEventListener('change', reprogramar);
 
 cargar();
 reprogramar();
+</script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'historial',
+  pageLabel: 'Historial de regla',
+  restartOnSave: false,
+});
 </script>
 </body>
 </html>

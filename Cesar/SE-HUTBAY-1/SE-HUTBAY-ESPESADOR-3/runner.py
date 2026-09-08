@@ -41,7 +41,7 @@ from core.filters.exp_q import (
 from core.fuzzy.evaluator import evaluar_fuzzys, evaluar_pendiente_var, expandir_etiquetas_compuestas
 from core.variables.online import VariablesOnline
 from core.fuzzy.pendientes import PendientesOnline
-from permisivos import PERMISIVOS, evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
+from permisivos import evaluar_permisivos, inyectar_permisivos_en_fuzzy_out
 
 
 # ============================================================
@@ -58,10 +58,16 @@ REGLAS_JSON_PATH = _os.path.join(_CFG_DIR, "reglas.json")
 
 
 def cargar_reglas_json(path: str | None = None) -> list[dict]:
-    """Carga reglas desde reglas.json. Fallback: REGLAS_ESPESADOR (lazy import)."""
+    """Carga reglas desde reglas.json.
+
+    SIN fallback (2026-09-01). Caia a las 28 reglas del espesador cuando el
+    archivo faltaba o estaba corrupto — o sea que un `reglas.json` ilegible no
+    detenia el motor: lo ponia a operar con las reglas de OTRA planta, sobre
+    los setpoints de esta. Una lista vacia es la respuesta correcta y honesta:
+    "este contrato todavia no tiene reglas", y el motor no mueve nada.
+    """
     def _defaults():
-        from reglas_espesador import REGLAS_ESPESADOR
-        return list(REGLAS_ESPESADOR)
+        return []
 
     ruta = path or REGLAS_JSON_PATH
     if not _os.path.exists(ruta):
@@ -279,8 +285,13 @@ PERMISIVOS_JSON_PATH = _os.path.join(_CFG_DIR, "permisivos.json")
 
 
 def _permisivos_defaults_deepcopy() -> dict:
-    import copy as _copy
-    return _copy.deepcopy(PERMISIVOS)
+    """Sin plantilla del espesador: un archivo ausente es "sin permisivos".
+
+    Mismo criterio que `_defaults_defuzzy()` y `_defaults_tracking()`: sembrar
+    los permisivos de otra planta produce un experto que exige senales que
+    este contrato no instrumenta.
+    """
+    return {}
 
 
 def cargar_permisivos_json(path: str | None = None) -> dict:
@@ -491,8 +502,7 @@ def correr_prueba_general(
 
     # Resolver defaults de proceso con lazy imports
     if reglas is None:
-        from reglas_espesador import REGLAS_ESPESADOR
-        reglas = list(REGLAS_ESPESADOR)
+        reglas = cargar_reglas_json()
     else:
         reglas = list(reglas)
 
@@ -505,7 +515,11 @@ def correr_prueba_general(
         variables_proceso = VARIABLES_PROCESO
 
     columnas_entrada = COLUMNAS_ENTRADA if columnas_entrada is None else columnas_entrada
-    permisivos_config = PERMISIVOS if permisivos_config is None else permisivos_config
+    # Antes caia al dict del espesador. El motor en vivo usa
+    # `cargar_permisivos_json()`, asi que ese default hacia divergir la
+    # simulacion de la produccion justo en los permisivos.
+    if permisivos_config is None:
+        permisivos_config = cargar_permisivos_json()
 
     # ---- Paso 0: Calcular variables derivadas desde crudas ----
     dt_s_efectivo = None

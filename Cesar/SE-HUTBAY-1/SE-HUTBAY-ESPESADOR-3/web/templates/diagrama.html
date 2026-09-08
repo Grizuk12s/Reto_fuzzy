@@ -92,6 +92,7 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
 /* Click hint */
 .click-hint{text-align:center;color:#475569;font-size:.78rem;margin-bottom:16px;font-style:italic}
 </style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
 </head>
 <body>
 <nav>
@@ -102,6 +103,7 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
   <a href="/espesador/graficos">Explorador de Series</a>
   <a href="/espesador/diagrama" class="active">Diagrama de Flujo</a>
   <a href="/espesador/postgres">PostgreSQL</a>
+  <a href="/espesador/export-import">Export / Import</a>
 </nav>
 <div class="container">
 <h1>Diagrama de Flujo del Sistema Experto</h1>
@@ -488,6 +490,14 @@ h1{color:#38bdf8;margin-bottom:6px;font-size:1.5rem}
     });
   } catch (e) {}
 })();
+</script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'diagrama',
+  pageLabel: 'Diagrama de flujo',
+  restartOnSave: false,
+});
 </script>
 </body>
 </html>

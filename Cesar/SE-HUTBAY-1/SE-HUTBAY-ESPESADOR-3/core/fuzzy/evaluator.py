@@ -120,6 +120,34 @@ def evaluar_pendiente_var(var_name: str,
 # ============================================================
 # Etiquetas compuestas
 # ============================================================
+def etiquetas_derivadas(base) -> list:
+    """Las etiquetas que `expandir_etiquetas_compuestas` va a AGREGAR.
+
+    Existe para que la interfaz pueda ofrecer, por variable, exactamente las
+    etiquetas que el motor va a producir — ni una mas ni una menos. Antes el
+    catalogo de la pagina era una lista fija en el codigo (`ETIQUETAS_BASE`) y
+    se ofrecia igual para todas las variables: se podia escribir
+    `pend_nivel_5min = LOW` sobre una pendiente cuyas filas son INC/DEC/STABLE.
+    La regla se guardaba, no daba error, y evaluaba 0 PARA SIEMPRE.
+
+    La condicion de CERCA_ALTO / CERCA_BAJO se declara UNA sola vez, aca, y la
+    usan tanto el expansor como el catalogo. Si algun dia se deriva de otra
+    forma (por ejemplo por posicion, para soportar filas en espanol), se cambia
+    en un solo lugar y las dos cosas siguen de acuerdo.
+    """
+    presentes = {str(x).upper() for x in (base or [])}
+    out = []
+    for label in presentes:
+        no_label = f"NO-{label}"
+        if no_label not in presentes and no_label not in out:
+            out.append(no_label)
+    if "OK" in presentes and "HIGH" in presentes and "CERCA_ALTO" not in presentes:
+        out.append("CERCA_ALTO")
+    if "OK" in presentes and "LOW" in presentes and "CERCA_BAJO" not in presentes:
+        out.append("CERCA_BAJO")
+    return sorted(out)
+
+
 def expandir_etiquetas_compuestas(fuzzy_out: dict,
                                   meta_flags: dict | None = None) -> dict:
     """
@@ -140,10 +168,14 @@ def expandir_etiquetas_compuestas(fuzzy_out: dict,
             if no_label not in pert:
                 pert[no_label] = float(max(0.0, 1.0 - pert.get(label, 0.0)))
 
-        # CERCA_ALTO / CERCA_BAJO si existen las tres etiquetas L/O/H
-        if "OK" in pert and "HIGH" in pert:
+        # CERCA_ALTO / CERCA_BAJO. La CONDICION de que existan sale de
+        # `etiquetas_derivadas`, que es lo mismo que consulta el catalogo de
+        # la interfaz: asi no puede pasar que la pagina ofrezca una etiqueta
+        # que aca no se calcula.
+        derivadas = etiquetas_derivadas(pert.keys())
+        if "CERCA_ALTO" in derivadas:
             pert.setdefault("CERCA_ALTO", float(min(pert["OK"], pert["HIGH"])))
-        if "OK" in pert and "LOW" in pert:
+        if "CERCA_BAJO" in derivadas:
             pert.setdefault("CERCA_BAJO", float(min(pert["OK"], pert["LOW"])))
 
     # Meta-flags ON/OFF

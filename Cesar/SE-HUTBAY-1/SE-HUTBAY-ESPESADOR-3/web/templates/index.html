@@ -41,36 +41,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 .sidebar .section-label{display:block;color:#475569;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:4px 10px;margin-top:6px}
 .sidebar hr.sep{border:none;border-top:1px solid #1e293b;margin:12px 4px}
 
-/* Alert rail (right edge) */
-.alert-rail{width:10px;flex-shrink:0;background:#0b1322;border-left:1px solid #1e293b;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:3px;padding:6px 1px;cursor:pointer;transition:width .25s;overflow:hidden;z-index:100}
-.alert-rail:hover{width:14px;background:#111827}
-.alert-rail.expanded{width:340px;padding:12px;cursor:default;overflow-y:auto}
-.alert-rail .rail-dots{display:flex;flex-direction:column;gap:3px;align-items:center;padding-top:4px}
-.alert-rail.expanded .rail-dots{display:none}
-.rail-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;animation:pulse-dot 2s infinite}
-@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
-.rail-ok{width:8px;height:8px;border-radius:50%;background:#22c55e40;border:1px solid #22c55e30;margin-top:4px}
-
-/* Expanded alert panel */
-.alert-panel{display:none}
-.alert-rail.expanded .alert-panel{display:block}
-.alert-panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.alert-panel-header h4{color:#e2e8f0;font-size:.85rem;display:flex;align-items:center;gap:6px}
-.alert-panel-header .close-btn{background:none;border:none;color:#64748b;font-size:1.1rem;cursor:pointer;padding:2px 6px;border-radius:4px}
-.alert-panel-header .close-btn:hover{color:#e2e8f0;background:#1e293b}
-.alert-count-badge{background:#ef4444;color:#fff;font-size:.65rem;padding:1px 6px;border-radius:8px;font-weight:700}
-.alert-count-badge.ok{background:#22c55e}
-.alert-card{background:#1e293b;border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:3px solid #64748b;cursor:pointer;transition:.15s}
-.alert-card:hover{background:#243044}
-.alert-card .alert-cat{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}
-.alert-card .alert-msg{font-size:.78rem;color:#cbd5e1;line-height:1.4}
-.alert-card .alert-meta{font-size:.68rem;color:#475569;margin-top:4px;display:flex;justify-content:space-between}
-.alert-card .alert-detail{display:none;margin-top:8px;padding:8px;background:#0f172a;border-radius:6px;font-size:.72rem;color:#94a3b8;font-family:monospace;white-space:pre-wrap;max-height:150px;overflow-y:auto}
-.alert-card.open .alert-detail{display:block}
-.alert-card .resolve-btn{background:none;border:1px solid #334155;color:#64748b;font-size:.68rem;padding:2px 8px;border-radius:4px;cursor:pointer;margin-top:6px}
-.alert-card .resolve-btn:hover{border-color:#22c55e;color:#22c55e}
-.alert-ok-msg{color:#22c55e;font-size:.82rem;text-align:center;padding:30px 10px;line-height:1.6}
-
 .main{flex:1;padding:20px;overflow-x:auto}
 .seccion{display:none}
 .seccion.active{display:block}
@@ -217,6 +187,7 @@ tr.rule-disabled:hover{background:#1e1e34}
 .activity-bar-body .ev-time{color:#38bdf8;font-family:'Cascadia Code','Fira Code',monospace;font-size:.72rem}
 .activity-bar-body .ev-actions{color:#fb923c}
 </style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
 </head>
 <body>
 <aside class="sidebar" id="main-sidebar">
@@ -245,12 +216,13 @@ tr.rule-disabled:hover{background:#1e1e34}
   <hr class="sep">
   <span class="section-label">Conexion</span>
   <a href="#tags" data-sec="tags"><span class="link-label">Tags KEPserver</span><span class="badge-short" style="font-size:.65rem">Kep</span></a>
+  <a href="/espesador/postgres" class="external"><span class="link-label">PostgreSQL &rarr;</span><span class="badge-short" style="font-size:.65rem">PG</span></a>
+  <a href="/espesador/export-import" class="external"><span class="link-label">Export / Import &rarr;</span><span class="badge-short" style="font-size:.65rem">EI</span></a>
   <hr class="sep">
   <span class="section-label">Visualizacion</span>
   <a href="/espesador/graficos" class="external"><span class="link-label">Explorador de Series &rarr;</span><span class="badge-short" style="font-size:.65rem">ES</span></a>
   <a href="/espesador/traza" class="external"><span class="link-label">Traza del Pipeline &rarr;</span><span class="badge-short" style="font-size:.65rem">TZ</span></a>
   <a href="/espesador/diagrama" class="external"><span class="link-label">Diagrama de Flujo &rarr;</span><span class="badge-short" style="font-size:.65rem">DF</span></a>
-  <a href="/espesador/postgres" class="external"><span class="link-label">PostgreSQL &rarr;</span><span class="badge-short" style="font-size:.65rem">PG</span></a>
 </aside>
 <main class="main">
 <div id="license-expired-banner" style="display:none;margin:0 0 14px 0;padding:14px 20px;border-radius:10px;border:2px solid #dc2626;background:linear-gradient(135deg,rgba(220,38,38,.18),rgba(15,23,42,.9));color:#fecaca;font-size:.9rem;line-height:1.5">
@@ -382,12 +354,11 @@ tr.rule-disabled:hover{background:#1e1e34}
 <div class="top-bar">
   <div>
     <h1>Sistema Experto Prueba/Demo (v2)</h1>
-    <h2>Editor de reglas en vivo -- las reglas se aplican al ejecutar la simulacion.
-        Si reglas.json esta vacio se usan las reglas por defecto del experto.</h2>
+    <h2>Editor de reglas en vivo -- las reglas se aplican en cuanto se guardan.
+        Si reglas.json esta vacio no hay reglas cargadas.</h2>
   </div>
   <div style="display:flex;gap:8px">
     <button class="btn-primary" onclick="openModal()">+ Nueva Regla</button>
-    <button class="btn-success" onclick="runSim()">&#9654; Ejecutar Simulacion</button>
     <span style="font-size:.7rem;color:#64748b;margin-left:12px">Tiempos en <b>segundos</b> (separados por punto decimal, ej: 900.0 = 15 min)</span>
   </div>
 </div>
@@ -397,7 +368,7 @@ tr.rule-disabled:hover{background:#1e1e34}
 <thead><tr>
   <th style="width:50px">ID</th><th style="min-width:150px;width:150px">Control</th><th style="width:80px">Bloque</th><th style="width:65px">Prior.</th><th style="width:60px">Fuerza</th>
   <th>Activacion (IF)</th><th>Acciones (THEN)</th><th style="width:90px">Waits</th><th style="width:90px">Reinic. Waits</th>
-  <th style="width:55px">Weight</th>
+  <th style="width:55px">Weight</th><th style="width:70px" title="Belief minimo que tienen que juntar las condiciones del IF para que la regla dispare">Min. act.</th>
 </tr></thead>
 <tbody id="rules-body"></tbody>
 </table>
@@ -484,7 +455,7 @@ tr.rule-disabled:hover{background:#1e1e34}
           Se aplica al iniciar el motor.</h2>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn-danger"  onclick="resetFuzzy()">Vaciar (todas)</button>
+      <button class="btn-danger"  onclick="resetFuzzy()" title="Vacia los fuzzy de las PV y tambien los fuzzy de pendiente">Vaciar (todas)</button>
     </div>
   </div>
   <div id="fuzzy-aviso"></div>
@@ -592,13 +563,6 @@ tr.rule-disabled:hover{background:#1e1e34}
       </div>
     </div>
 
-    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 16px">
-      <div style="font-weight:700;margin-bottom:4px;color:#0891b2">Sensores Crudos (CRUDA)</div>
-      <div style="font-size:.78rem;color:#94a3b8;margin-bottom:10px">
-        Se editan en <b>Variables calc.</b>, no aqui. Se listan para que veas el contrato completo.
-      </div>
-      <div id="contrato-crudas"></div>
-    </div>
   </div>
 
   <div id="contrato-impacto" style="margin-top:18px"></div>
@@ -617,7 +581,6 @@ tr.rule-disabled:hover{background:#1e1e34}
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn-primary" onclick="saveVariables()">Guardar catalogo</button>
-      <button class="btn-danger"  onclick="resetVariables()">Restaurar default</button>
     </div>
   </div>
   <div id="variables-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
@@ -672,9 +635,18 @@ tr.rule-disabled:hover{background:#1e1e34}
       Si la diferencia <code>|PV - SP|</code> supera el <b>rango</b> configurado, la familia queda <b style="color:#ef4444">bloqueada</b>:
       no se emiten nuevas acciones sobre ese SP hasta que el PV entre en la banda <code>[SP - rango, SP + rango]</code>.
     </p>
-    <p style="font-size:.82rem;color:#94a3b8;line-height:1.6">
+    <p style="font-size:.82rem;color:#94a3b8;line-height:1.6;margin-bottom:8px">
       Esto evita oscilaciones: el sistema espera a que el proceso alcance el objetivo antes de actuar de nuevo.
       Si una familia esta <b>deshabilitada</b> o no tiene readback, el tracking no la bloquea (comportamiento clasico sin tracking).
+    </p>
+    <p style="font-size:.82rem;color:#94a3b8;line-height:1.6">
+      <b style="color:#38bdf8">Arranque bumpless.</b>
+      Cada vez que el DCS <b>entrega el lazo</b> (el handshake <code>ENABLE_FBK</code> pasa de denegado a concedido),
+      el SP de la familia se lleva al valor con el que el equipo venia operando, antes de volver a escribir, para retomar sin salto.
+      De donde sale ese valor lo decide la columna <b>Arranque</b>: el <b>SP de referencia del DCS</b> (lo habitual: el setpoint que el operador ve en el HMI),
+      el <b>PV de readback</b>, o <b>ninguno</b> (retomar con el ultimo valor del SE).
+      Es independiente del interruptor <b>Habilitado</b>, que solo controla el bloqueo por seguimiento.
+      Si la referencia no se puede leer, la familia <b>no se escribe</b> hasta poder leerla: retomar con un valor inventado es el salto que esto evita.
     </p>
   </div>
 
@@ -685,6 +657,7 @@ tr.rule-disabled:hover{background:#1e1e34}
       <th style="width:200px">PV Key (readback)</th>
       <th style="width:150px">Rango (tolerancia)</th>
       <th style="width:130px">Habilitado</th>
+      <th style="width:260px">Arranque bumpless</th>
       <th style="width:200px">Default core</th>
     </tr></thead>
     <tbody id="tracking-body"></tbody>
@@ -710,7 +683,7 @@ tr.rule-disabled:hover{background:#1e1e34}
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn-primary" onclick="openEstadoModal()">+ Nuevo Estado</button>
-      <button class="btn-danger" onclick="resetEstados()">Restaurar default</button>
+      <button class="btn-danger" onclick="resetEstados()">Vaciar estados</button>
     </div>
   </div>
   <div id="estados-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
@@ -731,7 +704,6 @@ tr.rule-disabled:hover{background:#1e1e34}
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn-primary" onclick="openWaitModal()">+ Nuevo Wait</button>
-      <button class="btn-danger" onclick="resetWaits()">Restaurar default</button>
     </div>
   </div>
   <div id="waits-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
@@ -753,7 +725,6 @@ tr.rule-disabled:hover{background:#1e1e34}
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn-primary" onclick="savePermisivos()">Guardar permisivos</button>
-      <button class="btn-danger"  onclick="resetPermisivos()">Restaurar default</button>
     </div>
   </div>
   <div id="permisivos-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
@@ -791,7 +762,7 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
           del KEPserver. Los indicadores de color muestran el estado de cada tag en tiempo real.</h2>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
-      <button class="btn-primary" onclick="refreshTags()">Actualizar valores</button>
+      <button class="btn-primary" onclick="refreshTags()" title="Actualiza valores OPC, mapeo de roles y listas del heartbeat/generador">Actualizar valores</button>
     </div>
   </div>
 
@@ -828,6 +799,48 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
         </div>
       </div>
 
+      <div style="border-top:1px solid #334155;padding-top:14px;margin-bottom:14px">
+        <div style="font-weight:700;font-size:.86rem;margin-bottom:6px">Calidad de dato</div>
+        <p style="font-size:.8rem;color:#94a3b8;margin-bottom:12px;line-height:1.55">
+          La calidad sale del <b style="color:#e2e8f0">StatusCode de OPC-UA</b>. Un tag en
+          <b style="color:#ef4444">Bad</b> queda fuera del pipeline y las reglas que lo nombran
+          quedan <code style="color:#38bdf8">no_evaluable</code>: el SE no decide sobre un dato
+          que el servidor no sostiene.
+        </p>
+        <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+          <label style="display:flex;gap:8px;align-items:flex-start;max-width:420px;cursor:pointer">
+            <input id="kep-uncertain" type="checkbox" style="margin-top:3px">
+            <span style="font-size:.8rem;color:#cbd5e1;line-height:1.5">
+              Aceptar valores <b style="color:#f59e0b">Uncertain</b><br>
+              <span style="color:#94a3b8">Por defecto se rechazan: hay codigos que son
+              literalmente un dato viejo (<code>UncertainLastUsableValue</code> significa que
+              la fuente se cayo). Activar solo si esta planta emite codigos benignos seguido
+              — como <code>UncertainEngineeringUnitsExceeded</code>, que es solo "fuera de
+              rango" — y rechazarlos deja al experto mudo.</span>
+            </span>
+          </label>
+          <div style="display:flex;flex-direction:column;gap:4px;max-width:380px">
+            <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Aviso por valor sin cambiar (s)</label>
+            <input id="kep-estancado" type="number" min="0" step="5" placeholder="60" style="width:120px">
+            <span style="font-size:.76rem;color:#94a3b8;line-height:1.5">
+              Segundos sin que una PV cambie de valor a partir de los cuales se avisa. Es un
+              <b style="color:#e2e8f0">diagnostico, no un interlock</b>: la variable se sigue
+              usando, porque un proceso genuinamente quieto tampoco se mueve. 0 lo desactiva.
+            </span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;max-width:380px">
+            <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Retener ultimo valor bueno (s)</label>
+            <input id="kep-retencion" type="number" min="0" max="300" step="1" placeholder="5" style="width:120px">
+            <span style="font-size:.76rem;color:#94a3b8;line-height:1.5">
+              Cuanto se sigue usando la ultima lectura buena de un tag cuya calidad se cayo.
+              Sin esto, un parpadeo de un tick deja mudas a las reglas que nombran esa
+              variable. Pasado el plazo la variable <b style="color:#e2e8f0">sale del
+              pipeline</b>. 0 lo desactiva; el maximo es 300 s.
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div id="kep-result" style="font-size:.82rem;padding:10px 12px;border-radius:6px;background:rgba(15,23,42,.6);border:1px solid #334155;min-height:1.5em;color:#94a3b8">
         Cargando configuracion...
       </div>
@@ -841,8 +854,7 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
         <div style="font-weight:700;font-size:.95rem;margin-bottom:4px" id="lectura-title">Lectura de Tags en Vivo</div>
         <div style="font-size:.8rem;color:#94a3b8" id="lectura-desc">
           Lee del KEPserver via OPC-UA solo los tags con rol en el SE:
-          <b style="color:#a855f7">PV</b>, <b style="color:#0891b2">CRUDA</b>,
-          <b style="color:#6366f1">LIM</b> y <b style="color:#22c55e">SP</b>.
+          <b style="color:#a855f7">PV</b>, <b style="color:#6366f1">LIM</b> y <b style="color:#22c55e">SP</b>.
           Los tags <b style="color:#64748b">OTRO</b> no se leen.
         </div>
       </div>
@@ -870,9 +882,21 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
   <div id="system-control-box" style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px 20px;border-radius:10px;border:2px solid #334155;background:#1e293b">
     <div style="flex:1">
       <div style="font-weight:700;font-size:.95rem;margin-bottom:4px" id="system-status-title">Sistema detenido</div>
-      <div style="font-size:.8rem;color:#94a3b8" id="system-status-desc">Presiona "Iniciar Sistema" para arrancar el generador de datos y activar la lectura de tags.</div>
+      <div style="font-size:.8rem;color:#94a3b8" id="system-status-desc">Presiona "Iniciar Sistema" para que el SE lea los tags, evalue las reglas y escriba los setpoints.</div>
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
+    <div style="display:flex;gap:14px;align-items:center">
+      <!-- Auto-reinicio: cuando esta ON, el SE se reinicia solo 3s despues
+           de detectar cambios en la configuracion (reglas, fuzzy, contrato,
+           tracking, filtros, etc.). Cuando esta OFF, hay que pulsar
+           Iniciar Sistema a mano para que los cambios apliquen. -->
+      <label id="autoreload-toggle-wrap" title="Auto-reinicio: reinicia el SE 3s despues de detectar cambios en la configuracion. Si esta apagado, los cambios se aplican al pulsar Iniciar Sistema."
+             style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a">
+        <input type="checkbox" id="autoreload-toggle" onchange="_toggleAutoReload()" style="width:16px;height:16px;cursor:pointer;accent-color:#38bdf8">
+        <div style="display:flex;flex-direction:column;line-height:1.15">
+          <span style="font-size:.78rem;font-weight:600;color:#e2e8f0">Auto-reinicio</span>
+          <span id="autoreload-hint" style="font-size:.66rem;color:#64748b">Aplica cambios en 3s</span>
+        </div>
+      </label>
       <span id="system-indicator" style="width:14px;height:14px;border-radius:50%;background:#64748b;flex-shrink:0"></span>
       <button class="btn-success" id="btn-system-start" onclick="startSystem()">Iniciar Sistema</button>
       <button class="btn-danger" id="btn-system-stop" onclick="stopSystem()" style="display:none">Detener Sistema</button>
@@ -969,6 +993,50 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
   </details>
 
   <!-- Heartbeat KEPserver -->
+  <details id="hs-panel" style="margin-bottom:18px">
+    <summary style="cursor:pointer;padding:12px 16px;background:#1e293b;border:1px solid #334155;border-radius:8px;font-weight:700;color:#e2e8f0;font-size:.9rem;display:flex;align-items:center;gap:10px;user-select:none">
+      <span style="font-size:1.1rem">&#128272;</span> Handshake con el DCS (ENABLE)
+      <span id="hs-status-badge" style="margin-left:auto;padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:rgba(100,116,139,.2);color:#94a3b8">SIN CONFIGURAR</span>
+    </summary>
+    <div style="padding:16px;background:#1e293b;border:1px solid #334155;border-top:none;border-radius:0 0 8px 8px">
+      <p style="font-size:.82rem;color:#94a3b8;margin-bottom:14px;line-height:1.55">
+        Es el <b style="color:#e2e8f0">permiso del DCS</b> para que el experto escriba.
+        El SE lo <b>pide</b> escribiendo el tag <b style="color:#14b8a6">EXT</b>, y el DCS
+        <b>responde</b> en el tag <b style="color:#14b8a6">FBK</b>. Es
+        <b style="color:#e2e8f0">fail-closed</b>: mientras el FBK no diga que si —o no se
+        pueda leer— <b>no sale ningun setpoint</b>. Un handshake que no se puede leer es
+        indistinguible de uno denegado.
+      </p>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;color:#e2e8f0;cursor:pointer;margin-bottom:12px">
+        <input id="hs-enabled" type="checkbox" style="width:auto;margin:0">
+        Exigir el permiso del DCS antes de escribir
+      </label>
+      <p style="font-size:.72rem;color:#64748b;margin:-6px 0 12px">Deshabilitado, el SE escribe
+      sin pedir permiso. Solo tiene sentido en una planta donde el bloqueo lo hace el propio DCS.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:6px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tag FBK (el DCS confirma)</label>
+          <select id="hs-fbk" style="width:100%"></select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tag EXT (el SE pide)</label>
+          <select id="hs-ext" style="width:100%"></select>
+        </div>
+      </div>
+      <p style="font-size:.72rem;color:#64748b;margin:0 0 14px">Solo aparecen tags <b>OTRO</b> y
+      <b>habilitados</b>. Tras habilitar o crear uno, pulsa <b>Actualizar valores</b> arriba.</p>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn-primary" onclick="saveHandshake()">Guardar config</button>
+      </div>
+
+      <div id="hs-estado" style="padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;font-size:.82rem;color:#94a3b8"></div>
+      <div id="hs-error" style="font-size:.82rem;color:#ef4444;margin-top:8px;min-height:1em"></div>
+    </div>
+  </details>
+
   <details id="hb-panel" style="margin-bottom:18px">
     <summary style="cursor:pointer;padding:12px 16px;background:#1e293b;border:1px solid #334155;border-radius:8px;font-weight:700;color:#e2e8f0;font-size:.9rem;display:flex;align-items:center;gap:10px;user-select:none">
       <span style="font-size:1.1rem">&#128147;</span> Heartbeat KEPserver
@@ -985,11 +1053,11 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px">
         <div style="display:flex;flex-direction:column;gap:4px">
           <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tag OUT (escritura)</label>
-          <input id="hb-tag-out" type="text" placeholder="RETO.HB.OUT">
+          <select id="hb-tag-out" style="width:100%"></select>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px">
           <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Tag IN (lectura)</label>
-          <input id="hb-tag-in" type="text" placeholder="RETO.HB.IN">
+          <select id="hb-tag-in" style="width:100%"></select>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px">
           <label style="font-size:.7rem;color:#94a3b8;text-transform:uppercase">Frecuencia Tick (s)</label>
@@ -1012,6 +1080,7 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
           <input id="hb-value-b" type="number" step="1" value="1">
         </div>
       </div>
+      <p style="font-size:.72rem;color:#64748b;margin:-6px 0 14px">Solo aparecen tags <b>OTRO</b> y <b>habilitados</b>. Tras habilitar o crear uno, pulsa <b>Actualizar valores</b> arriba.</p>
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
         <button class="btn-primary" onclick="saveHeartbeatConfig()">Guardar config</button>
@@ -1044,6 +1113,17 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
         <div>
           <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Ultimo pulso</div>
           <div id="hb-ts" style="font-size:.85rem;font-weight:600;color:#cbd5e1">--</div>
+        </div>
+
+        <!-- Mini grafico OUT/IN: solo visible al agrandar la celda -->
+        <div id="hb-graf-cell" title="Arrastra la esquina inferior derecha para agrandar y ver el grafico" style="grid-column:1/-1;display:flex;flex-direction:column;height:54px;min-height:54px;max-height:300px;overflow:hidden;resize:vertical;border:1px dashed #334155;border-radius:6px;padding:6px 8px 8px;box-sizing:border-box">
+          <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto;flex-wrap:wrap">
+            <span style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Se&ntilde;al HB</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;font-size:.66rem;color:#38bdf8"><span style="width:14px;height:2px;background:#38bdf8;display:inline-block"></span>OUT</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;font-size:.66rem;color:#f59e0b"><span style="width:14px;height:2px;background:#f59e0b;display:inline-block"></span>IN</span>
+            <span id="hb-graf-hint" style="margin-left:auto;font-size:.62rem;color:#64748b">agranda la celda &#8600;</span>
+          </div>
+          <svg id="hb-graf-svg" style="display:none;flex:1 1 auto;width:100%;min-height:0;margin-top:4px"></svg>
         </div>
       </div>
       <div id="hb-error" style="font-size:.82rem;color:#ef4444;margin-top:8px;min-height:1em"></div>
@@ -1095,7 +1175,6 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
     <select id="tag-new-cat" title="Categoria funcional del tag dentro del SE"
             onchange="_syncNewRolOptions()">
       <option value="pv">Categoria: PV — Variable de Proceso</option>
-      <option value="cruda">Categoria: CRUDA — Sensor Crudo</option>
       <option value="lim">Categoria: LIM — Limite Fuzzy</option>
       <option value="sp">Categoria: SP — Setpoint</option>
       <option value="otro" selected>Categoria: OTRO — Sin rol en el SE</option>
@@ -1161,6 +1240,11 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
     </div>
     <div class="form-group"><label>Prioridad</label><input id="f-priority" type="number" step="1" value="50"></div>
     <div class="form-group"><label>Weight</label><input id="f-weight" type="number" step="0.1" value="1.0"></div>
+    <div class="form-group"><label>Minimo belief de activacion</label>
+      <input id="f-min-activacion" type="number" step="0.05" min="0" max="1" value="0">
+      <span class="hint">Conviccion minima que tienen que juntar las condiciones del IF
+        (0.0 - 1.0). Con 0 la regla dispara con cualquier activacion > 0, como siempre.</span>
+    </div>
     <div class="form-group full">
       <label>Fuerza (condiciones OR que aportan el belief)</label>
       <div id="fuerza-container"></div>
@@ -1192,6 +1276,8 @@ Operadores numericos validos: &lt;  &lt;=  &gt;  &gt;=  ==  =  !=
 </div>
 </div>
 
+<script src="/static/activity-summary.js"></script>
+<script src="/static/activity-alerts.js"></script>
 <script>
 function toggleSidebar() {
   const sb = document.getElementById('main-sidebar');
@@ -1213,12 +1299,29 @@ let VARS      = VARIABLES_JSON;
 // pagina Fuzzy, asi que hay que poder refrescarlas sin recargar la pagina.
 let LABELS    = LABELS_JSON;
 
+// Que etiquetas tiene sentido pedirle a CADA variable. `LABELS` es la UNION
+// de todas y solo sirve para validar "existe en alguna parte": ofrecerla
+// entera dejaba pedir LOW a una pendiente cuyas filas son INC/DEC/STABLE, o
+// CERCA_ALTO a una variable cuyo fuzzy no tiene OK y HIGH. En los dos casos la
+// regla se guardaba, no daba error, y evaluaba 0 PARA SIEMPRE.
+let LABELS_POR_VAR = LABELS_POR_VAR_JSON;
+
+// Las etiquetas de una variable. Lista vacia = esa variable no tiene fuzzy ni
+// pendiente definido, asi que no hay nada que preguntarle.
+function _labelsDe(variable) {
+  const v = String(variable || '');
+  return Array.isArray(LABELS_POR_VAR[v]) ? LABELS_POR_VAR[v] : [];
+}
+
 async function refrescarEtiquetas() {
   try {
     const d = await (await fetch('/api/meta')).json();
     if (Array.isArray(d.etiquetas)) LABELS = d.etiquetas;
     if (Array.isArray(d.acciones))  ACTIONS = d.acciones;
     if (Array.isArray(d.variables)) VARS = d.variables;
+    if (d.etiquetas_por_variable && typeof d.etiquetas_por_variable === 'object') {
+      LABELS_POR_VAR = d.etiquetas_por_variable;
+    }
   } catch (e) {}
 }
 
@@ -1268,16 +1371,41 @@ let editingId = null;
 function _isLeaf(x) {
   return Array.isArray(x) && x.length === 2 && typeof x[0] === 'string' && typeof x[1] === 'string';
 }
+// Un grupo OR puede tener adentro condiciones sueltas Y estados (que son
+// grupos AND). Antes exigia `.every(_isLeaf)`, asi que un OR con un estado no
+// se reconocia y la regla caia en "expresion compleja (no editable)".
 function _isOrGroup(x) {
   return x && typeof x === 'object' && !Array.isArray(x)
-      && Array.isArray(x.OR) && x.OR.length >= 2 && x.OR.every(_isLeaf);
+      && Array.isArray(x.OR) && x.OR.length >= 2
+      && x.OR.every(i => _isLeaf(i) || _isAndGroup(i));
 }
 function _isAndGroup(x) {
   return x && typeof x === 'object' && !Array.isArray(x) && Array.isArray(x.AND);
 }
+// La etiqueta que dice de que estado salio esta copia. Ver el bloque
+// "Estados y subestados" en web/api/config.py.
+const REF_ESTADO = 'ref_estado';
+function _refDe(x) {
+  return (x && typeof x === 'object' && x[REF_ESTADO]) ? String(x[REF_ESTADO]) : null;
+}
+// Una copia esta DESACTUALIZADA si el estado del que salio ya no dice lo
+// mismo. Se compara solo la parte AND: `ref_estado` es de la copia.
+function _copiaVieja(grupo) {
+  const ref = _refDe(grupo);
+  if (!ref) return false;
+  const est = ESTADOS[ref];
+  if (!est || !est.condicion || !Array.isArray(est.condicion.AND)) return false;
+  const limpiar = arr => JSON.stringify((arr || []).map(i =>
+    _isAndGroup(i) ? {AND: i.AND, ref: _refDe(i)} : i));
+  return limpiar(grupo.AND) !== limpiar(est.condicion.AND);
+}
 function _condsToItems(ifList) {
   if (!Array.isArray(ifList)) return [];
-  if (ifList.length === 1 && ifList[0] && Array.isArray(ifList[0].AND)) {
+  // NO desenvolver un grupo que trae `ref_estado`: ese grupo ES un estado, y
+  // aplanarlo perdia la etiqueta. Una regla cuya unica condicion era un estado
+  // se abria como hojas sueltas y el estado desaparecia al guardar.
+  if (ifList.length === 1 && ifList[0] && Array.isArray(ifList[0].AND)
+      && !_refDe(ifList[0])) {
     return ifList[0].AND;
   }
   return ifList;
@@ -1287,22 +1415,51 @@ function _isComplexIf(ifList) {
   if (!items.length) return false;
   return !items.every(it => _isLeaf(it) || _isOrGroup(it) || _isAndGroup(it));
 }
+// Una hoja cuya variable o etiqueta ya no existe se pinta en rojo en la lista,
+// igual que `_tagAccion` con las acciones. Sin esto habia que abrir regla por
+// regla para descubrir cual quedo colgada.
+function _renderHoja(v, l) {
+  const okV = VARS.includes(v);
+  // Por variable: `LOW` sobre una pendiente de INC/DEC/STABLE se pintaba
+  // verde porque LOW existia en la union. Evaluaba 0 y nadie lo veia.
+  const okL = okV ? _labelsDe(v).includes(l) : LABELS.includes(l);
+  const rojo = 'style="border-left:3px solid #f87171;color:#f87171"';
+  const tv = `<span class="tag tag-var" ${okV ? '' : rojo} ${okV ? '' : 'title="Esta variable ya no existe en la configuracion."'}>${_escapeHtml(dn(v))}${okV ? '' : ' &#9888;'}</span>`;
+  const tl = `<span class="tag tag-label" ${okL ? '' : rojo} ${okL ? '' : 'title="' + _escapeAttr('La variable ' + dn(v) + ' no tiene esta etiqueta. Validas: ' + (_labelsDe(v).join(', ') || '(ninguna: no tiene fuzzy)')) + '"'}>${_escapeHtml(l)}${okL ? '' : ' &#9888;'}</span>`;
+  return tv + ' ' + tl;
+}
+
 function _renderItemHTML(it) {
   if (_isLeaf(it)) {
-    return `<span class="tag tag-var">${dn(it[0])}</span> <span class="tag tag-label">${it[1]}</span>`;
+    return _renderHoja(it[0], it[1]);
   }
   if (_isOrGroup(it)) {
-    const inner = it.OR.map(l =>
-      `<span class="tag tag-var">${dn(l[0])}</span> <span class="tag tag-label">${l[1]}</span>`
-    ).join(' <b style="color:#facc15">OR</b> ');
+    const inner = it.OR.map(l => _isLeaf(l) ? _renderHoja(l[0], l[1]) : _renderItemHTML(l))
+      .join(' <b style="color:#facc15">OR</b> ');
     return `<span style="color:#94a3b8">(</span> ${inner} <span style="color:#94a3b8">)</span>`;
   }
   if (_isAndGroup(it)) {
     const inner = it.AND.map(leaf => {
-      if (_isLeaf(leaf)) return `<span class="tag tag-var">${dn(leaf[0])}</span> <span class="tag tag-label">${leaf[1]}</span>`;
+      if (_isLeaf(leaf)) return _renderHoja(leaf[0], leaf[1]);
       return _renderItemHTML(leaf);
     }).join(' <b style="color:#22c55e">&</b> ');
-    return `<span style="color:#64748b;font-size:.7rem">[Estado]</span> ${inner}`;
+    const ref = _refDe(it);
+    if (!ref) return `<span style="color:#64748b;font-size:.7rem">[Estado]</span> ${inner}`;
+    const existe = !!ESTADOS[ref];
+    // Tres avisos distintos, y ninguno cambia nada solo:
+    //  - el estado ya no existe -> la copia sigue evaluando igual, pero nadie
+    //    puede volver a resolverla
+    //  - la copia quedo vieja   -> el estado se edito y esta regla no
+    //  - al dia                 -> normal
+    let etiqueta;
+    if (!existe) {
+      etiqueta = `<span style="color:#f87171;font-size:.7rem" title="El estado &quot;${_escapeAttr(ref)}&quot; ya no existe. La regla sigue evaluando esta copia.">[Estado ${_escapeHtml(ref)} &#9888; borrado]</span>`;
+    } else if (_copiaVieja(it)) {
+      etiqueta = `<span style="color:#f59e0b;font-size:.7rem" title="El estado &quot;${_escapeAttr(ref)}&quot; se edito despues. Esta regla conserva la definicion vieja: abrila y guardala, o usa Actualizar al editar el estado.">[Estado ${_escapeHtml(ref)} &#9888; copia vieja]</span>`;
+    } else {
+      etiqueta = `<span style="color:#8b5cf6;font-size:.7rem">[Estado ${_escapeHtml(ref)}]</span>`;
+    }
+    return `${etiqueta} ${inner}`;
   }
   return `<span class="tag" style="border-left:3px solid #f87171">?</span>`;
 }
@@ -1322,16 +1479,28 @@ function addFuerzaRow(v, l) {
   row.style.cssText = 'border-left:3px solid #06b6d4;padding-left:6px';
   row.innerHTML = `
     <span style="color:#06b6d4;font-size:.7rem;width:22px">OR</span>
-    <select class="cfv">${VARS.map(x=>`<option value="${x}" ${x===v?'selected':''}>${dn(x)}</option>`).join('')}</select>
-    <select class="cfl">${LABELS.map(x=>`<option ${x===l?'selected':''}>${x}</option>`).join('')}</select>
+    ${_parVarLbl('cfv', 'cfl', v, l)}
     <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
   c.appendChild(row);
+  ActivityAlerts.markDirty('reglas');
 }
 
 function _getEstadoNames() { return Object.keys(ESTADOS); }
+
+// La copia que se guarda dentro de una regla o de otro estado: las
+// condiciones VIGENTES, mas la etiqueta que dice de donde salieron. El motor
+// solo mira el "AND"; `ref_estado` es para la pagina y para el aviso de copia
+// vieja. El backend la regenera igual al guardar, asi que si el navegador
+// tiene algo cacheado no pasa nada.
+function _copiaDeEstado(nombre) {
+  const est = ESTADOS[nombre];
+  if (!est || !est.condicion || !Array.isArray(est.condicion.AND)) return null;
+  const copia = {AND: JSON.parse(JSON.stringify(est.condicion.AND))};
+  copia[REF_ESTADO] = nombre;
+  return copia;
+}
 function _selEstado(selected) {
-  const names = _getEstadoNames();
-  return `<select class="ce">${names.map(e => `<option value="${e}" ${e===selected?'selected':''}>${e}</option>`).join('')}</select>`;
+  return _selCatalogo('ce', _getEstadoNames(), selected, e => e);
 }
 
 function addEstado(nombre) {
@@ -1347,6 +1516,7 @@ function addEstado(nombre) {
     ${_selEstado(nombre)}
     <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
   c.appendChild(row);
+  ActivityAlerts.markDirty('reglas');
 }
 
 function _selWait(selected) {
@@ -1411,6 +1581,7 @@ function addActionRow(accion, waitId, duracionS, reiniciarList) {
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">${reiniciarCheckboxes}</div>
     </div>`;
   c.appendChild(row);
+  ActivityAlerts.markDirty('reglas');
 }
 
 function addAction(a) { addActionRow(a); }
@@ -1418,10 +1589,11 @@ function addAction(a) { addActionRow(a); }
 function _renderFuerza(fuerza) {
   if (!fuerza) return '<span style="color:#64748b">-</span>';
   if (Array.isArray(fuerza) && fuerza.length === 2 && typeof fuerza[0] === 'string' && typeof fuerza[1] === 'string') {
-    return `<span class="tag">${dn(fuerza[0])} = ${fuerza[1]}</span>`;
+    return _renderHoja(fuerza[0], fuerza[1]);
   }
   if (fuerza.OR && Array.isArray(fuerza.OR)) {
-    return fuerza.OR.map(f => `<span class="tag">${dn(f[0])} = ${f[1]}</span>`).join(' <b style="color:#facc15;font-size:.7rem">OR</b> ');
+    return fuerza.OR.map(f => _renderHoja(f[0], f[1]))
+      .join(' <b style="color:#facc15;font-size:.7rem">OR</b> ');
   }
   return `<span class="tag">${JSON.stringify(fuerza)}</span>`;
 }
@@ -1475,7 +1647,7 @@ async function loadRules() {
   const tbody = document.getElementById('rules-body');
   tbody.innerHTML = '';
   if (!rules || rules.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:#64748b;padding:24px">
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:#64748b;padding:24px">
       reglas.json vacio. Se aplicaran las reglas por defecto del experto.</td></tr>`;
     return;
   }
@@ -1507,7 +1679,10 @@ async function loadRules() {
       <td>${fuerza}</td>
       <td>${conds}</td><td>${acts}</td>
       <td>${waits}</td><td>${reiniciar}</td>
-      <td>${r.weight ?? 1.0}</td>`;
+      <td>${r.weight ?? 1.0}</td>
+      <td>${Number(r.min_activacion || 0) > 0
+            ? '<b style="color:#38bdf8">' + Number(r.min_activacion).toFixed(2) + '</b>'
+            : '<span style="color:#64748b">-</span>'}</td>`;
     tbody.appendChild(tr);
   }
   _restoreFlashState();
@@ -1520,8 +1695,104 @@ async function toggleRule(id) {
   if (data.ok) loadRules();
 }
 
-function _selVar(v)   { return `<select class="cv">${VARS.map(x=>`<option value="${x}" ${x===v?'selected':''}>${dn(x)}</option>`).join('')}</select>`; }
-function _selLbl(l)   { return `<select class="cl">${LABELS.map(x=>`<option ${x===l?'selected':''}>${x}</option>`).join('')}</select>`; }
+// Selector de catalogo. El detalle que importa: si el valor GUARDADO ya no
+// esta en el catalogo (se borro el permisivo, se renombro la fila del fuzzy,
+// se borro el estado), un <select> normal no marca ninguna opcion y el
+// navegador selecciona LA PRIMERA. El operador abre la regla, ve
+// "hopper_nvl_pv_a / LOW" donde decia otra cosa, guarda, y la regla cambio de
+// significado sola. Es el peor tipo de error: silencioso y en lo que llega al
+// DCS.
+//
+// Aca el valor huerfano se conserva como opcion propia, marcada, y
+// `_huerfanosEnModal()` impide guardar hasta que alguien decida que poner.
+// Mismo criterio que `_selAccion` con las acciones que ya no estan en el
+// defuzzy.
+function _selCatalogo(cls, catalogo, valor, etiquetar) {
+  const v = (valor === undefined || valor === null) ? '' : String(valor);
+  const opts = catalogo.map(x =>
+    `<option value="${_escapeAttr(x)}" ${x === v ? 'selected' : ''}>${_escapeHtml(etiquetar(x))}</option>`
+  ).join('');
+  if (catalogo.includes(v)) return `<select class="${cls}">${opts}</select>`;
+  const txt = v === '' ? '(sin asignar)' : v + ' (ya no existe)';
+  const aviso = v === ''
+    ? 'No hay ninguna opcion en el catalogo.'
+    : v + ' ya no existe en la configuracion. Elegi un reemplazo: '
+        + 'la regla no se guarda asi.';
+  return `<select class="${cls} sel-huerfano" style="border:1px solid #f87171;color:#f87171"`
+       + ` title="${_escapeAttr(aviso)}">`
+       + `<option value="${_escapeAttr(v)}" selected>&#9888; ${_escapeHtml(txt)}</option>`
+       + opts + '</select>';
+}
+
+function _selVar(v)   { return _selCatalogo('cv',  VARS,   v, dn); }
+// OJO: se pasa la variable. Una etiqueta suelta, sin saber de que variable
+// hablamos, no se puede validar: `LOW` es correcta en un nivel y un error mudo
+// en una pendiente.
+function _selLbl(l, variable) { return _selCatalogo('cl', _labelsDe(variable), l, x => x); }
+
+// Par variable + etiqueta. El selector de etiqueta se REDIBUJA cuando cambia
+// la variable, porque cada variable tiene las suyas. Se conserva la etiqueta
+// elegida si la variable nueva tambien la tiene (pasar de un nivel a otro no
+// deberia borrar el OK que ya habias puesto).
+function _parVarLbl(clsVar, clsLbl, v, l) {
+  const selVar = _selCatalogo(clsVar, VARS, v, dn);
+  const selLbl = _selCatalogo(clsLbl, _labelsDe(v), l, x => x);
+  return `<span class="par-var-lbl" data-cv="${clsVar}" data-cl="${clsLbl}"
+    onchange="_sincronizarEtiquetas(this)">${selVar}${selLbl}</span>`;
+}
+
+function _sincronizarEtiquetas(cont) {
+  const sv = cont.querySelector('.' + cont.dataset.cv);
+  const sl = cont.querySelector('.' + cont.dataset.cl);
+  if (!sv || !sl) return;
+  const disponibles = _labelsDe(sv.value);
+  // Si la etiqueta actual sigue existiendo en la variable nueva, se conserva.
+  const conservar = disponibles.includes(sl.value) ? sl.value : (disponibles[0] || '');
+  if (sl.value === conservar && disponibles.includes(sl.value)) return;
+  sl.outerHTML = _selCatalogo(cont.dataset.cl, disponibles, conservar, x => x);
+  if (!disponibles.length) {
+    _avisoSinFuzzy(sv.value);
+  }
+}
+
+function _avisoSinFuzzy(variable) {
+  // No se bloquea nada aca: el guardado ya se niega con el motivo completo.
+  // Esto es para que no haya que apretar Guardar para enterarse.
+  console.warn('La variable "' + variable + '" no tiene fuzzy ni pendiente '
+    + 'definido: no se le puede preguntar por ninguna etiqueta.');
+}
+
+// Devuelve la lista de selects del modal cuyo valor NO esta en su catalogo.
+// Se comprueba el VALOR ACTUAL y no una marca puesta al dibujar: asi, si el
+// operador corrige el desplegable, el aviso desaparece solo.
+function _huerfanosEnModal() {
+  const malos = [];
+  const revisar = (selector, catalogo, que) => {
+    for (const el of document.querySelectorAll(selector)) {
+      if (!catalogo.includes(el.value)) {
+        malos.push(que + ' "' + (el.value || '(vacio)') + '"');
+      }
+    }
+  };
+  revisar('#conds-container .cv, #fuerza-container .cfv', VARS, 'variable');
+  revisar('#estados-container .ce, #conds-container .ce', _getEstadoNames(), 'estado');
+  // La etiqueta se revisa CONTRA SU VARIABLE, no contra la union: es la unica
+  // forma de cazar "pendiente = LOW", que existe como etiqueta pero no en esa
+  // variable, y que evaluaria 0 para siempre.
+  for (const par of document.querySelectorAll('#conds-container .par-var-lbl, #fuerza-container .par-var-lbl')) {
+    const sv = par.querySelector('.' + par.dataset.cv);
+    const sl = par.querySelector('.' + par.dataset.cl);
+    if (!sv || !sl) continue;
+    const disponibles = _labelsDe(sv.value);
+    if (!disponibles.length) {
+      malos.push('"' + dn(sv.value) + '" no tiene fuzzy ni pendiente definido');
+    } else if (!disponibles.includes(sl.value)) {
+      malos.push('"' + dn(sv.value) + ' = ' + (sl.value || '(vacio)')
+                 + '" (validas: ' + disponibles.join(', ') + ')');
+    }
+  }
+  return malos;
+}
 
 function addCond(v, l) {
   if (v === undefined) v = VARS[0];
@@ -1531,10 +1802,10 @@ function addCond(v, l) {
   row.className = 'cond-row';
   row.dataset.kind = 'leaf';
   row.innerHTML = `
-    ${_selVar(v)}
-    ${_selLbl(l)}
+    ${_parVarLbl('cv', 'cl', v, l)}
     <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
   c.appendChild(row);
+  ActivityAlerts.markDirty('reglas');
 }
 
 function _addOrLeafToGroup(container, v, l) {
@@ -1542,12 +1813,35 @@ function _addOrLeafToGroup(container, v, l) {
   if (l === undefined) l = 'OK';
   const sub = document.createElement('div');
   sub.className = 'cond-row or-leaf';
+  sub.dataset.kind = 'leaf';
   sub.innerHTML = `
     <span style="color:#facc15;font-size:.7rem;width:22px;text-align:center">OR</span>
-    ${_selVar(v)}
-    ${_selLbl(l)}
+    ${_parVarLbl('cv', 'cl', v, l)}
     <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
   container.appendChild(sub);
+  ActivityAlerts.markDirty('reglas');
+}
+
+// Un renglon del grupo OR que en vez de una condicion suelta es un estado
+// entero. El motor evalua "(A y B) o (C y D)" sin cambios: el OR toma el
+// maximo y cada estado adentro es el minimo de sus condiciones.
+function _addOrEstadoToGroup(container, nombre) {
+  const names = _getEstadoNames();
+  if (!names.length) {
+    return alert('No hay estados ni subestados creados todavia. Crealos en la '
+      + 'pagina Estados y volve aca.');
+  }
+  if (!nombre) nombre = names[0];
+  const sub = document.createElement('div');
+  sub.className = 'cond-row or-leaf';
+  sub.dataset.kind = 'estado';
+  sub.innerHTML = `
+    <span style="color:#facc15;font-size:.7rem;width:22px;text-align:center">OR</span>
+    <span style="color:#8b5cf6;font-size:.7rem;width:60px">ESTADO</span>
+    ${_selEstado(nombre)}
+    <button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>`;
+  container.appendChild(sub);
+  ActivityAlerts.markDirty('reglas');
 }
 
 function addOrGroup(leaves) {
@@ -1559,9 +1853,10 @@ function addOrGroup(leaves) {
   group.style.cssText = 'border:1px dashed #facc15;border-radius:6px;padding:6px;margin-bottom:6px;background:#1a2436';
   group.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <b style="font-size:.7rem;color:#facc15">GRUPO OR (>=2 hojas)</b>
+      <b style="font-size:.7rem;color:#facc15">GRUPO OR (>=2 opciones) &mdash; basta con que se cumpla UNA</b>
       <div>
-        <button class="btn-primary btn-sm" onclick="_addOrLeafToGroup(this.closest('.or-group').querySelector('.or-leaves'))">+ hoja</button>
+        <button class="btn-primary btn-sm" onclick="_addOrLeafToGroup(this.closest('.or-group').querySelector('.or-leaves'))">+ condicion</button>
+        <button class="btn-sm" style="background:#8b5cf6;color:#fff" onclick="_addOrEstadoToGroup(this.closest('.or-group').querySelector('.or-leaves'))">+ estado</button>
         <button class="btn-danger btn-sm" onclick="this.closest('.or-group').remove()">eliminar grupo</button>
       </div>
     </div>
@@ -1569,11 +1864,24 @@ function addOrGroup(leaves) {
   c.appendChild(group);
   const inner = group.querySelector('.or-leaves');
   const initial = (leaves && leaves.length >= 2) ? leaves : [[VARS[0],'OK'],[VARS[0],'OK']];
-  for (const [v,l] of initial) _addOrLeafToGroup(inner, v, l);
+  for (const it of initial) {
+    if (_isAndGroup(it)) {
+      const ref = _refDe(it);
+      // Sin `ref_estado` no se sabe de que estado salio: se abre como las
+      // condiciones sueltas que son, en vez de inventar un nombre.
+      if (ref && ESTADOS[ref]) _addOrEstadoToGroup(inner, ref);
+      else for (const hoja of (it.AND || [])) if (_isLeaf(hoja)) _addOrLeafToGroup(inner, hoja[0], hoja[1]);
+    } else if (_isLeaf(it)) {
+      _addOrLeafToGroup(inner, it[0], it[1]);
+    }
+  }
+  ActivityAlerts.markDirty('reglas');
 }
 
 
 async function openModal(rule=null) {
+  ActivityAlerts.setSuppress(true);
+  try {
   // Refresh estados, waits y ACCIONES para tomar lo recien creado.
   // Las acciones se sincronizan aca a proposito: el operador crea la columna
   // en Defuzzy y la encuentra en la regla sin recargar ni apretar nada.
@@ -1582,13 +1890,20 @@ async function openModal(rule=null) {
     if (re.ok) ESTADOS = await re.json();
     if (rw.ok) WAITS = await rw.json();
   } catch(e) {}
-  await refrescarAcciones();
+  // `refrescarMeta` y no `refrescarAcciones`: esta ultima solo trae ACTIONS.
+  // VARS y LABELS se quedaban con la foto del arranque de la pagina, asi que
+  // una pendiente o una variable calculada recien creada NO se ofrecia hasta
+  // recargar con F5 — y, ya con el aviso de huerfanos, una variable valida que
+  // faltaba en esa lista vieja se marcaba en rojo y bloqueaba el guardado.
+  // La funcion existia desde antes; simplemente no la llamaba nadie.
+  await refrescarMeta();
   editingId = null;
   document.getElementById('modal-title').textContent = 'Nueva Regla';
   document.getElementById('f-id').value = '';
   document.getElementById('f-id').disabled = false;
   document.getElementById('f-priority').value = '50';
   document.getElementById('f-weight').value = '1.0';
+  document.getElementById('f-min-activacion').value = '0';
   document.getElementById('f-bloque').value = BLOCKS[1] || BLOCKS[0];
   document.getElementById('fuerza-container').innerHTML = '';
   document.getElementById('estados-container').innerHTML = '';
@@ -1601,6 +1916,7 @@ async function openModal(rule=null) {
     document.getElementById('f-id').disabled = true;
     document.getElementById('f-priority').value = rule.priority ?? 50;
     document.getElementById('f-weight').value   = rule.weight ?? 1.0;
+    document.getElementById('f-min-activacion').value = rule.min_activacion ?? 0;
     document.getElementById('f-bloque').value   = rule.bloque || BLOCKS[1] || BLOCKS[0];
 
     // Fuerza (single leaf [v,l], OR {OR:[[v,l]...]}, or list [[v,l]...])
@@ -1618,11 +1934,14 @@ async function openModal(rule=null) {
     // Condiciones: separar estados/subestados (AND groups) de hojas
     for (const it of _condsToItems(rule['if'])) {
       if (_isAndGroup(it)) {
-        // Try to match to a known estado
-        const matched = _matchEstado(it);
+        // Primero la etiqueta `ref_estado`, que es exacta. `_matchEstado`
+        // queda de respaldo para las reglas guardadas ANTES de que existiera
+        // la etiqueta: adivina comparando condiciones, y por eso falla en
+        // cuanto el estado se edito.
+        const ref = _refDe(it);
+        const matched = (ref && ESTADOS[ref]) ? ref : _matchEstado(it);
         if (matched) { addEstado(matched); }
         else {
-          // Add each leaf from AND group as individual conditions
           for (const leaf of it.AND) { if (_isLeaf(leaf)) addCond(leaf[0], leaf[1]); }
         }
       } else if (_isOrGroup(it)) { addOrGroup(it.OR); }
@@ -1642,6 +1961,9 @@ async function openModal(rule=null) {
     }
   } else {
     addCond(); addActionRow();
+  }
+  } finally {
+    ActivityAlerts.setSuppress(false);
   }
   document.getElementById('modal-overlay').classList.add('active');
 }
@@ -1674,6 +1996,17 @@ async function saveRule() {
   const id = document.getElementById('f-id').value.trim();
   if (!id) return alert('ID requerido');
 
+  // Se corta ANTES de armar nada. Guardar con un huerfano reescribiria la
+  // regla con el primer valor del desplegable sin que nadie lo pidiera.
+  const huerfanos = _huerfanosEnModal();
+  if (huerfanos.length > 0) {
+    return alert('No se guarda: la regla nombra ' + huerfanos.length
+      + ' cosa(s) que ya no existen en la configuracion:\n\n  '
+      + huerfanos.join('\n  ')
+      + '\n\nEstan marcadas en rojo. Elegi un reemplazo en cada una, o borra '
+      + 'esa condicion.');
+  }
+
   // Fuerza (OR de condiciones)
   const fuerzaRows = [...document.querySelectorAll('#fuerza-container .fuerza-row')];
   const fuerzaItems = fuerzaRows.map(r => [r.querySelector('.cfv').value, r.querySelector('.cfl').value]);
@@ -1688,9 +2021,17 @@ async function saveRule() {
     if (child.dataset.kind === 'estado') {
       const nombre = child.querySelector('.ce').value;
       const est = ESTADOS[nombre];
-      if (est && est.condicion) {
-        ifItems.push(est.condicion);
+      // Antes esto era `if (est && est.condicion) push(...)`: un estado que ya
+      // no existia se DESCARTABA en silencio y la regla se guardaba sin esa
+      // condicion — mas laxa que lo que el operador veia en pantalla.
+      if (!est || !est.condicion) {
+        return alert('No se guarda: el estado "' + nombre + '" no existe o no '
+          + 'tiene condiciones. Borra esa fila o elegi otro estado.');
       }
+      // Se guarda la copia CON la etiqueta `ref_estado`. Sin ella la pagina
+      // tenia que adivinar despues, comparando condiciones, de que estado
+      // habia salido — y fallaba en cuanto el estado se editaba.
+      ifItems.push(_copiaDeEstado(nombre));
     }
   }
 
@@ -1700,11 +2041,22 @@ async function saveRule() {
     if (child.dataset.kind === 'leaf') {
       ifItems.push([child.querySelector('.cv').value, child.querySelector('.cl').value]);
     } else if (child.dataset.kind === 'or') {
-      const leaves = [...child.querySelectorAll('.or-leaves .or-leaf')].map(r => [
-        r.querySelector('.cv').value, r.querySelector('.cl').value
-      ]);
-      if (leaves.length < 2) return alert('Cada grupo OR debe tener al menos 2 hojas.');
-      ifItems.push({OR: leaves});
+      const opciones = [];
+      for (const r of child.querySelectorAll('.or-leaves .or-leaf')) {
+        if (r.dataset.kind === 'estado') {
+          const nom = r.querySelector('.ce').value;
+          const copia = _copiaDeEstado(nom);
+          if (!copia) {
+            return alert('No se guarda: el estado "' + nom + '" del grupo OR no '
+              + 'existe o no tiene condiciones.');
+          }
+          opciones.push(copia);
+        } else {
+          opciones.push([r.querySelector('.cv').value, r.querySelector('.cl').value]);
+        }
+      }
+      if (opciones.length < 2) return alert('Cada grupo OR debe tener al menos 2 opciones.');
+      ifItems.push({OR: opciones});
     }
   }
   if (ifItems.length === 0) return alert('Agrega al menos una condicion o estado.');
@@ -1748,6 +2100,14 @@ async function saveRule() {
   }
   if (acts.length === 0) return alert('Agrega al menos una accion.');
 
+  // Minimo de activacion: se valida aca y no solo en el backend para que el
+  // operador vea el error sin perder lo que escribio en el modal.
+  const minActRaw = (document.getElementById('f-min-activacion').value || '').trim();
+  const minActivacion = minActRaw === '' ? 0 : parseFloat(minActRaw);
+  if (isNaN(minActivacion) || minActivacion < 0 || minActivacion > 1) {
+    return alert('El minimo belief de activacion debe ser un numero entre 0.0 y 1.0.');
+  }
+
   const rule = {
     id:       id,
     bloque:   document.getElementById('f-bloque').value,
@@ -1756,6 +2116,7 @@ async function saveRule() {
     'then':   acts,
     weight:   parseFloat(document.getElementById('f-weight').value)   || 1.0,
     priority: parseFloat(document.getElementById('f-priority').value) || 0,
+    min_activacion: minActivacion,
   };
 
   const url = editingId
@@ -1766,7 +2127,12 @@ async function saveRule() {
     method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(rule)
   });
   const data = await res.json();
-  if (!res.ok) return alert(data.error || 'Error');
+  if (!res.ok) {
+    ActivityAlerts.onSave('reglas', false, data.error || 'Error');
+    return alert(data.error || 'Error');
+  }
+  ActivityAlerts.onSave('reglas', true, 'Regla guardada: ' + id,
+    ActivitySummary.regla(rule, !editingId));
   if (editingId) _clearRuleFlash(editingId);
   closeModal();
   loadRules();
@@ -2009,7 +2375,10 @@ function _activarSeccion(name) {
     loadContrato();
     _seccionLoaded.contrato = true;
   }
-  if (name === 'estados' && !_seccionLoaded.estados) {
+  if (name === 'estados') {
+    // Se recarga SIEMPRE, no solo la primera vez: los estados se editan desde
+    // esta misma pagina y desde el editor de reglas, y la tabla mostraba la
+    // foto de la primera visita.
     loadEstadosTab();
     _seccionLoaded.estados = true;
   }
@@ -2028,8 +2397,10 @@ function _activarSeccion(name) {
     const kp = document.getElementById('kep-port');
     if (kh) kh.addEventListener('input', _updateKepUrlPreview);
     if (kp) kp.addEventListener('input', _updateKepUrlPreview);
+    _initAutoReload();
     _seccionLoaded.tags = true;
   }
+  ActivityAlerts.enablePage(name);
 }
 
 // ============================================================
@@ -2038,6 +2409,9 @@ function _activarSeccion(name) {
 let _estadosData = {};
 
 async function loadEstadosTab() {
+  // La tabla pinta en rojo las variables y etiquetas que ya no existen: para
+  // que ese aviso sea cierto, el catalogo tiene que estar al dia.
+  await refrescarMeta();
   const res = await fetch('/api/estados');
   _estadosData = await res.json();
   ESTADOS = _estadosData;
@@ -2049,9 +2423,18 @@ function _renderEstadosTable() {
   tbody.innerHTML = '';
   for (const [nombre, est] of Object.entries(_estadosData)) {
     const tr = document.createElement('tr');
-    const conds = est.condicion && est.condicion.AND
-      ? est.condicion.AND.map(c => `<span class="tag tag-var">${c[0]}</span> <span class="tag tag-label">${c[1]}</span>`).join('<br>')
-      : JSON.stringify(est.condicion || []);
+    const items = (est.condicion && Array.isArray(est.condicion.AND)) ? est.condicion.AND : [];
+    const conds = items.length
+      ? items.map(c => {
+          if (_isAndGroup(c)) {
+            const ref = _refDe(c) || '?';
+            const dentro = (c.AND || []).map(h => _isLeaf(h) ? _renderHoja(h[0], h[1]) : '')
+                             .join(' <b style="color:#22c55e">&</b> ');
+            return `<span style="color:#8b5cf6;font-size:.7rem">[${_escapeHtml(ref)}]</span> ${dentro}`;
+          }
+          return _isLeaf(c) ? _renderHoja(c[0], c[1]) : _escapeHtml(JSON.stringify(c));
+        }).join('<br>')
+      : _escapeHtml(JSON.stringify(est.condicion || []));
     tr.innerHTML = `<td><b>${nombre}</b></td>
       <td><span class="tag tag-block">${est.tipo}</span></td>
       <td>${conds}</td>
@@ -2063,15 +2446,28 @@ function _renderEstadosTable() {
   }
 }
 
-function openEstadoModal(est=null) {
+async function openEstadoModal(est=null) {
+  // Mismo motivo que en el editor de reglas: los desplegables de variable y
+  // etiqueta tienen que reflejar lo que existe AHORA, no lo que existia
+  // cuando se cargo la pagina. Y ESTADOS tiene que estar fresco para saber
+  // cuales se pueden anidar.
+  await refrescarMeta();
+  try {
+    const re = await fetch('/api/estados');
+    if (re.ok) { ESTADOS = await re.json(); _estadosData = ESTADOS; }
+  } catch (e) {}
   const nombre = est ? est.nombre : '';
   const tipo = est ? est.tipo : 'estado';
   const condiciones = est && est.condicion && est.condicion.AND ? est.condicion.AND : [];
-  const condsHtml = condiciones.map(c =>
-    `<div class="cond-row" style="margin-bottom:2px"><select class="esv">${VARS.map(v=>`<option value="${v}" ${v===c[0]?'selected':''}>${dn(v)}</option>`).join('')}</select>` +
-    `<select class="esl">${LABELS.map(l=>`<option ${l===c[1]?'selected':''}>${l}</option>`).join('')}</select>` +
-    `<button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button></div>`
-  ).join('');
+  // Los estados que este puede anidar: los que NO estan compuestos por otros
+  // (un solo nivel) y no es el mismo. Es la misma regla que valida el backend;
+  // aca solo se evita ofrecer lo que se va a rechazar.
+  const condsHtml = condiciones.map(c => {
+    if (_isAndGroup(c)) return _filaEstadoAnidadoHTML(_refDe(c) || '', nombre);
+    return `<div class="cond-row es-cond" data-kind="leaf" style="margin-bottom:2px">`
+      + _parVarLbl('esv', 'esl', c[0], c[1])
+      + `<button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button></div>`;
+  }).join('');
 
   const html = `<div class="modal-overlay active" id="estado-modal-overlay">
     <div class="modal" style="width:600px" onclick="event.stopPropagation()">
@@ -2084,53 +2480,195 @@ function openEstadoModal(est=null) {
         <div class="form-group full">
           <label>Condiciones (AND)</label>
           <div id="es-conds">${condsHtml}</div>
-          <button class="btn-primary btn-sm" onclick="document.getElementById('es-conds').insertAdjacentHTML('beforeend',
-            '<div class=\\'cond-row\\' style=\\'margin-bottom:2px\\'><select class=\\'esv\\'>${VARS.map(v=>'<option value="'+v+'">'+dn(v)+'</option>').join('')}</select><select class=\\'esl\\'>${LABELS.map(l=>'<option>'+l+'</option>').join('')}</select><button class=\\'btn-danger btn-sm\\' onclick=\\'this.parentElement.remove()\\'>x</button></div>'
-          )" style="margin-top:4px">+ Condicion</button>
+          <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="btn-primary btn-sm" onclick="addEstadoCondicion()">+ Condicion</button>
+            <button type="button" class="btn-sm" style="background:#8b5cf6;color:#fff" onclick="addEstadoAnidado()">+ Estado/Subestado</button>
+            <span style="color:#64748b;font-size:.72rem">Se permite UN nivel: un estado
+              que ya esta compuesto por otros no se puede volver a anidar.</span>
+          </div>
         </div>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
         <button class="btn-danger" onclick="document.getElementById('estado-modal-overlay').remove()">Cancelar</button>
-        <button class="btn-success" onclick="saveEstadoTab(${est?'true':'false'})">Guardar</button>
+        <button class="btn-success" onclick="saveEstadoTab(${est?'true':'false'}, false)">Guardar</button>
       </div>
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
+// Estados que `propio` puede anidar: existentes, distintos de el mismo, y que
+// no esten a su vez compuestos por otros (un solo nivel).
+function _estadosAnidables(propio) {
+  return Object.keys(ESTADOS).filter(n => {
+    if (n === propio) return false;
+    const items = (ESTADOS[n] && ESTADOS[n].condicion && ESTADOS[n].condicion.AND) || [];
+    return !items.some(_isAndGroup);
+  });
+}
+
+function _filaEstadoAnidadoHTML(ref, propio) {
+  const opciones = _estadosAnidables(propio);
+  return `<div class="cond-row es-cond" data-kind="estado" style="margin-bottom:2px;border-left:3px solid #8b5cf6;padding-left:6px">`
+    + `<span style="color:#8b5cf6;font-size:.7rem;width:60px">ESTADO</span>`
+    + _selCatalogo('esr', opciones, ref, e => e)
+    + `<button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button></div>`;
+}
+
+function addEstadoAnidado() {
+  const box = document.getElementById('es-conds');
+  if (!box) return;
+  const propio = (document.getElementById('es-nombre') || {}).value || '';
+  const opciones = _estadosAnidables(propio);
+  if (!opciones.length) {
+    return alert('No hay ningun estado que se pueda anidar aca.\n\n'
+      + 'Solo se pueden anidar estados que NO esten a su vez compuestos por '
+      + 'otros estados (se permite un solo nivel), y que no sean este mismo.');
+  }
+  box.insertAdjacentHTML('beforeend', _filaEstadoAnidadoHTML(opciones[0], propio));
+  ActivityAlerts.markDirty('estados');
+}
+
+function addEstadoCondicion() {
+  const box = document.getElementById('es-conds');
+  if (!box) return;
+  const row = document.createElement('div');
+  row.className = 'cond-row es-cond';
+  row.dataset.kind = 'leaf';
+  row.style.marginBottom = '2px';
+  row.innerHTML = _parVarLbl('esv', 'esl', VARS[0], _labelsDe(VARS[0])[0])
+    + '<button class="btn-danger btn-sm" onclick="this.parentElement.remove()">x</button>';
+  box.appendChild(row);
+  ActivityAlerts.markDirty('estados');
+}
+
 async function editEstadoTab(nombre) {
   const res = await fetch('/api/estados/' + encodeURIComponent(nombre));
   if (!res.ok) return alert('Error');
   const est = await res.json();
-  openEstadoModal(est);
+  await openEstadoModal(est);
 }
 
 async function deleteEstadoTab(nombre) {
-  if (!confirm('Eliminar estado ' + nombre + '?')) return;
+  // Se consulta ANTES para que el aviso diga cuantas reglas quedan con la
+  // copia huerfana, en vez de preguntar a ciegas.
+  let usos = null;
+  try {
+    const ru = await fetch('/api/estados/' + encodeURIComponent(nombre) + '/usos');
+    if (ru.ok) usos = await ru.json();
+  } catch (e) {}
+  let texto = 'Eliminar el estado "' + nombre + '"?';
+  if (usos && (usos.reglas || []).length) {
+    texto += '\n\nLo usan ' + usos.reglas.length + ' regla(s): '
+      + usos.reglas.map(r => r.id).join(', ')
+      + '\n\nEsas reglas NO cambian de comportamiento: conservan la copia de '
+      + 'las condiciones y el motor las sigue evaluando igual. Lo que se pierde '
+      + 'es poder editarlas como estado — pasan a verse como condiciones sueltas.';
+  }
+  if (!confirm(texto)) return;
   const res = await fetch('/api/estados/' + encodeURIComponent(nombre), {method:'DELETE'});
-  if (res.ok) loadEstadosTab();
-  else alert('Error eliminando');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(data.error || 'Error eliminando');
+  const af = data.reglas_afectadas || [];
+  _setEstadosMsg(af.length
+    ? 'Estado "' + nombre + '" borrado. Reglas que conservan su copia: ' + af.join(', ')
+    : 'Estado "' + nombre + '" borrado.', af.length ? '#f59e0b' : '#22c55e');
+  loadEstadosTab();
+  if (_seccionLoaded.reglas) loadRules();
 }
 
-async function saveEstadoTab(isEdit) {
+async function saveEstadoTab(isEdit, propagar) {
   const nombre = document.getElementById('es-nombre').value.trim();
   if (!nombre) return alert('Nombre requerido');
   const tipo = document.getElementById('es-tipo').value;
-  const rows = [...document.querySelectorAll('#es-conds .cond-row')];
-  const conds = rows.map(r => [r.querySelector('.esv').value, r.querySelector('.esl').value]);
-  if (conds.length === 0) return alert('Al menos una condicion');
+
+  const conds = [];
+  const malas = [];
+  for (const r of document.querySelectorAll('#es-conds .es-cond')) {
+    if (r.dataset.kind === 'estado') {
+      const ref = r.querySelector('.esr').value;
+      if (!ESTADOS[ref]) { malas.push('estado "' + (ref || '(vacio)') + '"'); continue; }
+      // El AND va vacio a proposito: el backend REGENERA la copia desde la
+      // definicion vigente del estado referido, para que nunca se guarde algo
+      // que el navegador tenia cacheado.
+      const ref_obj = {AND: []};
+      ref_obj[REF_ESTADO] = ref;
+      conds.push(ref_obj);
+    } else {
+      const v = r.querySelector('.esv').value, l = r.querySelector('.esl').value;
+      const disp = _labelsDe(v);
+      if (!VARS.includes(v)) malas.push('variable "' + (v || '(vacio)') + '"');
+      else if (!disp.length) malas.push('"' + dn(v) + '" no tiene fuzzy ni pendiente definido');
+      else if (!disp.includes(l)) malas.push('"' + dn(v) + ' = ' + (l || '(vacio)')
+                                             + '" (validas: ' + disp.join(', ') + ')');
+      else conds.push([v, l]);
+    }
+  }
+  if (conds.length === 0 && malas.length === 0) return alert('Al menos una condicion');
+  // Mismo motivo que en saveRule: un valor que ya no esta en el catalogo no se
+  // reemplaza solo por el primero del desplegable.
+  if (malas.length > 0) {
+    return alert('No se guarda: hay ' + malas.length + ' condicion(es) que nombran '
+      + 'algo que ya no existe (marcadas en rojo):\n\n  ' + malas.join('\n  '));
+  }
+
   const payload = {nombre, tipo, condicion: {AND: conds}};
+  if (propagar) payload.propagar = true;
   const method = isEdit ? 'PUT' : 'POST';
   const url = isEdit ? '/api/estados/' + encodeURIComponent(nombre) : '/api/estados';
   const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   const data = await res.json();
-  if (!res.ok) return alert(data.error || 'Error');
-  document.getElementById('estado-modal-overlay').remove();
+  if (!res.ok) {
+    ActivityAlerts.onSave('estados', false, data.error || 'Error');
+    return alert(data.error || 'Error');
+  }
+
+  // --- El aviso. Las reglas guardan una COPIA de las condiciones, no una
+  // referencia viva: editar el estado NO las cambia. Se pregunta, no se
+  // propaga solo, porque esto termina en lo que el motor le escribe al DCS.
+  const usos = data.usos || {reglas: [], estados: []};
+  const viejas = [].concat(
+    (usos.reglas  || []).filter(x => x.desactualizada).map(x => 'regla ' + x.id),
+    (usos.estados || []).filter(x => x.desactualizada).map(x => 'estado ' + x.nombre));
+  if (!propagar && data.condicion_cambio && viejas.length > 0) {
+    const ok = confirm(
+      'Estado guardado.\n\n' + viejas.length + ' cosa(s) usan "' + nombre
+      + '" y quedaron con la definicion ANTERIOR:\n\n  ' + viejas.join('\n  ')
+      + '\n\nSiguen funcionando con las condiciones viejas hasta que se '
+      + 'actualicen.\n\nAceptar = actualizarlas ahora con la definicion nueva.\n'
+      + 'Cancelar = dejarlas como estan (quedan marcadas "copia vieja" en la '
+      + 'lista de reglas).');
+    if (ok) return saveEstadoTab(isEdit, true);
+  }
+  if (propagar) {
+    const t = data.propagado || {reglas: [], estados: []};
+    _setEstadosMsg('Actualizadas ' + (t.reglas || []).length + ' regla(s) y '
+      + (t.estados || []).length + ' estado(s): '
+      + [].concat(t.reglas || [], t.estados || []).join(', '), '#22c55e');
+  }
+
+  ActivityAlerts.onSave('estados', true, 'Estado guardado: ' + nombre,
+    ActivitySummary.estado(nombre, tipo, conds.length, !isEdit));
+  const ov = document.getElementById('estado-modal-overlay');
+  if (ov) ov.remove();
   loadEstadosTab();
+  // Las reglas muestran el aviso de "copia vieja", asi que se refrescan.
+  if (_seccionLoaded.reglas) loadRules();
+}
+
+function _setEstadosMsg(msg, color) {
+  const el = document.getElementById('estados-msg');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.color = color || '#94a3b8';
 }
 
 async function resetEstados() {
-  if (!confirm('Restaurar estados al default del core?')) return;
+  // Ya no hay plantilla del espesador que restaurar: _defaults_estados()
+  // devuelve {}. El boton vacia, y el texto lo dice.
+  if (!confirm('Borrar TODOS los estados y subestados?\n\n'
+    + 'Las reglas que los usen quedan con sus condiciones expandidas, pero '
+    + 'dejan de reconocerse como estado en el editor.')) return;
   await fetch('/api/estados/reset', {method:'POST'});
   loadEstadosTab();
 }
@@ -2213,14 +2751,13 @@ async function saveWaitTab(isEdit) {
   const url = isEdit ? '/api/waits/' + encodeURIComponent('wait::' + nombre.toLowerCase().replace(/[^a-z0-9]/g,'_')) : '/api/waits';
   const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   const data = await res.json();
-  if (!res.ok) return alert(data.error || 'Error');
+  if (!res.ok) {
+    ActivityAlerts.onSave('waits', false, data.error || 'Error');
+    return alert(data.error || 'Error');
+  }
+  ActivityAlerts.onSave('waits', true, 'Wait guardado: ' + nombre,
+    ActivitySummary.wait(nombre, variable_controlada, !isEdit));
   document.getElementById('wait-modal-overlay').remove();
-  loadWaitsTab();
-}
-
-async function resetWaits() {
-  if (!confirm('Restaurar waits al default del core?')) return;
-  await fetch('/api/waits/reset', {method:'POST'});
   loadWaitsTab();
 }
 
@@ -2238,6 +2775,7 @@ function _setTrackingMsg(text, color) {
 async function loadTracking() {
   const r = await fetch('/api/tracking');
   _trackingState = await r.json();
+  ActivitySummary.snap('tracking', _trackingState.actual || {});
   _renderTrackingTable();
   _setTrackingMsg('');
 }
@@ -2266,7 +2804,8 @@ function _renderTrackingTable() {
     }
     if (entradas.length === 0 && salidas.length) {
       partes.push('<span style="color:#94a3b8">No hay entradas PV declaradas, '
-        + 'asi que no hay readback que elegir. Definelas en <b>Variables calc.</b></span>');
+        + 'asi que no hay readback que elegir. Definelas en <b>Contrato de Variables</b> '
+        + 'y mapealas a un tag PV.</span>');
     }
     aviso.innerHTML = partes.length
       ? '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);'
@@ -2280,13 +2819,32 @@ function _renderTrackingTable() {
   for (const h of (_trackingState.huerfanas || [])) filas.push({id: h, salida: null});
 
   if (filas.length === 0) {
-    body.innerHTML = '<tr><td colspan="5" style="color:#64748b;padding:16px">'
+    body.innerHTML = '<tr><td colspan="6" style="color:#64748b;padding:16px">'
       + 'Sin familias de setpoint. Registra tags de categoria SP y pulsa Sincronizar.</td></tr>';
     return;
   }
 
+  const tagsRef = _trackingState.tags_referencia || [];
   for (const {id, salida} of filas) {
     const cur = actual[id] || {pv_key: '', rango: 0, habilitado: false};
+    // Compatibilidad con configs previas al campo: sin bloque `arranque`,
+    // la conducta historica era sembrar con el readback si lo habia.
+    const arr = cur.arranque || {fuente: cur.pv_key ? 'pv' : 'ninguno', tag: ''};
+    const fuenteOpts = [
+      ['tag', 'SP de referencia del DCS'],
+      ['pv', 'PV de readback'],
+      ['ninguno', 'Ninguno (sin bumpless)'],
+    ].map(([v, t]) => '<option value="' + v + '"' + (v === arr.fuente ? ' selected' : '') + '>'
+        + t + '</option>').join('');
+    let tagOpts = ['<option value="">(elegir tag)</option>'].concat(
+      tagsRef.map(t => '<option value="' + t.tag + '"' + (t.tag === arr.tag ? ' selected' : '')
+        + '>' + t.tag + (t.pseudonimo ? ' — ' + t.pseudonimo : '') + '</option>'));
+    // Un tag guardado que ya no esta habilitado no se esconde: si desaparece
+    // del desplegable, el operador guarda sin darse cuenta y pierde la config.
+    if (arr.tag && !tagsRef.some(t => t.tag === arr.tag)) {
+      tagOpts.splice(1, 0, '<option value="' + arr.tag + '" selected>'
+        + arr.tag + ' (deshabilitado o inexistente)</option>');
+    }
     const opts = ['<option value="">(sin readback)</option>'].concat(
       entradas.map(e => '<option value="' + e + '"' + (e === cur.pv_key ? ' selected' : '') + '>'
         + e + '</option>'));
@@ -2311,11 +2869,23 @@ function _renderTrackingTable() {
       + '<td style="text-align:center"><label class="toggle-switch" style="width:44px;height:24px">'
         + '<input type="checkbox" data-fam="' + id + '" data-k="habilitado" ' + (cur.habilitado ? 'checked' : '')
         + '><span class="toggle-slider" style="border-radius:24px"></span></label></td>'
+      + '<td>'
+        + '<select data-fam="' + id + '" data-k="arr_fuente" style="width:100%" '
+        + 'onchange="_onArranqueFuente(this)">' + fuenteOpts + '</select>'
+        + '<select data-fam="' + id + '" data-k="arr_tag" style="width:100%;margin-top:4px'
+        + (arr.fuente === 'tag' ? '' : ';display:none') + '">' + tagOpts.join('') + '</select>'
+      + '</td>'
       + '<td style="color:#64748b;font-size:.76rem">'
         + (salida ? (salida.pseudonimo + (salida.unidad ? ' · ' + salida.unidad : '')) : '&mdash;')
       + '</td>';
     body.appendChild(tr);
   }
+}
+
+function _onArranqueFuente(sel) {
+  const fila = sel.closest('tr');
+  const tagSel = fila.querySelector('[data-k="arr_tag"]');
+  if (tagSel) tagSel.style.display = (sel.value === 'tag') ? '' : 'none';
 }
 
 async function sincronizarTracking() {
@@ -2326,21 +2896,31 @@ async function sincronizarTracking() {
     _setTrackingMsg('Sincronizado con los tags SP. '
       + a + ' agregada(s), ' + q + ' quitada(s).'
       + (a ? ' Las nuevas entran deshabilitadas y sin readback.' : ''), '#22c55e');
+    ActivityAlerts.onSave('tracking', true, 'Tracking sincronizado',
+      ActivitySummary.syncList(d.agregadas, d.quitadas, 'familia', 'familias'));
   } catch (e) {
     _setTrackingMsg('Error: ' + e.message, '#ef4444');
   }
 }
 
 async function saveTracking() {
+  const before = ActivitySummary.getSnap('tracking');
   const payload = {};
   for (const sel of document.querySelectorAll('#tracking-body [data-k="pv_key"]')) {
     const familia = sel.dataset.fam;
     const rangoInp = document.querySelector('#tracking-body input[data-fam="' + CSS.escape(familia) + '"][data-k="rango"]');
     const habInp = document.querySelector('#tracking-body input[data-fam="' + CSS.escape(familia) + '"][data-k="habilitado"]');
+    const fuenteSel = document.querySelector('#tracking-body [data-fam="' + CSS.escape(familia) + '"][data-k="arr_fuente"]');
+    const tagSel = document.querySelector('#tracking-body [data-fam="' + CSS.escape(familia) + '"][data-k="arr_tag"]');
+    const fuente = fuenteSel ? fuenteSel.value : 'ninguno';
     payload[familia] = {
       pv_key: (sel.value || '').trim(),
       rango: parseFloat(rangoInp.value) || 0,
-      habilitado: habInp.checked
+      habilitado: habInp.checked,
+      arranque: {
+        fuente: fuente,
+        tag: (fuente === 'tag' && tagSel) ? (tagSel.value || '').trim() : ''
+      }
     };
   }
   const r = await fetch('/api/tracking', {
@@ -2348,8 +2928,14 @@ async function saveTracking() {
     body: JSON.stringify(payload)
   });
   const d = await r.json();
-  if (!r.ok) return _setTrackingMsg(d.error || 'Error', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('tracking', false, d.error || 'Error');
+    return _setTrackingMsg(d.error || 'Error', '#ef4444');
+  }
+  ActivityAlerts.onSave('tracking', true, 'Tracking guardado',
+    ActivitySummary.tracking(before, d.actual || payload));
   _trackingState.actual = d.actual;
+  ActivitySummary.snap('tracking', d.actual || payload);
   _renderTrackingTable();
   _setTrackingMsg('Configuracion guardada. Se aplicara en la proxima ejecucion.', '#22c55e');
   setTimeout(() => _setTrackingMsg(''), 4000);
@@ -2557,6 +3143,7 @@ async function loadFiltros() {
   if (filas.length === 0) {
     body.innerHTML = '<tr><td colspan="4" style="color:#64748b;padding:16px">'
       + 'Sin variables de proceso. Registra tags de categoria PV y pulsa Sincronizar.</td></tr>';
+    ActivitySummary.snap('filtros', actual);
     _setFiltrosMsg('');
     return;
   }
@@ -2585,6 +3172,7 @@ async function loadFiltros() {
       + '</td>';
     body.appendChild(tr);
   }
+  ActivitySummary.snap('filtros', actual);
   _setFiltrosMsg('');
 }
 
@@ -2597,6 +3185,8 @@ async function sincronizarFiltros() {
     _setFiltrosMsg('Sincronizado con los tags PV. ' + a + ' agregada(s), ' + q + ' quitada(s).'
       + (a ? ' Las nuevas entran con q=' + def.q + ', ventana_s=' + def.ventana_s
            + ' s — ajustalas viendo crudo vs filtrado en la traza.' : ''), '#22c55e');
+    ActivityAlerts.onSave('filtros', true, 'Filtros sincronizados',
+      ActivitySummary.syncList(d.agregadas, d.quitadas, 'PV', 'PV'));
   } catch (e) {
     _setFiltrosMsg('Error: ' + e.message, '#ef4444');
   }
@@ -2609,6 +3199,7 @@ function _setFiltrosMsg(text, color) {
 }
 
 async function saveFiltros() {
+  const before = ActivitySummary.getSnap('filtros');
   const payload = {};
   for (const inp of document.querySelectorAll('#filtros-body input')) {
     const v = inp.dataset.var, k = inp.dataset.k;
@@ -2621,7 +3212,13 @@ async function saveFiltros() {
     body: JSON.stringify(payload)
   });
   const d = await r.json();
-  if (!r.ok) return _setFiltrosMsg(d.error || 'Error', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('filtros', false, d.error || 'Error');
+    return _setFiltrosMsg(d.error || 'Error', '#ef4444');
+  }
+  ActivityAlerts.onSave('filtros', true, 'Filtros guardados',
+    ActivitySummary.filtros(before, d.actual || payload));
+  ActivitySummary.snap('filtros', d.actual || payload);
   _setFiltrosMsg('Configuracion guardada. Se aplicara en la proxima simulacion.', '#22c55e');
   setTimeout(() => _setFiltrosMsg(''), 4000);
 }
@@ -2647,6 +3244,150 @@ let _defuzzyState = null;  // {familias, salidas, sp_por_familia, enlaces, actua
 // Consecuencia: cualquier cosa que re-dibuje tiene que VOLCAR primero lo que
 // el operador tenga escrito en las demas tarjetas, o se pierde.
 
+// ============================================================
+// Tabla de limites — compartida por Fuzzy (PV) y Defuzzificacion (SP)
+// ============================================================
+// Un limite es un TAG del DCS, no un numero escrito a mano: si el limite de
+// ingenieria cambia en la planta, el SE lo sigue sin que nadie edite un JSON.
+// Por eso aca se elige un tag de categoria LIM, mostrado por su pseudonimo.
+//
+// Las opciones salen del backend en cada carga de la pagina (`/api/fuzzy` y
+// `/api/defuzzy` releen tags.json), asi que crear, habilitar, deshabilitar o
+// renombrar un tag LIM —o sincronizar el contrato— actualiza estas celdas solo.
+
+const LIM_BOUNDS = ['lmin', 'lmax'];
+const LIM_TITULO = {
+  lmin: ['lmin', 'minimo de la escala'],
+  lmax: ['lmax', 'maximo de la escala'],
+};
+
+function _limOpcionesHtml(disponibles, actual) {
+  let html = '<option value=""' + (actual ? '' : ' selected') + '>(sin asignar)</option>';
+  let visto = false;
+  for (const it of (disponibles || [])) {
+    const sel = (it.tag === actual);
+    if (sel) visto = true;
+    const etiqueta = (it.pseudonimo || it.tag)
+      + (it.equipo ? ' [' + it.equipo + ']' : '')
+      + ' — ' + it.tag;
+    html += '<option value="' + _escapeAttr(it.tag) + '"' + (sel ? ' selected' : '') + '>'
+          + _esc(etiqueta) + '</option>';
+  }
+  // Un valor guardado que ya no esta en el catalogo NUNCA se reemplaza solo:
+  // un <select> cuyo valor no existe selecciona la primera opcion, y guardar
+  // reescribiria el cableado con otro tag en silencio (regla A23). Se conserva
+  // como opcion propia, en rojo, y el guardado se bloquea hasta resolverlo.
+  if (actual && !visto) {
+    html += '<option value="' + _escapeAttr(actual) + '" selected>&#9888; '
+          + _esc(actual) + ' — ya no sirve</option>';
+  }
+  return html;
+}
+
+// Respaldo numerico: la red debajo del tag. Cubre el bound que NO tiene tag
+// cableado, y solo si alguien lo enciende a mano. Nace apagado a proposito —
+// un numero que valiera solo por existir es lo que hacia invisible al viejo
+// `limites_sp` del contrato: nadie sabia contra que se estaba clipeando.
+function _filasRespaldoHtml(num, cableado) {
+  const n = num || {};
+  const on = !!n.habilitado;
+  const campo = function(b) {
+    const tapado = !!(cableado || {})[b];
+    const v = (n[b] === null || n[b] === undefined) ? '' : n[b];
+    return '<td style="width:190px">'
+      + '<div style="font-size:.66rem;color:#64748b;text-transform:uppercase">respaldo ' + b + '</div>'
+      + '<input class="lim-num" data-bound="' + b + '" type="number" step="any" value="' + v + '"'
+      + ' style="width:130px' + (on ? '' : ';opacity:.45') + '"'
+      + (tapado ? ' title="Este bound tiene tag: manda el tag. El numero queda por si algun dia se desasigna."' : '')
+      + '>'
+      + (tapado && on ? '<div style="font-size:.64rem;color:#64748b">manda el tag</div>' : '')
+      + '</td>';
+  };
+  return '<tr><td colspan="3" style="padding-top:10px;border-top:1px solid #1e293b">'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:.78rem;color:'
+    + (on ? '#22c55e' : '#94a3b8') + ';cursor:pointer;margin-bottom:6px">'
+    + '<input class="lim-num-on" type="checkbox"' + (on ? ' checked' : '')
+    + ' style="width:auto;margin:0"> Usar respaldo numerico</label>'
+    + '<div style="font-size:.7rem;color:#64748b;margin-bottom:8px">Se usa <b>solo</b> en el '
+    + 'bound que no tenga tag asignado. Un bound con tag que no se puede leer <b>no</b> cae '
+    + 'aca: si el DCS dice que ese limite no es confiable, medir contra un numero viejo '
+    + 'seria decidir sobre una escala que el servidor no sostiene.</div>'
+    + '<table><tbody><tr>' + campo('lmin') + campo('lmax') + '</tr></tbody></table>'
+    + '</td></tr>';
+}
+
+// Lee el respaldo de una tarjeta. Los numeros se guardan aunque este apagado:
+// apagarlo y volver a encenderlo no tiene por que hacer reescribirlos.
+function _leerRespaldoDelDOM(card) {
+  if (!card) return {habilitado: false, lmin: null, lmax: null};
+  const on = card.querySelector('.lim-num-on');
+  const out = {habilitado: !!(on && on.checked), lmin: null, lmax: null};
+  for (const inp of card.querySelectorAll('.lim-num')) {
+    out[inp.dataset.bound] = (inp.value === '') ? null : parseFloat(inp.value);
+  }
+  return out;
+}
+
+// opts = {disponibles, limites, limitesNum, requeridos, huerfanos, nota}
+function _tablaLimitesHtml(opts) {
+  const disponibles = opts.disponibles || [];
+  const limites = opts.limites || {};
+  const requeridos = opts.requeridos || [];
+  const huerfanos = {};
+  for (const h of (opts.huerfanos || [])) huerfanos[h.bound] = h.motivo;
+
+  let filas = '';
+  for (const b of LIM_BOUNDS) {
+    const actual = limites[b] || '';
+    const pedido = requeridos.indexOf(b) >= 0;
+    const roto = !!huerfanos[b];
+    filas += '<tr>'
+      + '<td style="width:150px"><strong>' + LIM_TITULO[b][0] + '</strong>'
+      + '<div style="font-size:.66rem;color:#64748b">' + LIM_TITULO[b][1] + '</div></td>'
+      + '<td><select class="lim-sel" data-bound="' + b + '" style="width:100%'
+      + (roto ? ';border-color:#ef4444;color:#ef4444' : '') + '">'
+      + _limOpcionesHtml(disponibles, actual) + '</select>'
+      + (roto
+          ? '<div style="color:#ef4444;font-size:.68rem;margin-top:3px">'
+            + _esc(huerfanos[b]) + ' — elegi un reemplazo antes de guardar.</div>'
+          : '')
+      + '</td>'
+      + '<td style="width:210px;font-size:.7rem;color:'
+      + (pedido ? (actual ? '#22c55e' : '#ef4444') : '#64748b') + '">'
+      + (pedido
+          ? (actual ? 'en uso' : 'HACE FALTA: sin este limite no hay escala')
+          : 'no lo usa la configuracion actual (se conserva)')
+      + '</td></tr>';
+  }
+
+  return '<div style="margin-top:12px;background:#0f172a;border:1px solid #334155;'
+    + 'border-radius:10px;padding:12px 14px">'
+    + '<div style="font-size:.72rem;color:#38bdf8;font-weight:700;text-transform:uppercase;'
+    + 'letter-spacing:.4px;margin-bottom:4px">Limites</div>'
+    + '<div style="font-size:.72rem;color:#64748b;margin-bottom:8px">' + (opts.nota || '') + '</div>'
+    + '<div style="overflow-x:auto"><table><tbody>' + filas
+    + _filasRespaldoHtml(opts.limitesNum, limites)
+    + '</tbody></table></div>'
+    + '</div>';
+}
+
+// Lee los <select> de limites de una tarjeta. Devuelve {lmin, lmax} sin las
+// vacias — "sin asignar" es un estado valido y no se guarda como cadena vacia.
+function _leerLimitesDelDOM(card) {
+  const out = {};
+  if (!card) return out;
+  for (const sel of card.querySelectorAll('.lim-sel')) {
+    const v = (sel.value || '').trim();
+    if (v) out[sel.dataset.bound] = v;
+  }
+  return out;
+}
+
+// Huerfanos de una variable/familia, indexados por bound.
+function _limHuerfanosDe(lista, nombre) {
+  return (lista || []).filter(function(h) { return h.variable === nombre; });
+}
+
 async function loadDefuzzy(preferida) {
   const r = await fetch('/api/defuzzy');
   _defuzzyState = await r.json();
@@ -2666,6 +3407,7 @@ async function loadDefuzzy(preferida) {
 
   _renderDefuzzyAviso();
   _renderDefuzzy();
+  ActivitySummary.snap('defuzzy', (_defuzzyState && _defuzzyState.actual) || {});
   if (preferida) _irAFamilia(preferida);
 }
 
@@ -2731,7 +3473,12 @@ function _leerFamiliaDelDOM(fam) {
     if (!steps[nombre]) steps[nombre] = [];
     steps[nombre][col] = val;
   }
-  return {belief_axis: axis, steps_por_accion: steps};
+  // Los limites viajan con la familia. `_sincronizarDefuzzy()` vuelca esto al
+  // estado antes de cada repintado: sin ellos aca, agregar una columna borraria
+  // el cableado que se acaba de elegir.
+  return {belief_axis: axis, steps_por_accion: steps,
+          limites: _leerLimitesDelDOM(card),
+          limites_num: _leerRespaldoDelDOM(card)};
 }
 
 // Vuelca a memoria TODO lo escrito en pantalla. Hay que llamarla antes de
@@ -2783,6 +3530,7 @@ function _cardDefuzzy(fam) {
     +   '</div>'
     + '</div>'
     + _panelSP(fam)
+    + _dfzTablaLimites(fam, tabla)
     + '<div style="overflow-x:auto">' + _tablaDefuzzy(fam, tabla) + '</div>'
     + _panelEnlaces(fam)
     + '</div>';
@@ -2840,9 +3588,22 @@ function _panelSP(fam) {
       + '<b>Sin tag SP asociado.</b> Esta tabla no escribe a ningun instrumento: '
       + 'las acciones que la usen van a fallar al aplicarse.</div>';
   }
-  const lim = (sp.limites && sp.limites.length === 2)
-    ? sp.limites[0] + ' a ' + sp.limites[1] + (sp.unidad ? ' ' + _esc(sp.unidad) : '')
-    : '<span style="color:#ef4444">sin limites en contrato.json — se escribiria sin tope</span>';
+  // El clipeo real puede venir de un tag (recuadro Limites, abajo). Este campo
+  // muestra solo el respaldo numerico, que es lo que se usa cuando no hay tag.
+  const tabla = ((_defuzzyState || {}).actual || {})[fam] || {};
+  const cab = tabla.limites || {};
+  const num = tabla.limites_num || {};
+  const partes = [];
+  for (const b of LIM_BOUNDS) {
+    if (cab[b]) partes.push(b + ': tag');
+    else if (num.habilitado && num[b] !== null && num[b] !== undefined)
+      partes.push(b + ': ' + num[b]);
+    else partes.push('<span style="color:#ef4444">' + b + ': sin definir</span>');
+  }
+  const completo = !partes.join('').includes('sin definir');
+  const lim = '<span style="color:' + (completo ? '#22c55e' : '#ef4444') + '">'
+    + partes.join(' &middot; ') + '</span>'
+    + (completo ? '' : '<div style="font-size:.66rem;color:#ef4444">no se escribe al DCS</div>');
   const campo = (etiqueta, valor) =>
     '<div><div style="font-size:.66rem;color:#64748b;text-transform:uppercase;letter-spacing:.3px">'
     + etiqueta + '</div><div style="font-size:.84rem;color:#e2e8f0">' + valor + '</div></div>';
@@ -2854,9 +3615,31 @@ function _panelSP(fam) {
     + campo('Pseudonimo', _esc(sp.pseudonimo || '—'))
     + campo('Equipo', _esc(sp.equipo || '—'))
     + campo('Unidad', _esc(sp.unidad || '—'))
-    + campo('Limites del contrato', lim)
+    + campo('Limites de escritura', lim)
     + (sp.colision ? '<div style="color:#ef4444;font-size:.78rem">identificador en colision</div>' : '')
     + '</div>';
+}
+
+// Los limites del SETPOINT: son los que clipean la escritura al DCS. Mismo
+// mecanismo que en Fuzzy, con una diferencia — aca hay ademas un respaldo
+// numerico en `contrato.json`, que se usa cuando el bound no tiene tag.
+//
+// Si el bound SI tiene tag y ese tag no se puede leer, la familia se bloquea:
+// no se cae al numero. El DCS acaba de decir que ese limite no es confiable, y
+// clipear contra un numero viejo seria fijar el tope con un dato que el
+// servidor no sostiene.
+function _dfzTablaLimites(fam, tabla) {
+  return _tablaLimitesHtml({
+    disponibles: (_defuzzyState || {}).limites_disponibles || [],
+    limites: (tabla || {}).limites || {},
+    limitesNum: (tabla || {}).limites_num || {},
+    requeridos: LIM_BOUNDS,     // para clipear hacen falta los dos
+    huerfanos: _limHuerfanosDe((_defuzzyState || {}).limites_huerfanos, fam),
+    nota: 'Tags de categoria LIM. Son los limites de <b>este setpoint</b>: acotan lo que '
+        + 'el SE le escribe al DCS. Un mismo tag puede acotar tambien a la PV que lo lee '
+        + '— no hace falta duplicarlo en KEPserver. Sin limite utilizable esta familia '
+        + '<b>no se escribe</b>.',
+  });
 }
 
 // El otro extremo del enlace: que reglas mueven este SP y que variables
@@ -2939,6 +3722,7 @@ function addDefuzzyCol(fam) {
     t.steps_por_accion[k] = arr;
   }
   _renderDefuzzy();
+  ActivityAlerts.markDirty('defuzzy');
 }
 
 function delDefuzzyCol(fam) {
@@ -2954,6 +3738,7 @@ function delDefuzzyCol(fam) {
     t.steps_por_accion[k] = t.steps_por_accion[k].slice(0, -1);
   }
   _renderDefuzzy();
+  ActivityAlerts.markDirty('defuzzy');
 }
 
 function addDefuzzyAccion(fam) {
@@ -2967,6 +3752,7 @@ function addDefuzzyAccion(fam) {
   _renderDefuzzy();
   _setDefuzzyMsg('[' + fam + '] Accion agregada. Renombrala, define sus pasos y pulsa '
     + '"Guardar todo".', '#38bdf8');
+  ActivityAlerts.markDirty('defuzzy');
 }
 
 function delDefuzzyAccion(fam, nombre) {
@@ -2979,6 +3765,7 @@ function delDefuzzyAccion(fam, nombre) {
   }
   delete t.steps_por_accion[nombre];
   _renderDefuzzy();
+  ActivityAlerts.markDirty('defuzzy');
 }
 
 // ------------------------------------------------------------
@@ -2995,6 +3782,7 @@ async function crearDefuzzy() {
     if (!r.ok) return _setDefuzzyMsg(d.error, '#ef4444');
     await loadDefuzzy(f);
     _setDefuzzyMsg('Familia "' + f + '" creada. ' + (d.aviso || ''), '#22c55e');
+    ActivityAlerts.onSave('defuzzy', true, 'Familia "' + f + '" creada', '1 familia nueva: ' + f);
   } catch (e) {
     _setDefuzzyMsg('Error: ' + e.message, '#ef4444');
   }
@@ -3011,6 +3799,9 @@ async function borrarDefuzzy(fam) {
     const n = (d.reglas_afectadas || []).length;
     _setDefuzzyMsg('Familia "' + fam + '" borrada.'
       + (n ? ' Reglas afectadas: ' + d.reglas_afectadas.join(', ') : ''), n ? '#f59e0b' : '#22c55e');
+    ActivityAlerts.onSave('defuzzy', true, 'Familia "' + fam + '" borrada',
+      ActivitySummary.count(1, 'familia quitada', 'familias quitadas') + ': ' + fam
+        + (n ? (' · ' + ActivitySummary.count(n, 'regla afectada', 'reglas afectadas')) : ''));
   } catch (e) {
     _setDefuzzyMsg('Error: ' + e.message, '#ef4444');
   }
@@ -3037,6 +3828,7 @@ function _validarEjeBelief(axis) {
 // tiene sentido un "guardar familia actual": estan todas en pantalla.
 async function saveDefuzzy() {
   if (!_defuzzyState) return;
+  const before = ActivitySummary.getSnap('defuzzy');
   _sincronizarDefuzzy();
   const body = _defuzzyState.actual;
   if (!Object.keys(body).length) {
@@ -3058,14 +3850,33 @@ async function saveDefuzzy() {
     }
   }
 
+  // Cableado colgado: el <select> lo muestra en rojo pero su value sigue siendo
+  // el tag muerto. Guardarlo lo dejaria igual de muerto y el SP sin clipeo.
+  for (const [fam, t] of Object.entries(body)) {
+    const rotos = _limHuerfanosDe(_defuzzyState.limites_huerfanos, fam)
+      .filter(h => (t.limites || {})[h.bound] === h.tag);
+    if (rotos.length) {
+      _irAFamilia(fam);
+      return _setDefuzzyMsg('[' + fam + '] ' + rotos.map(
+        h => h.bound + ' apunta a ' + h.tag + ' (' + h.motivo + ')').join('; ')
+        + '. Elegi un reemplazo.', '#ef4444');
+    }
+  }
+
   const r = await fetch('/api/defuzzy', {
     method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
   });
   const d = await r.json();
-  if (!r.ok) return _setDefuzzyMsg(d.error || 'Error', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('defuzzy', false, d.error || 'Error');
+    return _setDefuzzyMsg(d.error || 'Error', '#ef4444');
+  }
+
   await loadDefuzzy();
   const n = Object.keys(d.actual || {}).length;
+  ActivityAlerts.onSave('defuzzy', true, n + ' familia(s) de defuzzy guardada(s)',
+    ActivitySummary.defuzzy(before, d.actual || body));
   _setDefuzzyMsg(n + ' familia(s) guardada(s). Se aplica al reiniciar el motor.', '#22c55e');
   setTimeout(() => _setDefuzzyMsg(''), 4000);
 }
@@ -3099,10 +3910,15 @@ async function loadFuzzy(preferida) {
   // {"<var>|<ETIQUETA>": [ids de regla]} — para avisar antes de romper algo.
   _fuzzyState.usoEnReglas = d.uso_en_reglas || {};
   _fuzzyState.reservadas  = d.reservadas || [];
+  // Catalogo de tags LIM y cableado colgado. Se reciben en cada carga, asi que
+  // las celdas de limites siguen a los tags sin refrescar nada a mano.
+  _fuzzyState.limDisponibles = d.limites_disponibles || [];
+  _fuzzyState.limHuerfanos   = d.limites_huerfanos || [];
 
   _renderFuzzyAviso();
   _renderFuzzy();
-  loadPendientes();
+  await loadPendientes();
+  ActivitySummary.snap('fuzzy', _fuzzyState.actual || {});
   if (preferida) {
     const card = document.getElementById('fz-card-' + preferida);
     if (card && card.scrollIntoView) card.scrollIntoView({block: 'nearest'});
@@ -3230,8 +4046,44 @@ function _fzCardHtml(e) {
     + '</div>'
     + '<div class="fz-msg" id="fz-msg-' + _esc(v) + '" style="font-size:.8rem;margin-bottom:6px;min-height:1.1em"></div>'
     + '<div style="overflow-x:auto">' + _fzTablaHtml(v, e.cfg) + '</div>'
+    + '<div id="fz-lim-' + _escapeAttr(v) + '">' + _fzTablaLimites(v, e.cfg) + '</div>'
     + '</div>';
   return html;
+}
+
+// Los limites de la PV: contra que escala se mide el offset. Son tags del DCS,
+// no numeros, para que un cambio de limite de ingenieria lo siga el SE solo.
+function _fzTablaLimites(v, cfg) {
+  const tipo = (cfg || {}).type || 'norm';
+  return _tablaLimitesHtml({
+    disponibles: _fuzzyState.limDisponibles || [],
+    limites: (cfg || {}).limites || {},
+    limitesNum: (cfg || {}).limites_num || {},
+    requeridos: FZ_LIMITES_POR_TIPO[tipo] || LIM_BOUNDS,
+    huerfanos: _limHuerfanosDe(_fuzzyState.limHuerfanos, v),
+    nota: 'Tags de categoria LIM. Son los limites de <b>esta PV</b>: el tipo '
+        + '<code>' + _esc(tipo) + '</code> mide el offset contra '
+        + (FZ_LIMITES_POR_TIPO[tipo] || LIM_BOUNDS).join(' y ')
+        + '. Se guardan con el boton Guardar de esta variable.',
+  });
+}
+
+// Espejo de _LIMITES_POR_TIPO_FUZZY (web/state.py). Un `high` solo mide contra
+// lmax: pedirle lmin seria exigir un tag que nadie va a leer.
+const FZ_LIMITES_POR_TIPO = {low: ['lmin'], high: ['lmax'], norm: ['lmin', 'lmax']};
+
+// Repinta SOLO el recuadro de limites, conservando lo elegido. Se usa al
+// cambiar el tipo: cambia que bound hace falta, pero repintar la tarjeta
+// entera borraria lo que el operador este escribiendo en la tabla de arriba.
+function _fzRepintarLimites(v) {
+  const card = _fzCard(v);
+  const box = document.getElementById('fz-lim-' + v);
+  if (!card || !box) return;
+  const cfg = Object.assign({}, _fuzzyState.actual[v] || {},
+                            {type: _fzTipoDe(v),
+                             limites: _leerLimitesDelDOM(card),
+                             limites_num: _leerRespaldoDelDOM(card)});
+  box.innerHTML = _fzTablaLimites(v, cfg);
 }
 
 function _fzTablaHtml(v, cfg) {
@@ -3284,7 +4136,11 @@ function _setFuzzyVarMsg(v, msg, color) {
 }
 
 function _marcarFuzzySucio(v) {
+  // El tipo decide QUE limite hace falta, asi que el recuadro de abajo tiene
+  // que decirlo al instante y no despues de guardar.
+  _fzRepintarLimites(v);
   _setFuzzyVarMsg(v, 'Tipo cambiado. Pulsa "Guardar" en esta variable para aplicarlo.', '#38bdf8');
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 async function crearFuzzy(v) {
@@ -3300,6 +4156,8 @@ async function crearFuzzy(v) {
     if (!r.ok) return _setFuzzyVarMsg(v, d.error, '#ef4444');
     await loadFuzzy(v);
     _setFuzzyVarMsg(v, 'Fuzzy creado como ' + tipo + '. ' + (d.aviso || ''), '#22c55e');
+    ActivityAlerts.onSave('fuzzy', true, 'Fuzzy creado: ' + v,
+      ActivitySummary.join(['membresia nueva', ActivitySummary.fuzzyVar(d.actual && d.actual[v])]));
   } catch (e) {
     _setFuzzyVarMsg(v, 'Error: ' + e.message, '#ef4444');
   }
@@ -3317,6 +4175,11 @@ async function borrarFuzzy(v) {
     _setFuzzyMsg('Fuzzy "' + v + '" borrado.'
       + (n ? ' Reglas que lo nombran y quedan muertas: ' + d.reglas_afectadas.join(', ') : ''),
       n ? '#f59e0b' : '#22c55e');
+    ActivityAlerts.onSave('fuzzy', true, 'Fuzzy borrado: ' + v,
+      ActivitySummary.join([
+        'membresia quitada: ' + v,
+        n ? ActivitySummary.count(n, 'regla afectada', 'reglas afectadas') : '',
+      ]));
   } catch (e) {
     _setFuzzyVarMsg(v, 'Error: ' + e.message, '#ef4444');
   }
@@ -3364,7 +4227,12 @@ function _readFuzzyTable(v) {
     const inputs = card.querySelectorAll('.fz-lbl[data-k="' + CSS.escape(original) + '"]');
     labels[nuevo || original] = Array.from(inputs).map(el => parseFloat(el.value));
   }
-  return {v: v, cfg: {offset: offset, labels: labels}, renombres: renombres};
+  // Los limites viajan con la tabla: si no, guardar el fuzzy borraria el
+  // cableado que se acaba de elegir (el PUT reemplaza la variable entera).
+  return {v: v, cfg: {offset: offset, labels: labels,
+                      limites: _leerLimitesDelDOM(card),
+                      limites_num: _leerRespaldoDelDOM(card)},
+          renombres: renombres};
 }
 
 function _fzTipoDe(v) {
@@ -3376,7 +4244,9 @@ function _fzTipoDe(v) {
 // Guarda en memoria lo editado en la tarjeta y la vuelve a pintar. Repintar
 // solo esa tarjeta evita perder lo que el operador este escribiendo en otra.
 function _fzAplicar(v, cfg) {
-  _fuzzyState.actual[v] = {type: _fzTipoDe(v), offset: cfg.offset, labels: cfg.labels};
+  _fuzzyState.actual[v] = {type: _fzTipoDe(v), offset: cfg.offset, labels: cfg.labels,
+                           limites: cfg.limites || {},
+                           limites_num: cfg.limites_num || {}};
   const card = _fzCard(v);
   const entrada = _fzEntradas().find(function(e) { return e.id === v; });
   if (card && entrada) card.outerHTML = _fzCardHtml(entrada);
@@ -3413,6 +4283,7 @@ function addFuzzyFila(v) {
   cfg.labels[`ETIQUETA_${i}`] = new Array(cfg.offset.length).fill(0);
   _fzAplicar(v, cfg);
   _setFuzzyVarMsg(v, `Fila "ETIQUETA_${i}" agregada. Renombrala y pulsa "Guardar".`, '#38bdf8');
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 function delFuzzyFila(v, k) {
@@ -3430,6 +4301,7 @@ function delFuzzyFila(v, k) {
   delete cfg.labels[k];
   _fzAplicar(v, cfg);
   _setFuzzyVarMsg(v, `Fila "${k}" eliminada. Pulsa "Guardar" para aplicarlo.`, '#38bdf8');
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 function addFuzzyCol(v) {
@@ -3441,6 +4313,7 @@ function addFuzzyCol(v) {
   cfg.offset.push(last + step);
   for (const k of Object.keys(cfg.labels)) cfg.labels[k].push(0.0);
   _fzAplicar(v, cfg);
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 function delFuzzyCol(v) {
@@ -3451,6 +4324,7 @@ function delFuzzyCol(v) {
   cfg.offset.pop();
   for (const k of Object.keys(cfg.labels)) cfg.labels[k].pop();
   _fzAplicar(v, cfg);
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 async function saveFuzzy(v) {
@@ -3483,11 +4357,23 @@ async function saveFuzzy(v) {
   // editada, para no borrar las demas sin querer. De las otras tarjetas se
   // toma lo que hay en pantalla, asi una edicion a medias en otra variable no
   // se pierde ni se guarda a medias.
+  // Un cableado colgado no se guarda: el <select> lo muestra en rojo pero su
+  // value sigue siendo el tag muerto, y guardarlo lo dejaria igual de muerto.
+  const rotos = _limHuerfanosDe(_fuzzyState.limHuerfanos, v)
+    .filter(h => (cfg.limites || {})[h.bound] === h.tag);
+  if (rotos.length) {
+    return _setFuzzyVarMsg(v, 'No se guardo: ' + rotos.map(
+      h => h.bound + ' apunta a ' + h.tag + ' (' + h.motivo + ')').join('; ')
+      + '. Elegi un reemplazo.', '#ef4444');
+  }
+
   const payload = {};
   for (const [k, c] of Object.entries(_fuzzyState.actual)) {
-    payload[k] = {type: c.type, offset: c.offset, labels: c.labels};
+    payload[k] = {type: c.type, offset: c.offset, labels: c.labels,
+                  limites: c.limites || {}, limites_num: c.limites_num || {}};
   }
-  payload[v] = {type: _fzTipoDe(v), offset: cfg.offset, labels: cfg.labels};
+  payload[v] = {type: _fzTipoDe(v), offset: cfg.offset, labels: cfg.labels,
+                limites: cfg.limites || {}, limites_num: cfg.limites_num || {}};
 
   const r = await fetch('/api/fuzzy', {
     method: 'PUT',
@@ -3495,24 +4381,66 @@ async function saveFuzzy(v) {
     body: JSON.stringify(payload),
   });
   const d = await r.json();
-  if (!r.ok) return _setFuzzyVarMsg(v, d.error || 'Error.', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('fuzzy', false, d.error || 'Error', 'variable: ' + v);
+    return _setFuzzyVarMsg(v, d.error || 'Error.', '#ef4444');
+  }
   _fuzzyState.actual = d.actual;
   // Las etiquetas nuevas tienen que llegar al editor de reglas, y el uso en
   // reglas se recalcula: por eso se recarga en vez de solo repintar.
   await loadFuzzy(v);
   await refrescarEtiquetas();
+  ActivityAlerts.onSave('fuzzy', true, 'Fuzzy guardado: ' + v,
+    ActivitySummary.fuzzyVar(payload[v]));
   _setFuzzyVarMsg(v, 'Guardada. Se aplica al reiniciar el motor.', '#22c55e');
 }
 
 async function resetFuzzy() {
-  if (!confirm('Vaciar TODAS las membresias fuzzy?\n\nNo repuebla la plantilla del espesador: '
-    + 'deja la pagina limpia para crearlas desde las PV.')) return;
+  // Vacia las DOS cosas de esta pagina: los fuzzy de PV y los de pendiente.
+  // Antes solo borraba los de PV, y quedaban pendientes calculando la
+  // tendencia de una variable que ya no tenia modelo difuso.
+  //
+  // El aviso se arma ANTES de borrar, con las reglas que hoy nombran alguna
+  // etiqueta. Avisar despues de destruir no sirve de nada.
+  let afectadas = [];
+  let cuantasPend = 0;
+  try {
+    const [rf, rp] = await Promise.all([fetch('/api/fuzzy'), fetch('/api/pendientes')]);
+    if (rf.ok) {
+      const d = await rf.json();
+      const ids = new Set();
+      for (const lista of Object.values(d.uso_en_reglas || {})) {
+        for (const id of lista) ids.add(id);
+      }
+      afectadas = [...ids].sort();
+    }
+    if (rp.ok) cuantasPend = Object.keys((await rp.json()).actual || {}).length;
+  } catch (e) {}
+
+  let texto = 'Vaciar TODA la fuzzificacion?\n\n'
+    + '  - todos los fuzzy de las PV\n'
+    + '  - ' + cuantasPend + ' fuzzy de pendiente\n\n'
+    + 'No repuebla ninguna plantilla: deja la pagina limpia para crearlos de nuevo.';
+  if (afectadas.length) {
+    texto += '\n\nATENCION: ' + afectadas.length + ' regla(s) nombran etiquetas que van a '
+      + 'dejar de existir y quedaran sin evaluar:\n  ' + afectadas.join(', ');
+  }
+  if (!confirm(texto)) return;
+
   const r = await fetch('/api/fuzzy/reset', {method: 'POST'});
   const d = await r.json();
   if (!r.ok) return _setFuzzyMsg('Error al vaciar.', '#ef4444');
   await loadFuzzy();
-  _setFuzzyMsg('Fuzzys vaciados. Cada tarjeta tiene su boton "+ Crear fuzzy".', '#22c55e');
-  setTimeout(() => _setFuzzyMsg(''), 4000);
+  if (typeof loadPendientes === 'function') await loadPendientes();
+  // El catalogo de etiquetas por variable acaba de quedar vacio: sin esto los
+  // desplegables del editor de reglas seguirian ofreciendo lo que ya no existe.
+  await refrescarMeta();
+  const rotas = d.reglas_afectadas || [];
+  _setFuzzyMsg('Fuzzys y pendientes vaciados.'
+    + (rotas.length ? ' Reglas que quedaron sin evaluar: ' + rotas.join(', ') : '')
+    + ' Cada tarjeta tiene su boton "+ Crear fuzzy".',
+    rotas.length ? '#f59e0b' : '#22c55e');
+  setTimeout(() => _setFuzzyMsg(''), 8000);
 }
 
 // ============================================================
@@ -3522,7 +4450,8 @@ async function resetFuzzy() {
 // varias sobre la misma variable con ventanas distintas, asi que cada una
 // tiene nombre propio y ese nombre es lo que la regla escribe. El nombre no
 // se edita despues de crearla: renombrarlo dejaria muda a la regla.
-const _pendState = {actual: {}, fuentes: [], plantilla: null, porVariable: {}};
+const _pendState = {actual: {}, fuentes: [], plantilla: null, porVariable: {},
+                    reservadas: [], usoEnReglas: {}};
 
 function _setPendMsg(msg, color) {
   const el = document.getElementById('pend-msg');
@@ -3538,6 +4467,9 @@ async function loadPendientes() {
   _pendState.fuentes     = d.fuentes || [];
   _pendState.plantilla   = d.plantilla || null;
   _pendState.porVariable = d.por_variable || {};
+  _pendState.reservadas  = d.reservadas || [];
+  _pendState.usoEnReglas = d.uso_en_reglas || {};
+  ActivitySummary.snap('pendientes', _pendState.actual || {});
   _renderPendientes();
 }
 
@@ -3576,15 +4508,29 @@ function _renderPendientes() {
           return '<td><input class="pd-eje" data-n="' + n + '" data-j="' + j
             + '" type="number" step="any" value="' + v + '" style="width:74px"></td>';
         }).join('') + '<td></td></tr>';
-    filas += Object.keys(labels).map(function(et) {
-      return '<tr><th style="text-align:left">' + et + '</th>'
+    filas += Object.keys(labels).map(function(et, iFila) {
+      // El nombre de la fila es un input, igual que en el fuzzy de PV: una
+      // planta puede querer SUBIENDO/QUIETO/BAJANDO en vez de INC/DEC/STABLE.
+      // El offset queda arriba y NO se renombra: es el eje, no una etiqueta.
+      const usada = (_pendState.usoEnReglas[n + '|' + et] || [])
+                      .concat(_pendState.usoEnReglas[n + '|NO-' + et] || []);
+      const aviso = usada.length
+        ? ' title="La usan las reglas: ' + usada.join(', ')
+          + '. Renombrarla o quitarla se rechaza al guardar."'
+        : '';
+      const borde = usada.length ? 'border-left:3px solid #38bdf8;' : '';
+      return '<tr><th style="text-align:left">'
+        + '<input class="pd-et" data-n="' + n + '" data-et="' + et + '"'
+        + ' type="text" value="' + et.replace(/"/g, '&quot;') + '"'
+        + ' style="width:150px;text-transform:uppercase;' + borde + '"' + aviso + '>'
+        + '</th>'
         + labels[et].map(function(v, j) {
             return '<td><input class="pd-mu" data-n="' + n + '" data-et="' + et
               + '" data-j="' + j + '" type="number" step="0.05" min="0" max="1" value="'
               + v + '" style="width:74px"></td>';
           }).join('')
         + '<td><button class="btn-sm btn-danger" onclick="delFilaPendiente(\'' + n
-        + '\',\'' + et + '\')">Quitar</button></td></tr>';
+        + '\',' + iFila + ')">Quitar</button></td></tr>';
     }).join('');
 
     return '<div class="card" id="pd-card-' + n + '" style="margin-bottom:14px">'
@@ -3601,6 +4547,7 @@ function _renderPendientes() {
       + ' style="flex:1;min-width:160px">'
       + '<button class="btn-sm" onclick="addFilaPendiente(\'' + n + '\')">+ Fila</button>'
       + '<button class="btn-sm" onclick="addColPendiente(\'' + n + '\')">+ Columna</button>'
+      + '<button class="btn-sm" onclick="delColPendiente(\'' + n + '\')">- Columna</button>'
       + '<button class="btn-sm btn-danger" onclick="delPendiente(\'' + n + '\')">Borrar</button>'
       + '</div>'
       + (hermanas.length
@@ -3627,6 +4574,27 @@ function _commitPendientesFromInputs() {
     for (const el of document.querySelectorAll('.pd-mu[data-n="' + CSS.escape(n) + '"]')) {
       const fila = c.labels[el.dataset.et];
       if (fila) fila[parseInt(el.dataset.j, 10)] = parseFloat(el.value);
+    }
+    // Renombres. Se reconstruye el dict entero para CONSERVAR EL ORDEN de las
+    // filas: reasignar clave por clave manda la renombrada al final y la tabla
+    // se reordena sola debajo del cursor.
+    const inputsEt = [...document.querySelectorAll('.pd-et[data-n="' + CSS.escape(n) + '"]')];
+    if (inputsEt.length) {
+      const nuevas = {};
+      let choque = null;
+      for (const el of inputsEt) {
+        const antes = el.dataset.et;
+        const ahora = (el.value || '').trim().toUpperCase();
+        const clave = ahora || antes;          // vacio = no se renombra
+        if (nuevas[clave] !== undefined) { choque = clave; break; }
+        nuevas[clave] = c.labels[antes];
+      }
+      if (choque) {
+        _setPendMsg('La etiqueta "' + choque + '" esta repetida en ' + n
+                    + '. Se descarto ese renombre.', '#ef4444');
+      } else {
+        c.labels = nuevas;
+      }
     }
   }
 }
@@ -3657,6 +4625,7 @@ function addPendiente() {
   };
   _renderPendientes();
   _setPendMsg('Creada con un eje neutro. Calibralo y pulsa "Guardar pendientes".', '#f59e0b');
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 function delPendiente(n) {
@@ -3666,26 +4635,37 @@ function delPendiente(n) {
   delete _pendState.actual[n];
   _renderPendientes();
   _setPendMsg('Borrada localmente. Pulsa "Guardar pendientes" para aplicarlo.', '#f59e0b');
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 function addFilaPendiente(n) {
   _commitPendientesFromInputs();
-  const et = (prompt('Nombre de la etiqueta (ej. INC, DEC, STABLE):') || '').trim().toUpperCase();
+  const et = (prompt('Nombre de la etiqueta.\n\n'
+    + 'Es libre: INC/DEC/STABLE es solo la plantilla. Podes usar SUBIENDO, '
+    + 'QUIETO, CAE_RAPIDO...') || '').trim().toUpperCase();
   if (!et) return;
   const c = _pendState.actual[n];
   if (c.labels[et]) return _setPendMsg('La fila "' + et + '" ya existe.', '#ef4444');
   c.labels[et] = c.x.map(() => 0);
   _renderPendientes();
+  ActivityAlerts.markDirty('fuzzy');
 }
 
-function delFilaPendiente(n, et) {
+function delFilaPendiente(n, iFila) {
+  // Se identifica por POSICION y no por nombre: el commit de arriba pudo
+  // acabar de renombrar esa fila, y entonces el nombre del onclick ya no
+  // existe — el delete no borraba nada y no avisaba.
   _commitPendientesFromInputs();
   const c = _pendState.actual[n];
-  if (Object.keys(c.labels).length <= 1) {
+  const claves = Object.keys(c.labels);
+  if (claves.length <= 1) {
     return _setPendMsg('Tiene que quedar al menos una etiqueta.', '#ef4444');
   }
+  const et = claves[iFila];
+  if (et === undefined) return;
   delete c.labels[et];
   _renderPendientes();
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 function addColPendiente(n) {
@@ -3705,9 +4685,34 @@ function addColPendiente(n) {
     f.splice(mejor + 1, 0, Number(((f[mejor] + f[mejor + 1]) / 2).toFixed(3)));
   }
   _renderPendientes();
+  ActivityAlerts.markDirty('fuzzy');
+}
+
+function delColPendiente(n) {
+  // Un eje de menos de 3 puntos no lo acepta el validador (`x` debe tener al
+  // menos 3), asi que el piso se comprueba aca y no despues del PUT.
+  _commitPendientesFromInputs();
+  const c = _pendState.actual[n];
+  if (c.x.length <= 3) {
+    return _setPendMsg('El eje necesita al menos 3 puntos.', '#ef4444');
+  }
+  // Se quita una columna INTERIOR: los extremos definen el rango de la
+  // pendiente y sacarlos cambia lo que la tabla significa, no su resolucion.
+  // Se elige el hueco mas chico, que es la columna que menos aporta.
+  let mejor = 1, ancho = Infinity;
+  for (let i = 1; i < c.x.length - 1; i++) {
+    const d = Math.min(c.x[i] - c.x[i - 1], c.x[i + 1] - c.x[i]);
+    if (d < ancho) { ancho = d; mejor = i; }
+  }
+  c.x.splice(mejor, 1);
+  for (const et of Object.keys(c.labels)) c.labels[et].splice(mejor, 1);
+  _renderPendientes();
+  _setPendMsg('Columna quitada. Pulsa "Guardar pendientes" para aplicarlo.', '#f59e0b');
+  ActivityAlerts.markDirty('fuzzy');
 }
 
 async function savePendientes() {
+  const before = ActivitySummary.getSnap('pendientes');
   _commitPendientesFromInputs();
   let r = await fetch('/api/pendientes', {
     method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -3722,9 +4727,15 @@ async function savePendientes() {
       body: JSON.stringify(Object.assign({__forzar__: true}, _pendState.actual))});
     d = await r.json();
   }
-  if (!r.ok) return _setPendMsg(d.error || 'Error al guardar.', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('fuzzy', false, d.error || 'Error al guardar pendientes');
+    return _setPendMsg(d.error || 'Error al guardar.', '#ef4444');
+  }
+  const after = JSON.parse(JSON.stringify(_pendState.actual));
   await loadPendientes();
   await refrescarMeta();
+  ActivityAlerts.onSave('fuzzy', true, 'Pendientes fuzzy guardadas',
+    ActivitySummary.pendientes(before, after));
   _setPendMsg('Pendientes guardadas. Se aplican al reiniciar el motor.', '#22c55e');
   setTimeout(() => _setPendMsg(''), 4000);
 }
@@ -3752,6 +4763,7 @@ async function loadVariables() {
     _varsState.entradas = []; _varsState.colisiones = {};
   }
   _renderVariables();
+  ActivitySummary.snap('variables', _varsState.actual);
 }
 
 function _setVariablesMsg(msg, color) {
@@ -3962,6 +4974,7 @@ function _abrirSelectorPV(libres) {
   _renderVariables();
   _setVariablesMsg('Agregada <code>' + e.identificador + '</code> desde ' + e.tag
     + '. Recuerda guardar el catalogo.', '#38bdf8');
+  ActivityAlerts.markDirty('variables');
 }
 
 async function renombrarEntrada(viejo) {
@@ -4005,6 +5018,7 @@ function delCruda(nombre) {
   _commitCrudasFromInputs();
   delete _varsState.actual.crudas[nombre];
   _renderVariables();
+  ActivityAlerts.markDirty('variables');
 }
 
 function addDefinicion(tipo) {
@@ -4025,6 +5039,7 @@ function addDefinicion(tipo) {
   }
   defs.push(item);
   _renderVariables();
+  ActivityAlerts.markDirty('variables');
 }
 
 function delDef(i) {
@@ -4032,6 +5047,7 @@ function delDef(i) {
   _commitDefinicionesFromInputs();
   _varsState.actual.definiciones.splice(i, 1);
   _renderVariables();
+  ActivityAlerts.markDirty('variables');
 }
 
 function moveDef(i, delta) {
@@ -4042,9 +5058,11 @@ function moveDef(i, delta) {
   if (j < 0 || j >= defs.length) return;
   const tmp = defs[i]; defs[i] = defs[j]; defs[j] = tmp;
   _renderVariables();
+  ActivityAlerts.markDirty('variables');
 }
 
 async function saveVariables() {
+  const before = ActivitySummary.getSnap('variables');
   _commitCrudasFromInputs();
   _commitDefinicionesFromInputs();
   const r = await fetch('/api/variables', {
@@ -4053,22 +5071,16 @@ async function saveVariables() {
     body: JSON.stringify(_varsState.actual),
   });
   const d = await r.json();
-  if (!r.ok) return _setVariablesMsg(d.error || 'Error.', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('variables', false, d.error || 'Error');
+    return _setVariablesMsg(d.error || 'Error.', '#ef4444');
+  }
   _varsState.actual = JSON.parse(JSON.stringify(d.actual));
   _renderVariables();
+  ActivitySummary.snap('variables', _varsState.actual);
+  ActivityAlerts.onSave('variables', true, 'Catalogo de variables guardado',
+    ActivitySummary.variables(before, _varsState.actual));
   _setVariablesMsg('Catalogo guardado. Se aplicara en la proxima simulacion.', '#22c55e');
-  setTimeout(() => _setVariablesMsg(''), 4000);
-}
-
-async function resetVariables() {
-  if (!confirm('Vaciar el catalogo de variables (crudas + definiciones)?\n\n'
-      + 'El default ya no es la plantilla del espesador: es un catalogo vacio.')) return;
-  const r = await fetch('/api/variables/reset', {method: 'POST'});
-  const d = await r.json();
-  if (!r.ok) return _setVariablesMsg('Error al restaurar.', '#ef4444');
-  _varsState.actual = JSON.parse(JSON.stringify(d.actual));
-  _renderVariables();
-  _setVariablesMsg('Restaurado a defaults.', '#22c55e');
   setTimeout(() => _setVariablesMsg(''), 4000);
 }
 
@@ -4084,6 +5096,7 @@ async function loadPermisivos() {
   _permState.fuzzyVars  = d.fuzzy_vars;
   _permState.defaults   = d.defaults;
   _permState.actual     = JSON.parse(JSON.stringify(d.actual));
+  ActivitySummary.snap('permisivos', _permState.actual);
   _renderPermisivos();
 }
 
@@ -4095,6 +5108,13 @@ function _setPermisivosMsg(msg, color) {
 
 function _escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Para meter texto DENTRO de un atributo (title="...", value="..."). Escapa
+// ademas las comillas: sin eso, un mensaje que contiene " cierra el atributo
+// antes de tiempo y el navegador se come el resto.
+function _escapeAttr(s) {
+  return _escapeHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function _renderPermisivos() {
@@ -4177,6 +5197,7 @@ function addPermisivo() {
   _renderPermisivos();
   if (errs.length) _setPermisivosMsg('Avisos: ' + errs.join(' | '), '#f59e0b');
   else _setPermisivosMsg('');
+  ActivityAlerts.markDirty('permisivos');
 }
 
 function delPermisivo(nombre) {
@@ -4184,6 +5205,7 @@ function delPermisivo(nombre) {
   _commitPermisivosFromInputs();
   delete _permState.actual[nombre];
   _renderPermisivos();
+  ActivityAlerts.markDirty('permisivos');
 }
 
 function addCondicion(nombre) {
@@ -4197,6 +5219,7 @@ function addCondicion(nombre) {
   _permState.actual[key].push({"fuzzy_var": "torque", "label": "OK", "min_mu": 0.5});
   _renderPermisivos();
   if (errs.length) _setPermisivosMsg('Avisos: ' + errs.join(' | '), '#f59e0b');
+  ActivityAlerts.markDirty('permisivos');
 }
 
 function delCondicion(nombre, idx) {
@@ -4205,9 +5228,11 @@ function delCondicion(nombre, idx) {
   if (!arr) return;
   arr.splice(idx, 1);
   _renderPermisivos();
+  ActivityAlerts.markDirty('permisivos');
 }
 
 async function savePermisivos() {
+  const before = ActivitySummary.getSnap('permisivos');
   const errs = _commitPermisivosFromInputs();
   if (errs.length) return _setPermisivosMsg('Errores: ' + errs.join(' | '), '#ef4444');
   const r = await fetch('/api/permisivos', {
@@ -4216,21 +5241,16 @@ async function savePermisivos() {
     body: JSON.stringify(_permState.actual),
   });
   const d = await r.json();
-  if (!r.ok) return _setPermisivosMsg(d.error || 'Error.', '#ef4444');
+  if (!r.ok) {
+    ActivityAlerts.onSave('permisivos', false, d.error || 'Error');
+    return _setPermisivosMsg(d.error || 'Error.', '#ef4444');
+  }
   _permState.actual = JSON.parse(JSON.stringify(d.actual));
   _renderPermisivos();
+  ActivitySummary.snap('permisivos', _permState.actual);
+  ActivityAlerts.onSave('permisivos', true, 'Permisivos guardados',
+    ActivitySummary.permisivos(before, _permState.actual));
   _setPermisivosMsg('Permisivos guardados. Se aplicaran en la proxima simulacion.', '#22c55e');
-  setTimeout(() => _setPermisivosMsg(''), 4000);
-}
-
-async function resetPermisivos() {
-  if (!confirm('Restaurar permisivos al default del nucleo?')) return;
-  const r = await fetch('/api/permisivos/reset', {method: 'POST'});
-  const d = await r.json();
-  if (!r.ok) return _setPermisivosMsg('Error al restaurar.', '#ef4444');
-  _permState.actual = JSON.parse(JSON.stringify(d.actual));
-  _renderPermisivos();
-  _setPermisivosMsg('Restaurado a defaults.', '#22c55e');
   setTimeout(() => _setPermisivosMsg(''), 4000);
 }
 
@@ -4257,6 +5277,7 @@ async function loadContrato() {
     const d = await (await fetch('/api/contrato')).json();
     _contrato = d.actual;
     _contratoMeta = d;
+    ActivitySummary.snap('contrato', JSON.parse(JSON.stringify(_contrato)));
     _renderContrato();
   } catch (e) {
     _setContratoMsg('Error cargando el contrato: ' + e.message, '#ef4444');
@@ -4283,13 +5304,6 @@ function _renderContrato() {
   document.getElementById('contrato-sp').innerHTML =
     _contrato.setpoints.map(v => _chipVariable(v, 'sp', '#22c55e')).join('')
     || '<div style="color:#ef4444;font-size:.8rem">Sin setpoints.</div>';
-  document.getElementById('contrato-crudas').innerHTML =
-    (_contratoMeta.crudas || []).map(function(v) {
-      const desc = _contratoMeta.descripciones_conocidas[v] || '';
-      return '<div style="padding:5px 8px;border-radius:6px;background:#0f172a;border:1px solid #334155;margin-bottom:5px">'
-        + '<code style="color:#22d3ee;font-weight:700">' + v + '</code>'
-        + '<div style="font-size:.7rem;color:#64748b">' + desc + '</div></div>';
-    }).join('') || '<div style="color:#64748b;font-size:.8rem">Sin crudas.</div>';
 
   const salud = _contratoMeta.salud || [];
   document.getElementById('contrato-salud').innerHTML = salud.length
@@ -4314,6 +5328,7 @@ function agregarContrato(tipo) {
   input.value = '';
   _renderContrato();
   _setContratoMsg('Agregada en borrador. Revisa el impacto y guarda.', '#38bdf8');
+  ActivityAlerts.markDirty('contrato');
 }
 
 function quitarContrato(tipo, nombre) {
@@ -4324,6 +5339,7 @@ function quitarContrato(tipo, nombre) {
   }
   _renderContrato();
   _setContratoMsg('Quitada en borrador. Revisa el impacto antes de guardar.', '#f59e0b');
+  ActivityAlerts.markDirty('contrato');
 }
 
 function _renderImpacto(imp) {
@@ -4421,9 +5437,7 @@ async function sincronizarContrato() {
 
     await loadContrato();
     const n = (d.roles_asignados || []).length;
-    _setContratoMsg('Contrato sincronizado. ' + n + ' rol(es) de tags asignados automaticamente. '
-      + 'Falta enlazar los tags LIM a su PV en la tabla de Tags. '
-      + '<b>Reinicia la aplicacion</b> para que el nucleo lo tome.', '#22c55e');
+    _setContratoMsg(d.aviso || ('Contrato sincronizado. ' + n + ' rol(es) asignados.'), '#22c55e');
   } catch (e) {
     _setContratoMsg('Error: ' + e.message, '#ef4444');
   }
@@ -4446,6 +5460,8 @@ async function verImpactoContrato() {
 }
 
 async function guardarContrato() {
+  const before = ActivitySummary.getSnap('contrato');
+  const detail = ActivitySummary.contrato(before, _contrato);
   try {
     let r = await fetch('/api/contrato', {
       method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -4465,14 +5481,16 @@ async function guardarContrato() {
       });
       d = await r.json();
     }
-    if (!r.ok) return _setContratoMsg(d.error || 'Error al guardar.', '#ef4444');
+    if (!r.ok) {
+      ActivityAlerts.onSave('contrato', false, d.error || 'Error al guardar');
+      return _setContratoMsg(d.error || 'Error al guardar.', '#ef4444');
+    }
 
-    const limpiados = (d.roles_limpiados || []).length;
-    _setContratoMsg('Contrato guardado.'
-      + (limpiados ? ' Se limpiaron ' + limpiados + ' roles de tags que ya no existen.' : '')
-      + ' <b>Reinicia la aplicacion</b> para que el nucleo tome la nueva lista.', '#22c55e');
+    ActivityAlerts.onSave('contrato', true, d.aviso || 'Contrato guardado', detail);
+    _setContratoMsg(d.aviso || 'Contrato guardado.', '#22c55e');
     await loadContrato();
   } catch (e) {
+    ActivityAlerts.onSave('contrato', false, e.message);
     _setContratoMsg('Error: ' + e.message, '#ef4444');
   }
 }
@@ -4483,7 +5501,7 @@ async function resetContrato() {
     const d = await (await fetch('/api/contrato/reset', {method: 'POST'})).json();
     await loadContrato();
     document.getElementById('contrato-impacto').innerHTML = '';
-    _setContratoMsg('Plantilla restaurada. <b>Reinicia la aplicacion.</b>', '#22c55e');
+    _setContratoMsg(d.aviso || 'Plantilla restaurada.', '#22c55e');
   } catch (e) {
     _setContratoMsg('Error: ' + e.message, '#ef4444');
   }
@@ -4551,6 +5569,8 @@ async function _tickLectura() {
       if (!v) continue;
       tag.value = v.value;
       tag.quality = v.quality;
+      tag.status_code = v.status_code;
+      tag.estancado_s = v.estancado_s;
       tag.connected = v.connected;
       tag.exists = v.exists;
       cambiados++;
@@ -4583,7 +5603,17 @@ function _actualizarCeldasValor(vals) {
     const cq = document.querySelector('[data-qual-tag="' + CSS.escape(tag.name) + '"]');
     if (cq) {
       cq.textContent = v.quality || '--';
-      cq.style.color = v.quality === 'Good' ? '#22c55e' : '#f59e0b';
+      // Bad y Uncertain ya no son lo mismo: desde B1.4 la calidad sale del
+      // StatusCode real, y un Bad saca la variable del pipeline.
+      cq.style.color = v.quality === 'Good' ? '#22c55e'
+                     : (v.quality === 'Bad' ? '#ef4444' : '#f59e0b');
+      // El nombre exacto del status y el estancamiento van al tooltip: son el
+      // dato de diagnostico, pero no hay ancho de columna para ellos.
+      const detalle = [];
+      if (v.status_code) detalle.push(v.status_code);
+      if (v.source_ts) detalle.push('src ' + v.source_ts);
+      if (Number(v.estancado_s || 0) > 0) detalle.push('sin cambiar ' + v.estancado_s + ' s');
+      cq.title = detalle.join(' · ');
     }
   }
 }
@@ -4660,13 +5690,6 @@ function _updateSystemControlUI() {
 async function startSystem() {
   _setTagsMsg('Iniciando sistema...', '#94a3b8');
   try {
-    await saveGeneratorConfig();
-    const r1 = await fetch('/api/tags/generator/start', {method: 'POST'});
-    const d1 = await r1.json();
-    // Ciclo libre: `piso_s` es el periodo MINIMO entre ticks, no el periodo
-    // del lazo. El motor vuelve a iterar apenas termina de escribir los SP;
-    // el piso solo evita saturar CPU y KEPserver si el pipeline resulta mas
-    // rapido que el proceso que observa.
     const r2 = await fetch('/api/se/start', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -4675,23 +5698,29 @@ async function startSystem() {
     const d2 = await r2.json();
 
     // El SE se niega a arrancar si el mapeo tag->rol esta incompleto.
-    // Hay que decirlo: antes esto fallaba en silencio.
     if (!d2.ok) {
-      await fetch('/api/tags/generator/stop', {method: 'POST'});  // no dejar el generador solo
       _systemRunning = false;
       _updateSystemControlUI();
       _setTagsMsg('El SE no arranco. ' + (d2.error || 'Error desconocido.'), '#ef4444');
-      await loadRoles();          // refresca el panel de cobertura
+      await loadRoles();
       return;
-    }
-    if (!d1.ok) {
-      _setTagsMsg('El generador no arranco: ' + (d1.error || 'error desconocido.'), '#f59e0b');
     }
 
     _systemRunning = true;
     _updateSystemControlUI();
-    _startGenPolling();
     _startSEPolling();
+    // Handshake al DCS: el pulso Exp_HB tiene que empezar junto con el SE.
+    // Sin esto el DCS no puede detectar un SE muerto.
+    try {
+      const rhb = await fetch('/api/tags/heartbeat/start', {method: 'POST'});
+      const dhb = await rhb.json();
+      if (!dhb.ok && !dhb.running) {
+        _setTagsMsg('SE iniciado, pero el heartbeat no arranco: '
+          + (dhb.error || 'error desconocido') + '. El DCS no podra detectar un SE muerto.', '#f59e0b');
+      }
+    } catch (e) {
+      _setTagsMsg('SE iniciado, pero fallo iniciar el heartbeat: ' + e.message, '#f59e0b');
+    }
     _setTagsMsg('Sistema iniciado. SE activo. '
       + '<a href="/espesador/traza" style="color:#38bdf8">Ver traza del pipeline</a>', '#22c55e');
     setTimeout(() => _setTagsMsg(''), 6000);
@@ -4703,15 +5732,142 @@ async function startSystem() {
 async function stopSystem() {
   try {
     await fetch('/api/se/stop', {method: 'POST'});
-    await fetch('/api/tags/generator/stop', {method: 'POST'});
+    // Cortar el heartbeat: al desaparecer el pulso, el DCS conmuta a Manual
+    // por watchdog. Es el comportamiento fail-safe deseado al detener el SE.
+    await fetch('/api/tags/heartbeat/stop', {method: 'POST'});
     _systemRunning = false;
     _updateSystemControlUI();
-    _stopGenPolling();
     _stopSEPolling();
-    _setTagsMsg('Sistema detenido.', '#f59e0b');
+    _setTagsMsg('Sistema Experto detenido. El generador de simulacion sigue como lo dejaste.', '#f59e0b');
     setTimeout(() => _setTagsMsg(''), 3000);
   } catch (e) {
     _setTagsMsg('Error: ' + e.message, '#ef4444');
+  }
+}
+
+// ============================================================
+// Auto-reinicio del SE al detectar cambios de configuracion
+// ------------------------------------------------------------
+// El motor toma reglas, fuzzy, contrato, tracking, etc. en _init_state()
+// y los deja cacheados en memoria. Editar los JSON con el SE corriendo
+// no impacta hasta el siguiente start(). Este toggle sondea la huella
+// de esos JSON (/api/config/version); cuando cambia, espera 3 s de
+// estabilidad y hace stop+start automatico. Apagado = comportamiento
+// clasico (aplicar cambios pulsando Iniciar Sistema).
+// ============================================================
+const AUTORELOAD_STORAGE_KEY = 'se_autoreload_enabled';
+const AUTORELOAD_POLL_MS = 1500;
+const AUTORELOAD_DEBOUNCE_MS = 3000;
+let _autoreloadOn = false;
+let _autoreloadPollId = null;
+let _autoreloadRestartTimer = null;
+let _autoreloadLastVersion = null;
+let _autoreloadRestarting = false;
+
+function _initAutoReload() {
+  const cb = document.getElementById('autoreload-toggle');
+  if (!cb) return;
+  let stored = 'false';
+  try { stored = localStorage.getItem(AUTORELOAD_STORAGE_KEY) || 'false'; } catch (_) {}
+  _autoreloadOn = (stored === 'true');
+  cb.checked = _autoreloadOn;
+  _updateAutoReloadUI();
+  if (_autoreloadOn) _startAutoReloadPolling();
+}
+
+function _toggleAutoReload() {
+  const cb = document.getElementById('autoreload-toggle');
+  if (!cb) return;
+  _autoreloadOn = cb.checked;
+  try { localStorage.setItem(AUTORELOAD_STORAGE_KEY, _autoreloadOn ? 'true' : 'false'); } catch (_) {}
+  _updateAutoReloadUI();
+  if (_autoreloadOn) {
+    _startAutoReloadPolling();
+  } else {
+    _stopAutoReloadPolling();
+  }
+}
+
+function _updateAutoReloadUI() {
+  const wrap = document.getElementById('autoreload-toggle-wrap');
+  const hint = document.getElementById('autoreload-hint');
+  if (!wrap || !hint) return;
+  if (_autoreloadOn) {
+    wrap.style.borderColor = '#38bdf8';
+    wrap.style.background = 'rgba(56,189,248,.10)';
+    hint.textContent = 'Aplica cambios en 3s';
+    hint.style.color = '#38bdf8';
+  } else {
+    wrap.style.borderColor = '#334155';
+    wrap.style.background = '#0f172a';
+    hint.textContent = 'Aplicar cambios: manual';
+    hint.style.color = '#64748b';
+  }
+}
+
+async function _fetchConfigVersion() {
+  try {
+    const r = await fetch('/api/config/version', {cache: 'no-store'});
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.version || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function _startAutoReloadPolling() {
+  _stopAutoReloadPolling();
+  _autoreloadLastVersion = await _fetchConfigVersion();
+  _autoreloadPollId = setInterval(_pollConfigVersion, AUTORELOAD_POLL_MS);
+}
+
+function _stopAutoReloadPolling() {
+  if (_autoreloadPollId !== null) {
+    clearInterval(_autoreloadPollId);
+    _autoreloadPollId = null;
+  }
+  if (_autoreloadRestartTimer !== null) {
+    clearTimeout(_autoreloadRestartTimer);
+    _autoreloadRestartTimer = null;
+  }
+}
+
+async function _pollConfigVersion() {
+  if (!_autoreloadOn || _autoreloadRestarting) return;
+  const v = await _fetchConfigVersion();
+  if (v === null || v === _autoreloadLastVersion) return;
+  _autoreloadLastVersion = v;
+  // Debounce: cada cambio nuevo reinicia la cuenta de 3s. Asi una tanda
+  // de guardados seguidos (contrato + reglas + fuzzy) dispara un solo restart.
+  if (_autoreloadRestartTimer !== null) clearTimeout(_autoreloadRestartTimer);
+  if (!_systemRunning) {
+    await loadRoles();
+    _setTagsMsg('Configuracion actualizada (motor detenido). Inicia el sistema cuando quieras.', '#22c55e');
+    setTimeout(() => _setTagsMsg(''), 4000);
+    return;
+  }
+  _setTagsMsg('Cambios detectados en la configuracion. Reiniciando SE en 3s...', '#38bdf8');
+  _autoreloadRestartTimer = setTimeout(_doAutoRestart, AUTORELOAD_DEBOUNCE_MS);
+}
+
+async function _doAutoRestart() {
+  _autoreloadRestartTimer = null;
+  if (!_autoreloadOn) return;
+  if (!_systemRunning) {
+    await loadRoles();
+    return;
+  }
+  _autoreloadRestarting = true;
+  try {
+    _setTagsMsg('Aplicando nueva configuracion (reiniciando SE)...', '#38bdf8');
+    await stopSystem();
+    await startSystem();
+    // Resincroniza la huella con el estado post-restart, no vaya a
+    // ser que el propio arranque haya reescrito algun JSON.
+    _autoreloadLastVersion = await _fetchConfigVersion();
+  } finally {
+    _autoreloadRestarting = false;
   }
 }
 
@@ -4813,12 +5969,6 @@ const TAG_CATEGORIAS = {
     rol: 'Lectura',
     desc: 'Se fuzzifican contra sus limites, se les calcula pendiente temporal y alimentan las reglas. Son la entrada principal del SE.',
   },
-  cruda: {
-    label: 'Sensores Crudos',
-    color: '#0891b2',
-    rol: 'Lectura',
-    desc: 'Senales directas que no se fuzzifican: sirven para calcular variables derivadas (deltas, desviaciones, diferenciales) que usan los permisivos.',
-  },
   lim: {
     label: 'Limites Fuzzy (lmin / lmax)',
     color: '#6366f1',
@@ -4893,9 +6043,15 @@ function _syncNewRolOptions() {
   const rolEl = document.getElementById('tag-new-rol');
   if (!catEl || !rolEl) return;
   const cat = catEl.value;
-  const roles = _rolesCatalogo[cat] || [];
+  // LIM ya no se asigna por rol: el limite lo elige el fuzzy o la familia de
+  // defuzzy que lo usa. Ver `bindings_limites()`.
+  const roles = (cat === 'lim') ? [] : (_rolesCatalogo[cat] || []);
   const usados = _rolesUsados();
   rolEl.disabled = roles.length === 0;
+  if (cat === 'lim') {
+    rolEl.innerHTML = '<option value="">Rol: se elige en Fuzzy / Defuzzificacion</option>';
+    return;
+  }
   rolEl.innerHTML = '<option value="">Rol: (sin asignar)</option>'
     + roles.map(function(r) {
         const tomado = usados[cat + '::' + r];
@@ -4924,10 +6080,11 @@ function _htmlContratoDesync() {
       + '</li>';
   };
   return '<div class="cobertura falta" style="border-color:#f59e0b;margin-bottom:8px">'
-    + '<h4 style="color:#f59e0b">Contrato desincronizado — reinicia la aplicacion</h4>'
-    + '<div style="color:#94a3b8;margin-bottom:6px">El contrato guardado en disco no es el que '
-    + 'tiene cargado el nucleo. El catalogo de roles y la cobertura de abajo todavia son los del '
-    + 'contrato anterior; reinicia el servicio para que tome la lista nueva.</div>'
+    + '<h4 style="color:#f59e0b">Contrato desincronizado</h4>'
+    + '<div style="color:#94a3b8;margin-bottom:6px">El contrato en disco no coincide con el que '
+    + 'tiene cargado el nucleo (suele pasar si se edito <code>contrato.json</code> a mano). '
+    + 'Pulsa <b>Guardar</b> en Contrato de Variables para recargar el nucleo. '
+    + 'Despues, <b>Actualizar valores</b> aqui refresca el banner de mapeo.</div>'
     + '<ul>'
     + linea('PV', 'variables_proceso', '#a78bfa')
     + linea('SP', 'setpoints', '#22c55e')
@@ -5004,6 +6161,25 @@ function _renderCobertura() {
 }
 
 function _rolSelectHtml(tag) {
+  // LIM no se asigna aca. El limite lo declara quien lo usa: la pagina de
+  // Fuzzy para una PV, la de Defuzzificacion para un SP. Asi el mismo tag
+  // puede acotar varias variables — con un rol por tag no se podia.
+  if (tag.categoria === 'lim') {
+    const usos = ((_cobertura && _cobertura.asignados && _cobertura.asignados.lim) || {})[tag.name];
+    const resto = (tag.rol || '').trim();
+    if (usos) {
+      return '<div style="font-size:.72rem;color:#22c55e">' + _esc(usos) + '</div>'
+        + '<div style="font-size:.66rem;color:#64748b">se elige en Fuzzy / Defuzzificacion</div>';
+    }
+    return '<div style="font-size:.72rem;color:#f59e0b">— sin usar —</div>'
+      + '<div style="font-size:.66rem;color:#64748b">elegilo en la tabla Limites del fuzzy '
+      + '(PV) o de la familia de defuzzificacion (SP)</div>'
+      + (resto
+          ? '<div style="font-size:.66rem;color:#94a3b8" title="Cableado de la version '
+            + 'anterior. Se adopta solo cuando esa variable tenga fuzzy o tabla.">'
+            + 'rol viejo: <code>' + _esc(resto) + '</code></div>'
+          : '');
+  }
   const roles = _rolesCatalogo[tag.categoria] || [];
   if (roles.length === 0) {
     return '<span style="font-size:.72rem;color:#64748b">— sin rol —</span>';
@@ -5157,13 +6333,14 @@ async function loadTags() {
     const r = await fetch('/api/tags');
     const d = await r.json();
     _tagsData = d.tags || [];
+    ActivitySummary.snap('tags', { n: _tagsData.length });
     _updateSimToggleUI(d.simulation_mode !== undefined ? d.simulation_mode : true);
     await loadRoles();
     _renderTags();
-    loadGenerator().then(() => {
-      _updateSystemControlUI();
-    });
+    loadGenerator();
+    syncSystemStatusFromServer();
     loadHeartbeat();
+    loadHandshake();
   } catch (e) {
     _setTagsMsg('Error cargando tags: ' + e.message, '#ef4444');
   }
@@ -5204,6 +6381,12 @@ async function loadKepConfig() {
     const d = await r.json();
     document.getElementById('kep-host').value = d.host || '127.0.0.1';
     document.getElementById('kep-port').value = d.port || 49320;
+    document.getElementById('kep-uncertain').checked = !!d.aceptar_uncertain;
+    document.getElementById('kep-estancado').value =
+      (d.estancado_alerta_s === undefined || d.estancado_alerta_s === null)
+        ? 60 : d.estancado_alerta_s;
+    document.getElementById('kep-retencion').value =
+      (d.retencion_s === undefined || d.retencion_s === null) ? 5 : d.retencion_s;
     _updateKepUrlPreview();
     _setKepBadge(d.last_status || 'unconfigured');
     if (d.last_message) {
@@ -5221,16 +6404,29 @@ async function saveKepConfig() {
   const port = parseInt(document.getElementById('kep-port').value, 10);
   if (!host) return _setKepResult('El host es obligatorio.', '#ef4444');
   if (!(port >= 1 && port <= 65535)) return _setKepResult('Puerto invalido (1-65535).', '#ef4444');
+  const estancado = parseFloat(document.getElementById('kep-estancado').value);
+  if (!(estancado >= 0)) return _setKepResult('El aviso por valor sin cambiar no puede ser negativo.', '#ef4444');
+  const retencion = parseFloat(document.getElementById('kep-retencion').value);
+  if (!(retencion >= 0 && retencion <= 300)) return _setKepResult('La retencion debe estar entre 0 y 300 s.', '#ef4444');
   _setKepResult('Guardando...', '#94a3b8');
   try {
     const r = await fetch('/api/kepserver/config', {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({host, port}),
+      body: JSON.stringify({
+        host, port,
+        aceptar_uncertain: document.getElementById('kep-uncertain').checked,
+        estancado_alerta_s: estancado,
+        retencion_s: retencion,
+      }),
     });
     const d = await r.json();
-    if (!r.ok) return _setKepResult(d.error || 'Error al guardar.', '#ef4444');
+    if (!r.ok) {
+      ActivityAlerts.onSave('tags', false, d.error || 'Error al guardar');
+      return _setKepResult(d.error || 'Error al guardar.', '#ef4444');
+    }
     _updateKepUrlPreview();
+    ActivityAlerts.onSave('tags', true, 'Configuracion KEPserver guardada', d.url || '');
     _setKepResult(`Guardado. Nueva URL: ${d.url}`, '#22c55e');
   } catch (e) {
     _setKepResult('Error: ' + e.message, '#ef4444');
@@ -5267,11 +6463,8 @@ async function testKepConnection() {
 async function refreshTags() {
   _setTagsMsg('Actualizando...', '#94a3b8');
   try {
-    const r = await fetch('/api/tags/refresh', {method: 'POST'});
-    const d = await r.json();
-    _tagsData = d.tags || [];
-    _renderTags();
-    _setTagsMsg('Valores actualizados.', '#22c55e');
+    await loadTags();
+    _setTagsMsg('Pagina actualizada: valores, mapeo y listas del heartbeat.', '#22c55e');
     setTimeout(() => _setTagsMsg(''), 3000);
   } catch (e) {
     _setTagsMsg('Error: ' + e.message, '#ef4444');
@@ -5279,6 +6472,7 @@ async function refreshTags() {
 }
 
 async function addTag() {
+  const snapTags = ActivitySummary.getSnap('tags');
   const nameEl = document.getElementById('tag-new-name');
   const typeEl = document.getElementById('tag-new-type');
   const catEl  = document.getElementById('tag-new-cat');
@@ -5307,6 +6501,8 @@ async function addTag() {
     nameEl.value = '';
     await loadTags();
     _setTagsMsg('Tag "' + name + '" agregado.', '#22c55e');
+    ActivityAlerts.onSave('tags', true, 'Tag agregado: ' + name,
+      ActivitySummary.tagsDelta(snapTags && snapTags.n, (snapTags && snapTags.n || 0) + 1, name));
     setTimeout(() => _setTagsMsg(''), 3000);
   } catch (e) {
     _setTagsMsg('Error: ' + e.message, '#ef4444');
@@ -5314,6 +6510,7 @@ async function addTag() {
 }
 
 async function deleteTag(id, name) {
+  const snapTags = ActivitySummary.getSnap('tags');
   if (!confirm('Eliminar el tag "' + name + '"?')) return;
   try {
     const r = await fetch('/api/tags/' + id, {method: 'DELETE'});
@@ -5324,6 +6521,8 @@ async function deleteTag(id, name) {
     }
     await loadTags();
     _setTagsMsg('Tag "' + name + '" eliminado.', '#22c55e');
+    ActivityAlerts.onSave('tags', true, 'Tag eliminado: ' + name,
+      ActivitySummary.tagsDelta(snapTags && snapTags.n, (snapTags && snapTags.n || 1) - 1, name));
     setTimeout(() => _setTagsMsg(''), 3000);
   } catch (e) {
     _setTagsMsg('Error: ' + e.message, '#ef4444');
@@ -5455,10 +6654,22 @@ async function loadGenerator() {
     const r = await fetch('/api/tags/generator');
     const d = await r.json();
     _updateGenUI(d);
-    _systemRunning = d.running;
+    if (d.running) _startGenPolling();
+    else _stopGenPolling();
+  } catch (e) { /* ignore */ }
+}
+
+async function syncSystemStatusFromServer() {
+  try {
+    const r = await fetch('/api/se/status');
+    const d = await r.json();
+    _systemRunning = !!d.running;
+    _updateSystemControlUI();
     if (_systemRunning) {
-      _startGenPolling();
       _startSEPolling();
+      _renderSEStatus(d);
+    } else {
+      _stopSEPolling();
     }
   } catch (e) { /* ignore */ }
 }
@@ -5496,10 +6707,14 @@ async function saveGeneratorConfig() {
     const d = await r.json();
     if (d.ok) {
       _updateGenUI(d);
+      ActivityAlerts.onSave('tags', true, 'Configuracion del generador guardada');
       _setTagsMsg('Configuracion del generador guardada.', '#22c55e');
       setTimeout(() => _setTagsMsg(''), 3000);
+    } else {
+      ActivityAlerts.onSave('tags', false, d.error || 'Error al guardar generador');
     }
   } catch (e) {
+    ActivityAlerts.onSave('tags', false, e.message);
     _setTagsMsg('Error guardando config: ' + e.message, '#ef4444');
   }
 }
@@ -5555,6 +6770,152 @@ function _stopGenPolling() {
 // ============================================================
 let _hbPolling = null;
 
+// ---------- Handshake con el DCS ----------
+// La config siempre vivio en tags.json bajo "handshake", pero hasta el
+// 2026-09-03 no habia ni endpoint ni pagina: se editaba a mano el archivo.
+// Mismo agujero que tenian los limites de SP en contrato.json.
+
+function _fillHsSelect(id, selected) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const current = (selected !== undefined && selected !== null) ? String(selected) : sel.value;
+  const tags = _tagsOtroParaHeartbeat();
+  const names = new Set();
+  let html = '<option value="">(sin asignar)</option>';
+  for (const t of tags) {
+    names.add(t.name);
+    const hint = t.pseudonimo ? ' — ' + t.pseudonimo : '';
+    html += '<option value="' + _escapeAttr(t.name) + '">'
+          + _escapeHtml(t.name + hint) + '</option>';
+  }
+  // Un tag guardado que ya no esta en la lista NO se reemplaza solo: se
+  // conserva como opcion propia y se dice por que dejo de servir (regla A23).
+  if (current && !names.has(current)) {
+    const cur = (_tagsData || []).find(function(t) { return t.name === current; });
+    let suffix = ' (no disponible)';
+    if (cur && String(cur.categoria || '').toLowerCase() !== 'otro') suffix = ' (no es OTRO)';
+    else if (cur && cur.enabled === false) suffix = ' (suspendido)';
+    html += '<option value="' + _escapeAttr(current) + '">'
+          + _escapeHtml(current + suffix) + '</option>';
+  }
+  sel.innerHTML = html;
+  if (current) sel.value = current;
+}
+
+function _updateHsUI(d) {
+  const badge = document.getElementById('hs-status-badge');
+  const est = document.getElementById('hs-estado');
+  if (!badge || !est) return;
+  _fillHsSelect('hs-fbk', d.enable_fbk_tag || '');
+  _fillHsSelect('hs-ext', d.enable_ext_tag || '');
+  const chk = document.getElementById('hs-enabled');
+  if (chk) chk.checked = !!d.enabled;
+
+  let texto, color, fondo;
+  if (!d.enabled) {
+    texto = 'NO EXIGIDO'; color = '#94a3b8'; fondo = 'rgba(100,116,139,.2)';
+  } else if (!d.motor_corriendo) {
+    texto = 'EXIGIDO'; color = '#38bdf8'; fondo = 'rgba(56,189,248,.15)';
+  } else if (d.ultimo && d.ultimo.ok) {
+    texto = 'AUTORIZADO'; color = '#22c55e'; fondo = 'rgba(34,197,94,.15)';
+  } else {
+    texto = 'DENEGADO'; color = '#ef4444'; fondo = 'rgba(239,68,68,.15)';
+  }
+  badge.textContent = texto;
+  badge.style.color = color;
+  badge.style.background = fondo;
+
+  if (!d.enabled) {
+    est.innerHTML = 'El SE escribe <b>sin pedir permiso</b> al DCS.';
+  } else if (!d.motor_corriendo) {
+    est.innerHTML = 'Configurado. El motor no esta corriendo, asi que todavia no hay '
+      + 'lectura del permiso.';
+  } else if (d.ultimo && d.ultimo.ok) {
+    est.innerHTML = '<b style="color:#22c55e">El DCS autoriza el control externo.</b> '
+      + 'Los setpoints se escriben normalmente.';
+  } else {
+    est.innerHTML = '<b style="color:#ef4444">El DCS no autoriza:</b> '
+      + _escapeHtml((d.ultimo && d.ultimo.motivo) || 'sin lectura')
+      + '. Ningun setpoint se escribe mientras dure.';
+  }
+}
+
+async function loadHandshake() {
+  try {
+    const r = await fetch('/api/tags/handshake');
+    _updateHsUI(await r.json());
+  } catch (e) { /* ignore */ }
+}
+
+async function saveHandshake() {
+  const err = document.getElementById('hs-error');
+  if (err) err.textContent = '';
+  const body = {
+    enabled: !!document.getElementById('hs-enabled').checked,
+    enable_fbk_tag: (document.getElementById('hs-fbk').value || '').trim(),
+    enable_ext_tag: (document.getElementById('hs-ext').value || '').trim(),
+  };
+  const r = await fetch('/api/tags/handshake', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!r.ok || d.error) {
+    if (err) err.textContent = d.error || r.statusText;
+    ActivityAlerts.onSave('tags', false, d.error || r.statusText);
+    return;
+  }
+  await loadHandshake();
+  ActivityAlerts.onSave('tags', true, 'Handshake guardado',
+    body.enabled ? ('exigido — FBK: ' + (body.enable_fbk_tag || '(sin asignar)'))
+                 : 'no exigido');
+  _setTagsMsg('Handshake guardado. Se aplica al reiniciar el motor.', '#22c55e');
+}
+
+function _tagsOtroParaHeartbeat() {
+  return (_tagsData || [])
+    .filter(function(t) {
+      return String(t.categoria || '').toLowerCase() === 'otro'
+        && t.name && t.enabled !== false;
+    })
+    .sort(function(a, b) {
+      const la = (a.pseudonimo || a.name || '').toLowerCase();
+      const lb = (b.pseudonimo || b.name || '').toLowerCase();
+      return la.localeCompare(lb);
+    });
+}
+
+function _fillHbTagSelect(selectId, selected, allowEmpty) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const current = selected !== undefined && selected !== null ? String(selected) : sel.value;
+  const tags = _tagsOtroParaHeartbeat();
+  const names = new Set();
+  let html = allowEmpty
+    ? '<option value="">(sin eco / solo escritura)</option>'
+    : '<option value="">-- elegir tag OTRO --</option>';
+  for (const t of tags) {
+    const n = t.name;
+    names.add(n);
+    const hint = t.pseudonimo ? ' — ' + t.pseudonimo : '';
+    html += '<option value="' + _escapeHtml(n) + '">' + _escapeHtml(n + hint) + '</option>';
+  }
+  if (current && !names.has(current)) {
+    const cur = (_tagsData || []).find(function(t) { return t.name === current; });
+    let suffix = ' (no disponible)';
+    if (cur && String(cur.categoria || '').toLowerCase() !== 'otro') suffix = ' (no es OTRO)';
+    else if (cur && cur.enabled === false) suffix = ' (suspendido)';
+    html += '<option value="' + _escapeHtml(current) + '">' + _escapeHtml(current + suffix) + '</option>';
+  }
+  sel.innerHTML = html;
+  if (current) sel.value = current;
+}
+
+function _fillHbTagSelects(tagOut, tagIn) {
+  _fillHbTagSelect('hb-tag-out', tagOut, false);
+  _fillHbTagSelect('hb-tag-in', tagIn, true);
+}
+
 function _updateHbUI(status) {
   if (!status) return;
   const cfg = status.config || {};
@@ -5580,8 +6941,7 @@ function _updateHbUI(status) {
   // Solo actualizar inputs si NO esta corriendo (para no pisar edicion en vivo)
   if (!status.running) {
     const set = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
-    set('hb-tag-out', cfg.tag_out);
-    set('hb-tag-in', cfg.tag_in);
+    _fillHbTagSelects(cfg.tag_out, cfg.tag_in);
     set('hb-intervalo', cfg.intervalo_s);
     set('hb-value-a', cfg.value_a);
     set('hb-value-b', cfg.value_b);
@@ -5622,21 +6982,162 @@ function _updateHbUI(status) {
   }
 
   document.getElementById('hb-error').textContent = status.last_error || '';
+
+  _hbGrafPush(status);
+  _hbGrafRender();
+}
+
+// ---- Mini grafico del heartbeat (ultimos 60 ticks, buffer en memoria) ----
+const HB_GRAF_MAX = 60;      // ticks conservados
+const HB_GRAF_MIN_H = 92;    // px de alto de celda a partir del cual se dibuja
+let _hbGrafBuf = [];
+let _hbGrafLastTick = null;
+let _hbGrafRO = null;
+
+// Normaliza el valor del HB a 0..1: acepta booleanos, 'true'/'false' y numeros
+// (escalados entre Valor A y Valor B configurados).
+function _hbNorm(v, a, b) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v === true) return 1;
+  if (v === false) return 0;
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase();
+    if (t === 'true' || t === 'on') return 1;
+    if (t === 'false' || t === 'off') return 0;
+  }
+  const n = Number(v);
+  if (!isFinite(n)) return null;
+  let lo = Number(a), hi = Number(b);
+  if (!isFinite(lo) || !isFinite(hi) || lo === hi) { lo = 0; hi = 1; }
+  if (hi < lo) { const tmp = lo; lo = hi; hi = tmp; }
+  return Math.max(0, Math.min(1, (n - lo) / (hi - lo)));
+}
+
+function _hbGrafReset() { _hbGrafBuf = []; _hbGrafLastTick = null; }
+
+function _hbGrafPush(status) {
+  if (!status || !status.running) return;
+  const cfg = status.config || {};
+  const tick = status.tick || 0;
+  if (tick === _hbGrafLastTick) return;   // el polling es mas rapido que el tick
+  _hbGrafLastTick = tick;
+  _hbGrafBuf.push({
+    t: tick,
+    out: _hbNorm(status.last_out, cfg.value_a, cfg.value_b),
+    inp: _hbNorm(status.last_in, cfg.value_a, cfg.value_b),
+    echo: !!status.last_echo_ok
+  });
+  if (_hbGrafBuf.length > HB_GRAF_MAX) {
+    _hbGrafBuf.splice(0, _hbGrafBuf.length - HB_GRAF_MAX);
+  }
+}
+
+// Onda cuadrada (step-after): horizontal hasta el siguiente x, luego vertical.
+function _hbStepPath(vals, W, H, pad, off) {
+  const n = vals.length;
+  if (!n) return '';
+  const dx = n > 1 ? W / (n - 1) : W;
+  const usable = Math.max(1, H - 2 * pad);
+  let d = '', prevY = null;
+  for (let i = 0; i < n; i++) {
+    const v = vals[i];
+    const x = i * dx;
+    if (v === null || v === undefined) { prevY = null; continue; }
+    const y = pad + off + usable * (1 - v);
+    if (prevY === null) d += 'M' + x.toFixed(1) + ' ' + y.toFixed(1);
+    else d += 'L' + x.toFixed(1) + ' ' + prevY.toFixed(1) + 'L' + x.toFixed(1) + ' ' + y.toFixed(1);
+    prevY = y;
+  }
+  return d;
+}
+
+function _hbGrafRender() {
+  const cell = document.getElementById('hb-graf-cell');
+  const svg  = document.getElementById('hb-graf-svg');
+  const hint = document.getElementById('hb-graf-hint');
+  if (!cell || !svg) return;
+
+  const big = cell.clientHeight >= HB_GRAF_MIN_H;
+  svg.style.display = big ? '' : 'none';
+  if (hint) hint.style.display = big ? 'none' : '';
+  if (!big) return;
+
+  const W = Math.max(60, Math.round(svg.clientWidth || (cell.clientWidth - 18)));
+  const H = Math.max(28, Math.round(svg.clientHeight || 40));
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  if (!_hbGrafBuf.length) {
+    svg.innerHTML = '<text x="' + (W / 2) + '" y="' + (H / 2 + 4) +
+      '" text-anchor="middle" fill="#475569" font-size="11">Sin datos: inicia el heartbeat</text>';
+    return;
+  }
+
+  const pad = 10;
+  const usable = Math.max(1, H - 2 * pad);
+  const yHi = pad, yLo = pad + usable;
+  const outs = _hbGrafBuf.map(function(p) { return p.out; });
+  const ins  = _hbGrafBuf.map(function(p) { return p.inp; });
+
+  let g = '';
+  // Guias 1 / 0
+  g += '<line x1="0" y1="' + yHi + '" x2="' + W + '" y2="' + yHi + '" stroke="#334155" stroke-width="1" stroke-dasharray="3 4"/>';
+  g += '<line x1="0" y1="' + yLo + '" x2="' + W + '" y2="' + yLo + '" stroke="#334155" stroke-width="1" stroke-dasharray="3 4"/>';
+  g += '<text x="2" y="' + (yHi - 2) + '" fill="#475569" font-size="9">1</text>';
+  g += '<text x="2" y="' + (yLo + 9) + '" fill="#475569" font-size="9">0</text>';
+
+  // Marcas rojas en los ticks sin eco
+  const dx = _hbGrafBuf.length > 1 ? W / (_hbGrafBuf.length - 1) : W;
+  for (let i = 0; i < _hbGrafBuf.length; i++) {
+    if (_hbGrafBuf[i].echo) continue;
+    const x = (i * dx).toFixed(1);
+    g += '<line x1="' + x + '" y1="' + (H - 4) + '" x2="' + x + '" y2="' + H + '" stroke="#ef4444" stroke-width="2"/>';
+  }
+
+  // Trazos: OUT solido, IN discontinuo y desplazado 2 px para que no se tapen
+  const dOut = _hbStepPath(outs, W, H, pad, 0);
+  const dIn  = _hbStepPath(ins,  W, H, pad, 2);
+  if (dOut) g += '<path d="' + dOut + '" fill="none" stroke="#38bdf8" stroke-width="1.6" stroke-linejoin="round"/>';
+  if (dIn)  g += '<path d="' + dIn  + '" fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="4 3" stroke-linejoin="round"/>';
+
+  g += '<text x="' + (W - 2) + '" y="' + (H - 1) + '" text-anchor="end" fill="#475569" font-size="9">tick ' +
+       _hbGrafBuf[0].t + ' &#8594; ' + _hbGrafBuf[_hbGrafBuf.length - 1].t + '</text>';
+
+  svg.innerHTML = g;
+}
+
+function _hbGrafInit() {
+  const cell = document.getElementById('hb-graf-cell');
+  if (!cell || _hbGrafRO) return;
+  if (typeof ResizeObserver !== 'undefined') {
+    _hbGrafRO = new ResizeObserver(function() { _hbGrafRender(); });
+    _hbGrafRO.observe(cell);
+  } else {
+    window.addEventListener('resize', _hbGrafRender);
+  }
+  _hbGrafRender();
 }
 
 async function loadHeartbeat() {
   try {
     const r = await fetch('/api/tags/heartbeat');
     const d = await r.json();
+    _hbGrafInit();
     _updateHbUI(d);
     if (d.running) _startHbPolling();
   } catch (e) { /* ignore */ }
 }
 
 async function saveHeartbeatConfig() {
+  const tagOut = (document.getElementById('hb-tag-out').value || '').trim();
+  const tagIn = (document.getElementById('hb-tag-in').value || '').trim();
+  if (!tagOut) {
+    _setTagsMsg('Elige un tag OUT (categoria OTRO) para el heartbeat.', '#f59e0b');
+    return false;
+  }
   const body = {
-    tag_out:     (document.getElementById('hb-tag-out').value || '').trim(),
-    tag_in:      (document.getElementById('hb-tag-in').value || '').trim(),
+    tag_out:     tagOut,
+    tag_in:      tagIn,
     intervalo_s: parseFloat(document.getElementById('hb-intervalo').value),
     value_a:     parseFloat(document.getElementById('hb-value-a').value),
     value_b:     parseFloat(document.getElementById('hb-value-b').value),
@@ -5650,10 +7151,12 @@ async function saveHeartbeatConfig() {
     });
     const d = await r.json();
     if (!r.ok || d.error) {
+      ActivityAlerts.onSave('tags', false, d.error || r.statusText);
       _setTagsMsg('Error heartbeat: ' + (d.error || r.statusText), '#ef4444');
       return false;
     }
     _updateHbUI(d);
+    ActivityAlerts.onSave('tags', true, 'Configuracion de heartbeat guardada');
     _setTagsMsg('Configuracion de heartbeat guardada.', '#22c55e');
     setTimeout(() => _setTagsMsg(''), 3000);
     return true;
@@ -5666,6 +7169,7 @@ async function saveHeartbeatConfig() {
 async function startHeartbeat() {
   const ok = await saveHeartbeatConfig();
   if (!ok) return;
+  _hbGrafReset();
   try {
     const r = await fetch('/api/tags/heartbeat/start', {method: 'POST'});
     const d = await r.json();
@@ -5785,107 +7289,44 @@ async function _checkLicenseGuard() {
 _checkLicenseGuard();
 setInterval(_checkLicenseGuard, 60000);
 
-_onHash();
-
-// ============================================================
-// Alert rail
-// ============================================================
-const ALERT_CATS = ALERT_CATEGORIES_JSON;
-let _alertTimer = null;
-
-function _toggleAlertRail() {
-  const rail = document.getElementById('alertRail');
-  rail.classList.toggle('expanded');
-  if (rail.classList.contains('expanded')) _fetchAlerts();
-}
-
-function _closeAlertRail() {
-  document.getElementById('alertRail').classList.remove('expanded');
-}
-
-function _toggleAlertDetail(cardEl) {
-  cardEl.classList.toggle('open');
-}
-
-async function _fetchAlerts() {
-  try {
-    const r = await fetch('/api/alerts');
-    const data = await r.json();
-    _renderAlertDots(data.alerts);
-    _renderAlertPanel(data.alerts);
-  } catch(e) {}
-}
-
-function _renderAlertDots(alerts) {
-  const wrap = document.getElementById('alertDots');
-  wrap.innerHTML = '';
-  if (alerts.length === 0) {
-    wrap.innerHTML = '<div class="rail-ok" title="Sin alertas"></div>';
-    return;
-  }
-  alerts.forEach(a => {
-    const cat = ALERT_CATS[a.category] || ALERT_CATS.general;
-    const dot = document.createElement('div');
-    dot.className = 'rail-dot';
-    dot.style.background = cat.color;
-    dot.title = a.message;
-    wrap.appendChild(dot);
-  });
-}
-
-function _renderAlertPanel(alerts) {
-  const panel = document.getElementById('alertPanelContent');
-  const badge = document.getElementById('alertBadge');
-  badge.textContent = alerts.length;
-  badge.className = 'alert-count-badge' + (alerts.length === 0 ? ' ok' : '');
-
-  if (alerts.length === 0) {
-    panel.innerHTML = '<div class="alert-ok-msg">Sin alertas activas.<br>El sistema esta funcionando correctamente.</div>';
-    return;
-  }
-
-  panel.innerHTML = '';
-  alerts.forEach(a => {
-    const cat = ALERT_CATS[a.category] || ALERT_CATS.general;
-    const ago = Math.round((Date.now()/1000 - a.last_seen));
-    const agoStr = ago < 60 ? ago+'s' : Math.round(ago/60)+'m';
-    const card = document.createElement('div');
-    card.className = 'alert-card';
-    card.style.borderLeftColor = cat.color;
-    card.onclick = (e) => { if(!e.target.classList.contains('resolve-btn')) _toggleAlertDetail(card); };
-    card.innerHTML = `
-      <div class="alert-cat" style="color:${cat.color}">${cat.icon} ${cat.label}</div>
-      <div class="alert-msg">${a.message}</div>
-      <div class="alert-meta"><span>hace ${agoStr}${a.count>1 ? ' (x'+a.count+')' : ''}</span></div>
-      ${a.detail ? '<div class="alert-detail">'+a.detail.replace(/</g,'&lt;')+'</div>' : ''}
-      <button class="resolve-btn" onclick="event.stopPropagation();_resolveAlert(${a.id})">Marcar resuelto</button>
-    `;
-    panel.appendChild(card);
-  });
-}
-
-async function _resolveAlert(id) {
-  await fetch('/api/alerts/'+id+'/resolve', {method:'POST'});
-  _fetchAlerts();
-}
-
-_fetchAlerts();
-_alertTimer = setInterval(_fetchAlerts, 10000);
-
 </script>
 </main>
 
 <!-- Alert rail (right sidebar) -->
-<div class="alert-rail" id="alertRail" onclick="if(!this.classList.contains('expanded'))_toggleAlertRail()">
+<div class="alert-rail alert-rail--sticky" id="alertRail">
   <div class="rail-dots" id="alertDots"></div>
   <div class="alert-panel" onclick="event.stopPropagation()">
     <div class="alert-panel-header">
       <h4>Alertas <span class="alert-count-badge" id="alertBadge">0</span></h4>
-      <button class="close-btn" onclick="event.stopPropagation();_closeAlertRail()">&times;</button>
+      <button type="button" class="close-btn" id="alertRailClose">&times;</button>
     </div>
     <div id="alertPanelContent"></div>
   </div>
 </div>
+
+<script>
+ActivityAlerts.init({
+  pages: {
+    licencia:   {label: 'Licenciamiento', restart: false},
+    contrato:   {label: 'Contrato de Variables', restart: 'motor'},
+    variables:  {label: 'Variables calc.', restart: true},
+    tracking:   {label: 'Tracking PV-SP', restart: true},
+    filtros:    {label: 'Filtros Exp-Q', restart: true},
+    fuzzy:      {label: 'Fuzzificacion', restart: true},
+    estados:    {label: 'Estados', restart: true},
+    waits:      {label: 'Waits', restart: true},
+    permisivos: {label: 'Permisivos', restart: true},
+    reglas:     {label: 'Motor de Reglas', restart: false},
+    defuzzy:    {label: 'Defuzzificacion', restart: true},
+    tags:       {label: 'Tags KEPserver', restart: false},
+  },
+  inject: false,
+  sticky: true,
+  fixed: false,
+  readyDelay: 350,
+});
+_onHash();
+</script>
 
 <!-- Activity bar (last 10 rule executions) -->
 <div class="activity-bar collapsed" id="activityBar">

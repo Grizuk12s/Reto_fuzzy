@@ -1,0 +1,35 @@
+[
+  {
+    "id": "A1_Prueba_Hopper_Lmita",
+    "bloque": "estabilidad",
+    "fuerza": [
+      "hopper_nvl_pv_a",
+      "HIGH"
+    ],
+    "if": [
+      [
+        "hopper_nvl_pv_a",
+        "HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR",
+        "waits": [
+          {
+            "descripcion": "",
+            "nombre": "Alto",
+            "tipo": "custom",
+            "variable_controlada": "velocidad_sp",
+            "wait_id": "wait::alto",
+            "duracion_s": 130,
+            "accion": "AUMENTAR"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 50.0
+  }
+]

@@ -3,9 +3,11 @@
 Archivo de continuidad. Léelo antes de tocar nada: explica qué es el proyecto, en qué
 estado quedó y qué está pendiente.
 
-**Guía operativa completa:** `PUESTA_EN_MARCHA.md`
+**Guía operativa completa:** `PUESTA_EN_MARCHA.md` (export/import: sección 8)
 **Backlog vivo de afinación:** `AFINACION_PENDIENTE.md` (qué se cerró, qué falta, con
 reproducción y arreglo propuesto)
+**Último cambio de interfaz:** `CAMBIOS_2026-09-08.md` (heartbeat con gráfico y
+Explorador de Series operativo — endpoints nuevos, decisiones y verificación)
 
 ---
 
@@ -25,23 +27,26 @@ cliente**. Ese es el hilo conductor de casi todo el trabajo reciente.
 
 ### El contrato ya es el del cliente, no el del espesador
 
-Se reemplazó la plantilla del espesador por el contrato de esta planta. **Al
-2026-08-20 el contrato se recortó a lo que está instrumentado y el SE corre.**
+Se reemplazó la plantilla del espesador por el contrato de esta planta, recortado a lo
+que está instrumentado. **Estado en disco al 2026-08-25** (verificado leyendo los
+archivos, no de memoria):
 
 | Archivo | Estado |
 |---|---|
-| `contrato.json` | **2 PV (`hopper_nvl_pv_a`, `velocidad_pv`) + 1 SP (`velocidad_sp`) + `limites_sp`** |
-| `tags.json` | 27 tags; 6 habilitados alimentan el pipeline, el resto suspendido |
+| `contrato.json` | **4 PV (`hopper_nvl_pv_a`, `hopper_nvl_pv_b`, `velocidad_pv`, `corriente`) + 1 SP (`velocidad_sp`) + `limites_sp` (`velocidad_sp: [50, 100]`)** |
+| | **`rate_sp` no está declarado** → ese SP se escribe sin límite de velocidad. Es un valor de proceso: lo define el experto de planta |
+| `tags.json` | 27 tags, **los 27 habilitados** |
 | `variables.json` | `crudas: {}` y `definiciones: []` — desde 2026-08-21 el motor **sí** las calcula |
-| `filtros.json` | 1 entrada por PV (`q=0.15`, `ventana_s=50.0`) |
-| `fuzzy.json` | `hopper_nvl_pv_a` (`high`). `velocidad_pv` sin fuzzy **a propósito**: es readback |
+| `filtros.json` | 4 entradas, una por PV (`q=0.15`, `ventana_s=50.0`) |
+| `fuzzy.json` | solo `hopper_nvl_pv_a` (`high`). `velocidad_pv` sin fuzzy **a propósito**: es readback. Desde 2026-09-03 cada fuzzy trae además su bloque `limites` con los **tags** de `lmin`/`lmax` |
 | `pendientes.json` | vacío. Desde 2026-08-21 los fuzzy de pendiente son **configurables**, uno o varios por variable |
-| `tracking.json` | 1 familia (`velocidad_sp`) — **conectada al motor desde 2026-08-21** |
-| `reglas.json` | 1 regla de prueba (`A1_Prueba_Hopper_Lmita`) |
-| `estados.json` | `{}` |
-| `waits.json` | 1 wait (`sp_velocidad_a_hopper`) |
-| `permisivos.json` | `{}` |
-| `defuzzy.json` | 1 familia (`velocidad_sp`) con la acción `AUMENTAR_SP_VEL` |
+| `tracking.json` | 1 familia (`velocidad_sp`), con `pv_key: velocidad_pv` y `rango: 0.3` — **conectada al motor desde 2026-08-21** |
+| `reglas.json` | 2 reglas de prueba (`A1_Prueba_Hopper_Lmita`, `A2_Prueba_Hopper_Lmita`) |
+| `estados.json` | `{}`. Desde 2026-09-01 el default tambien es `{}`: ya no hay plantilla del espesador que sembrar |
+| `waits.json` | 1 wait (`SP Velocidad A Hopper`) |
+| `permisivos.json` | `{}`. Desde 2026-09-01 el catalogo de la interfaz sale de aca y no del dict del espesador |
+| `defuzzy.json` | 1 familia (`velocidad_sp`), con su bloque `limites` (tags que acotan la escritura de ese SP) y su `limites_num` (respaldo numérico, migrado de `limites_sp`) |
+| `kepserver.json` | `timeout_s: 2.0`, `aceptar_uncertain: false`, `estancado_alerta_s: 60`. **`retencion_s` no está en el archivo**: se aplica el default de 5,0 s |
 
 > **"Vacío" es un estado válido.** Los loaders solo caen a la plantilla de Python si
 > el archivo **falta o está corrupto**, no si está vacío. Desde 2026-08-20 tampoco hay
@@ -50,7 +55,7 @@ Se reemplazó la plantilla del espesador por el contrato de esta planta. **Al
 
 ### El mapeo está completo y el SE decide
 
-El pipeline corre de punta a punta: lee los 6 tags con `Good`, filtra, fuzzifica
+El pipeline corre de punta a punta: lee los tags con `Good`, filtra, fuzzifica
 `hopper_nvl_pv_a` en `HIGH` con belief 1.000, dispara `A1`, aplica el paso Sugeno y
 escribe `velocidad_sp` al DCS. Verificado en la traza y en la simulación offline.
 
@@ -104,12 +109,17 @@ KEPserver → DCS
 | `web/api/config.py` | Filtros, fuzzy, defuzzy, tracking, variables, estados, waits, permisivos |
 | `web/api/contrato.py` | Contrato de variables + límites de SP + análisis de impacto |
 | `web/api/se.py` | Arranque/parada del motor, traza, alertas, grabadores por regla |
+| `web/api/export_import.py` | Paquetes export/import, respaldos e historial de importaciones |
+| `web/templates/export_import.html` | UI Export / Import (`/espesador/export-import`) |
 | `core/` | Núcleo genérico, sin nada específico del espesador |
 | `processes/espesador/` | Definiciones del proceso (plantilla) |
-| `connectors/kepserver.py` | Toda la lógica OPC-UA |
+| `connectors/kepserver.py` | Toda la lógica OPC-UA + el pool de sesiones persistentes |
 | `scripts/seed_tags_planta.py` | Siembra los tags PCS7 (corre en el arranque del contenedor) |
 | `web/templates/historial.html` | Historial grabado de UNA regla (`/espesador/historial?regla=<id>`) |
-| `tests/test_pipeline.py` | 79 tests. Red de seguridad del cableado, no de la lógica difusa |
+| `core/jsonio.py` | Escritura atómica de los JSON (`.tmp` + `os.replace`) + lock por ruta |
+| `tests/test_pipeline.py` | Red de seguridad del cableado, no de la lógica difusa |
+| `tests/test_kepserver.py` | 23 tests. Sesión OPC-UA (reuso, reconexión, hilos) + calidad de dato |
+| `tests/test_export_import.py` | 9 tests. Paquetes, merge, historial y undo de importación |
 
 ---
 
@@ -419,8 +429,8 @@ reasignar el nombre en `config.py` no cambiaría nada para quien ya lo importó 
 módulo seguiría mirando la lista vieja. Mutando la lista/dict que ya tienen en la mano
 (`VARIABLES_PROCESO[:] = ...`, `COLUMNAS_ENTRADA.clear()` + rebuild), el cambio llega a
 todos a la vez. Se recargan `VARIABLES_PROCESO`, `SETPOINT_KEYS`, `LIMITES_SP_CONTRATO`,
-`VARIABLES_CRUDAS_REQUERIDAS`, `COLUMNAS_ENTRADA`, `LIMITES_FUZZY_POR_VARIABLE` y los dos
-`ROLES_*`.
+`RATE_SP_CONTRATO`, `VARIABLES_CRUDAS_REQUERIDAS`, `COLUMNAS_ENTRADA`,
+`LIMITES_FUZZY_POR_VARIABLE` y los dos `ROLES_*`.
 
 **Lo que NO se recarga en caliente es el motor.** Cambiar el contrato bajo un lazo de
 control en marcha significaría fuzzificar contra otra escala y escribir a otro setpoint a
@@ -433,6 +443,165 @@ contrato viejo y dejando libres las del nuevo.
 
 `estado_contrato()` se conserva: sigue siendo la única forma de detectar el caso raro de
 alguien editando `contrato.json` a mano en el disco, sin pasar por la API.
+
+### Los límites se declaran donde se usan (2026-09-03)
+
+**El límite de una variable lo declara quien lo consume**, no el tag. En la página de
+Fuzzy, debajo de la tabla de membresías de cada PV, hay una tabla que elige el tag de
+`lmin` y el de `lmax` por pseudónimo; en Defuzzificación, la misma tabla elige los
+límites que **acotan la escritura de ese SP al DCS**. Se guardan con el mismo botón
+Guardar que la tabla de arriba.
+
+Antes el cableado era el campo `rol` de un tag LIM (`hopper_nvl_pv_a_lmax`), asignado en
+la página de Tags. Tenía dos problemas y el segundo era el caro:
+
+- No se veía desde donde se usa. Mirando el fuzzy de una variable era imposible saber
+  contra qué escala se estaba normalizando.
+- **Un tag tiene un solo rol.** `PU009_Speed_MIN/MAX` son los límites de la bomba: son a
+  la vez la escala de la PV de velocidad **y** el tope de escritura de su setpoint. Con el
+  rol había que elegir uno de los dos o duplicar el tag en KEPserver.
+
+#### Formato y fuente de verdad
+
+`fuzzy.json` y `defuzzy.json` ganan la misma clave, con el **nombre del tag**:
+
+```json
+"hopper_nvl_pv_a": {
+  "type": "norm", "offset": [...], "labels": {...},
+  "limites": {"lmin": "PCS7.OS01.Hopper_Lvl_MIN", "lmax": "PCS7.OS01.Hopper_Lvl_MAX"}
+}
+```
+
+`bindings_limites()` (en `web/state.py`) es la **única** fuente de verdad, y
+`construir_mapeo()` arma `tag_to_lim` desde ahí. Por eso `tag_to_lim` pasó a ser
+`dict[tag, [(var, bound), …]]`: un tag puede acotar varias variables. El *namespace* de
+identidad sigue siendo `<var>_lmin` / `<var>_lmax`, que es lo que ya entienden
+`roles_en_uso()`, `faltantes_en_uso`, la página de Mapeo y la traza.
+
+#### El respaldo numérico: la red debajo del tag
+
+Debajo de los dos selectores hay un `limites_num`, con la **misma forma en las dos
+páginas**:
+
+```json
+"limites_num": {"habilitado": false, "lmin": null, "lmax": null}
+```
+
+**Nace apagado, y se enciende a mano.** Un respaldo que valiera solo por existir es
+exactamente lo que hacía invisible al viejo `limites_sp` del contrato: nadie sabía contra
+qué se estaba clipeando. Los números se guardan aunque esté apagado — apagarlo y volver a
+encenderlo no tiene por qué hacer reescribirlos.
+
+Precedencia, por bound y en cada tick:
+
+| Situación | Qué pasa |
+|---|---|
+| Hay tag cableado y se pudo leer | **manda el tag**, siempre |
+| No hay tag y el respaldo está encendido | manda el número |
+| Hay tag y **no** se pudo leer | falla: la PV sale del fuzzy / la familia SP se bloquea |
+| Ni tag ni respaldo | ídem |
+
+El tercer caso es fail-closed a propósito y **no** cae al número: el servidor acaba de
+decir que ese límite no es confiable, y medir contra un número viejo sería decidir sobre
+una escala que el DCS no sostiene. La retención del último valor bueno ya cubre el
+parpadeo; acá solo llega lo que estuvo caído más de `retencion_s`. `lmin >= lmax` también
+bloquea, en las dos páginas.
+
+Un bound con respaldo encendido **sale de `faltantes` y de `roles_en_uso`**: ahí el tag es
+opcional y pedirlo sería un aviso que no lleva a ninguna acción.
+
+`contrato.json → limites_sp` quedó como **legado**: `migrar_limites_sp_del_contrato()` lo
+adopta una vez como `limites_num` de la familia de defuzzy que lo usa —**encendido**,
+porque esos números están clipeando hoy y apagarlos al actualizar dejaría el SP sin tope, o
+sea sin escritura— y a partir de ahí el motor **ya no lee el contrato** para esto. El campo
+sigue en el archivo solo para que un paquete viejo se pueda importar y migrar igual.
+
+**La falta de límites dejó de ser un veredicto de arranque.** Antes se inhibía la familia
+en `_init_state()` y quedaba pegada toda la corrida; con los límites leídos de un tag eso
+sería falso apenas el tag conteste. Ahora vive en `_sp_sin_limite`, que
+`_familias_sin_escritura()` recalcula en cada tick, así que **la familia se libera sola**.
+
+#### Migración y reglas que hay que respetar
+
+`migrar_roles_lim_a_bindings()` corre en `_startup_checks()` y es idempotente: adopta cada
+rol LIM viejo como binding en `fuzzy.json`/`defuzzy.json`. **Es aditiva: NO borra el rol**,
+que queda como metadato inerte (`construir_mapeo` ya no lo mira) y la página de Tags lo
+muestra como "rol viejo". Blanquearlo parecía más prolijo y era peligroso: `_startup_checks`
+corre en cada `import app` — incluido el que hace el suite de tests **contra la config viva
+de la planta**. Si el borrado se persiste y la escritura del binding se pierde o se pisa
+después, el cableado desaparece y no queda de dónde reconstruirlo; ya pasó una vez. Un rol
+cuya variable todavía no tiene fuzzy ni tabla queda pendiente hasta que la membresía exista,
+o `crear fuzzy` lo hereda al vuelo (`_limites_heredados_del_rol`).
+
+> **Ojo al agregar cosas a `_startup_checks()`:** importar `app` no puede destruir
+> configuración. Aditivo sí, destructivo no.
+
+- **Un binding colgado NUNCA se reemplaza solo** (regla A23). `limites_huerfanos()` lo
+  reporta, la página lo pinta en rojo y bloquea el guardado hasta elegir reemplazo.
+- **Los límites viajan con la tabla al guardar.** `_readFuzzyTable()` y
+  `_leerFamiliaDelDOM()` los devuelven; si no, agregar una columna borraría el cableado.
+- **Un binding de un bound que el `type` actual no usa se conserva.** Cambiar un fuzzy a
+  `high` y volver a `norm` no puede perder el `lmin`.
+- En la página de **Tags**, el rol de un tag LIM es ahora derivado y de solo lectura.
+
+### El handshake con el DCS se configura en Tags (2026-09-03)
+
+El permiso del DCS para que el SE escriba (`ENABLE_EXT` lo pide, `ENABLE_FBK` lo responde)
+**siempre** vivió en `tags.json` bajo `"handshake"` — pero hasta el 2026-09-03 no había ni
+endpoint ni página: se editaba a mano el archivo. Era el mismo agujero que tenían los
+límites de SP en `contrato.json`, y con peores consecuencias, porque el handshake es
+fail-closed: mal configurado, el SE no escribe **nada** y no dice por qué.
+
+Ahora hay `GET/PUT /api/tags/handshake` y un panel en la página de Tags, al lado del de
+heartbeat, con el estado en vivo (NO EXIGIDO / EXIGIDO / AUTORIZADO / DENEGADO). Dos
+validaciones que no hay que sacar: **exigir el handshake sin tag FBK se rechaza** (sería
+fail-closed permanente), y FBK y EXT tienen que ser distintos. Un tag guardado que dejó de
+servir se conserva en rojo en vez de reemplazarse solo (regla A23).
+
+`handshake` **entró a `_TAG_STORE_KEYS`** de export/import: antes no viajaba, así que una
+planta clonada arrancaba sin el permiso configurado y no escribía ningún setpoint.
+
+### El Explorador de Series es una consola, no un gráfico (2026-09-08)
+
+Detalle completo en `CAMBIOS_2026-09-08.md`. Lo que hay que saber antes de tocarlo:
+
+**Lo que se muestra sale del pipeline, no de una segunda cuenta.** El dominio fuzzy y la
+pendiente que aparecen en el resumen y en el tooltip vienen de la última traza
+(`GET /api/se/grafico/anotaciones`), traducidos de variable a tag con el **mismo mapeo
+rol↔tag que usa el motor**. Calcularlos en el navegador habría sido más simple y habría
+podido discrepar de lo que deciden las reglas: una pantalla que miente sobre el motor es
+peor que una pantalla sin ese dato. Sin motor corriendo no hay traza y la interfaz lo
+dice (`running: false`), no inventa.
+
+**El emparejado del hover es por tiempo, no por índice.** `interaction.mode: 'index'` de
+Chart.js asume un vector de X compartido; acá cada tag entra al historial cuando el
+KEPserver responde, así que las series tienen distinta cantidad de muestras y el tooltip
+mostraba una serie de más o de menos. Hay un modo propio, `tiempoCercano`, con tolerancia
+del 3 % de la ventana: si una serie **no** tiene dato cerca de ese instante, se omite en
+vez de mostrar un valor de hace minutos. El crosshair usa el mismo emparejado — si se
+tocan uno y el otro no, vuelven a discrepar.
+
+**El zoom y el arrastre solo actúan con la celda tomada.** Se habilitan al hacer clic
+dentro del gráfico (borde verde) y se apagan al hacer clic fuera. Antes, pasar el mouse
+por encima mientras se hacía scroll cambiaba el zoom sin querer. El gesto se traduce a
+estado propio (`positionSec`, `yDrag`) en `onPanComplete` / `onZoomComplete`: si no, el
+refresco de 2 s reimponía la ventana y el arrastre se perdía.
+
+**Las franjas rojas son el permiso del DCS.** El FBK del handshake se lee aparte
+(`GET /api/tags/handshake/historial`) porque `/api/tags/lectura` excluye los tags OTRO y
+descarta los booleanos del historial: nunca entraba al buffer. Lectura fail-closed, igual
+que el motor: si no se pudo leer no se afirma ni autorizado ni denegado.
+
+**Color y límites por tag viven en `tags.json` → `"grafico"`, no en el navegador.** El
+color con el que uno reconoce una variable no debería depender de la máquina ni perderse
+al limpiar el caché. El PUT hace merge parcial (`null` borra) y **no** pasa por
+`_require_license`: es visualización, no configuración del SE. La clave entró a
+`_TAG_STORE_KEYS` de export/import — una planta clonada se lleva sus colores.
+
+**La sonda de catálogo es `/api/tags/catalogo`, no `/api/entrada`.** Esta última hace un
+batch OPC completo de todos los tags habilitados: como sonda cada 10 s encarecía el
+refresco sin necesidad. Un tag suspendido o borrado sale de la selección en vez de quedar
+como serie muerta.
 
 ### Los límites de SP viven en el contrato
 
@@ -599,6 +768,525 @@ grabado antes — el botón significa "desde ahora". Vive a nivel de módulo, no
 instancia del motor: sobrevive a stop/start del SE y se pierde solo al reiniciar el
 proceso Flask.
 
+**Grabación simultánea:** como máximo **5 reglas** a la vez; la traza lo indica en el
+paso 6 y el historial muestra el contador global.
+
+### Planta, interno y escrito en la traza (2026-08-27)
+
+Los pasos **7b** y **8** separan tres capas que antes se mostraban como un solo número
+(el objetivo interno `_setpoints`, que podía subir aunque el DCS no recibiera nada):
+
+| Capa | Fuente | Dónde se ve |
+|---|---|---|
+| **Planta (tag)** | Lectura OPC del tag SP en el tick | Paso **1** (filas `sp`), paso **8** (número grande), columna **Planta** en 7b |
+| **Interno SE** | `_setpoints` tras el defuzzy | Paso **8** · Interno; columna **Interno SE** en 7b |
+| **Escrito DCS** | `_sp_escritos` (último write aceptado) | Paso **8** · Escrito DCS; referencia del **tracking** |
+
+El badge **SIN EFECTO** en 7b significa que **la planta no cambió** (`movio_planta`),
+aunque el interno haya calculado un paso.
+
+**Sin escritura al DCS, el interno no acumula pasos fantasma** (2026-08-27): al inicio
+de cada tick, las familias inhibidas (config, **tracking**, **handshake**) alinean
+`_setpoints` con `_sp_escritos` antes de evaluar reglas, y el defuzzy no aplica pasos
+sobre esas familias. Las **rampas** (`rate_sp`) siguen pudiendo dejar el interno por
+delante del escrito solo mientras el SP **sí** se puede escribir; un write rechazado por
+el DCS no borra el objetivo (se reintenta en el siguiente tick).
+
+### La sesión OPC-UA es persistente, y hay una por hilo (2026-08-25)
+
+Antes cada lectura y cada escritura abría su propia sesión: `Client(url)` + `connect()` +
+`disconnect()`. Con el motor en ciclo libre eso son **decenas de sesiones TCP por segundo**
+contra el KEPserver. Medido: 191 ticks abrían 191 sesiones; ahora abren **una**.
+
+**Corrección al diagnóstico viejo:** el backlog decía *"`connect()` no tiene timeout"*.
+Es falso — `python-opcua` trae `Client(url, timeout=4)` por defecto y ese valor viaja al
+`socket.create_connection` **y** al `future.result()` de cada request. El riesgo real era
+que el timeout es **por request**: `read_tags_batch` capturaba la excepción de cada tag
+para seguir con el siguiente, así que un servidor que aceptaba el socket y después dejaba
+de contestar costaba 27 tags × 4 s = **108 s en un tick**, con `stop()` haciendo
+`join(timeout=3)`. Eso es lo que dejaba al motor imposible de parar.
+
+#### Por qué una por hilo y no una sola con lock
+
+El cliente OPC-UA no es reentrante, así que una sesión compartida obliga a **serializar a
+todos sus usuarios**. Y no son solo el motor: el heartbeat pulsa cada 2 s y las rutas HTTP
+releen todos los tags en cada carga de la página de Tags. Con un lock global, abrir esa
+página esperaría al tick del lazo de control y el tick esperaría a la página.
+
+La cuenta queda acotada porque los hilos que llaman son de vida larga: los tres workers
+del SE y el pool de gunicorn (`worker_class = "gthread"`, `threads = 4`, hilos
+reutilizados, **no** uno por request). El servidor de desarrollo de Flask sí crea un hilo
+por request, y para eso está la cosecha: se cierran las sesiones de hilos muertos y las
+que llevan más de 120 s sin uso.
+
+La cosecha es **oportunista** — corre cuando alguien pide una sesión, no en un hilo de
+fondo, porque un hilo más para esto no se paga solo. Con el motor corriendo se dispara
+varias veces por segundo; con el motor parado y nadie mirando la página de Tags puede
+quedar una sesión en pie más allá del umbral hasta el próximo uso. No se pierde nada: el
+`KeepAlive` de la librería la mantiene sana.
+
+#### Decisiones
+
+- **El timeout es configurable** (`timeout_s` en `kepserver.json`, default 2,0 s, acotado
+ a 0,2–30). Está por debajo del `join(timeout=3)` de `stop()` **a propósito**: si el
+ KEPserver deja de responder, el motor se tiene que poder parar de verdad.
+- **Un fallo de transporte aborta el lote.** No es una optimización: es lo que evita que
+ un socket muerto a mitad de camino cueste un timeout por cada tag que faltaba.
+- **"El servidor respondió" ≠ "el tag sirve".** Distinción nueva que la sesión persistente
+ obliga a hacer. Compartiendo la conexión, si se cae a mitad del lote los tags que
+ faltaban se reportarían como `exists=False, quality="Bad"`: el SE vería **"todos los
+ instrumentos rotos"** en vez de "me quedé sin KEPserver", y no reconectaría nunca. Si
+ hubo `StatusCode`, la conexión está viva y el problema es de ese tag; si no hubo
+ respuesta, es transporte. Un error que no es ninguna de las dos cosas (un `ValueError`
+ convirtiendo un valor) cuenta como problema del tag, porque cerrar la sesión por eso la
+ haría reconectar en cada tick **en silencio**, y volveríamos a una sesión por tick sin
+ que nadie se enterara.
+- **Lo que no se llegó a escribir no se marca como escrito.** Los SP que quedaron sin
+ intentar salen en `fallidos`. Marcarlos como escritos dejaría al DCS con el valor viejo y
+ al write-on-change convencido de haberlo mandado, para siempre.
+- **Cerrar por error corta el socket; cerrar ordenado saluda.** Un `disconnect()` limpio
+ manda `close_session` y `close_secure_channel` y espera respuesta de cada uno: sobre una
+ conexión ya rota son dos esperas de `timeout_s` que el tick paga para nada. En el camino
+ duro hay que bajar además el hilo `KeepAlive` a mano, o queda girando contra una conexión
+ muerta.
+- **Si cambia la URL, se reconecta.** Seguir leyendo del KEPserver anterior devolvería
+ valores buenos del servidor equivocado, que es peor que fallar.
+- **Cerrar es I/O**, así que nunca se hace con el candado del registro tomado: una sesión
+ moribunda dejaría al motor esperando para pedir la suya.
+
+#### Lo que esto arrastró
+
+- **`close_thread_client()` en el `finally` de los tres workers.** Sin eso, parar el motor
+ dejaba su sesión abierta hasta que venciera el `session_timeout` (el servidor lo revisa
+ a 60 s) y cada stop/start sumaba una huérfana.
+- **`_load_config()` cachea con testigo de mtime.** `get_url()` pasó al camino caliente
+ (cada uso compara su URL contra la vigente) y sin caché serían tantas lecturas de disco
+ como ticks. El testigo conserva la propiedad de que editar el JSON a mano se note.
+- **Los comentarios del piggyback en `_read_tags` mentían.** Decían que leer el handshake
+ y los SP en el mismo lote "ahorra una sesión OPC-UA por tick". Ya no: ahora valen porque
+ la autorización y las PV sobre las que se decide vienen de la **misma pasada**.
+- **`GET /api/kepserver/sesiones`** responde la pregunta operativa: la sesión se está
+ reusando o se está reabriendo.
+
+#### Lo que NO mejoró tanto como parece
+
+La latencia por lote bajó de 114,4 ms a 92,3 ms — **1,2×**, no un orden de magnitud. Manda
+el round-trip de las lecturas secuenciales, no el armado de sesión. Lo que se gana de
+verdad es no quemar sesiones en un servidor con conexiones licenciadas, el timeout
+acotado, y no confundir una caída con instrumentos rotos.
+
+### La calidad de dato es real, y se juzga en un solo lugar (2026-08-25)
+
+El conector leía con `node.get_value()`, que **descarta el `StatusCode`**, y rellenaba
+`"quality": "Good"` si no había excepción. La columna QUALITY de la interfaz decía siempre
+*Good*, dijera lo que dijera el servidor.
+
+**Era cosmética dos veces**, y la segunda mitad no estaba en el diagnóstico: `_read_tags`
+**tampoco miraba la calidad** — su `_ok()` solo preguntaba si había llegado un número. Así
+que aunque el conector hubiera dicho la verdad, el motor habría decidido igual. Se
+arreglaron las dos.
+
+Ahora `get_data_value()` trae el DataValue y el conector publica, por tag, `quality`
+(severidad OPC-UA), `status_code` (el nombre exacto), `source_ts` y `estancado_s`.
+
+#### La política
+
+| Severidad | Qué hace el motor |
+|---|---|
+| `Good` | se usa |
+| `Uncertain` | **no** se usa. Configurable con `aceptar_uncertain` |
+| `Bad` | no se usa, tenga valor o no |
+| `Unknown` (StatusCode ilegible) | no se usa — fail-closed |
+
+- **Un `Bad` con valor no cuenta como existente.** Es el caso traicionero: llega un
+ número y no hay excepción. Se resuelve en el conector (`exists=False`) y no aguas abajo,
+ para que nadie tenga que revisar dos campos y se olvide de uno. El valor se conserva
+ solo para diagnóstico.
+- **`Uncertain` se rechaza por defecto**, en línea con la regla de oro: es el servidor
+ diciendo "tomá el número pero no me hago responsable", y algunos de esos códigos son
+ literalmente un dato viejo — `UncertainLastUsableValue` significa que la fuente se cayó y
+ esto es lo último que hubo. Es **configurable** porque la alternativa no es gratis:
+ `UncertainEngineeringUnitsExceeded` es solo "fuera de rango de ingeniería", y en una
+ planta que los emita seguido rechazarlos deja al experto mudo. Que la decisión esté en un
+ JSON y no hundida en el código es a propósito.
+- **Un solo criterio: `valor_utilizable()`** en `web/state.py`. Lo usan las tres lecturas
+ que importan — PV/CRUDA/LIM, el valor inicial de un SP, y la reconciliación con el DCS.
+ Antes cada una tenía su propio `exists and value is not None`; con una política de verdad
+ detrás, tres copias es el camino corto a que una quede atrás. Reconciliar contra un
+ readback dudoso (B1.3) es peor que no reconciliar: el SE se llevaría como "lo que quiso el
+ operador" un valor que el servidor mismo no sostiene, y después lo defendería.
+- **El handshake queda aparte**, con una exigencia más dura: `Good` a secas, sin escotilla
+ configurable. Un permiso que no se puede verificar es un permiso denegado.
+
+#### El SourceTimestamp no sirve para detectar congelados
+
+El backlog proponía detectar valor congelado con el `SourceTimestamp` que no avanza.
+**Verificado contra el servidor: no funciona.** El `SourceTimestamp` avanza en **cada
+lectura** aunque el valor no se mueva — mismo `66.90608978271484` con estampas
+`18.509 → 20.011 → 21.516`. Estampa el momento de la lectura, no el del último cambio, así
+que como detector de congelado da siempre "fresco". (`ServerTimestamp` viene `None`.)
+
+Se mide entonces el estancamiento **del valor**: un float analógico real jitterea en los
+últimos bits, así que la igualdad exacta sostenida es la mejor señal disponible. El
+conector lo publica como **hecho** (`estancado_s`), no como juicio — no sabe qué tags
+deberían moverse; quien decide es `web/state.py`, que sí sabe la categoría.
+
+- **Avisa, no inhibe.** Es la decisión central. El detector no puede distinguir un scan
+ congelado de un proceso genuinamente quieto: un nivel en un tanque lleno o un readback
+ clavado en su setpoint no se mueven y están perfectos. Inhibir por esto dejaría al
+ experto mudo justo en régimen estacionario, que es cuando más se lo necesita. Es un
+ diagnóstico para el instrumentista, no un interlock.
+- **Solo PV.** Un tag LIM vale 90.0 para siempre y eso es correcto.
+- Umbral en `estancado_alerta_s` (default 60 s, 0 lo desactiva).
+
+#### Lo que esto arrastró
+
+- **Categoría de alerta propia, `calidad`.** `_run_tick` cierra la categoría `kep` al final
+ de cada tick sano, y eso es correcto para un error de **conexión**: un tick que termina
+ bien prueba que la conexión anda. No prueba nada sobre los instrumentos. Con las dos cosas
+ en la misma categoría el aviso de calidad se auto-resolvía en el mismo tick que lo creaba
+ y **no llegaba nunca a la pantalla** — defecto preexistente que afectaba igual a los
+ avisos de "PV/LIM en uso que no se pudieron leer" desde 2026-08-21. Ver A18 en
+ `AFINACION_PENDIENTE.md`.
+- **El mensaje de alerta no lleva números que cambien.** `AlertCollector.add` deduplica por
+ mensaje **exacto**; con los segundos adentro, cada tick creaba una alerta nueva — a
+ ~6 tick/s son cientos de miles por día en una lista que se recorre entera en cada `add`.
+ El número vive en la traza.
+- **El fail-closed del handshake se ejecuta por primera vez.**
+ `_chequear_handshake_dcs` exigía `quality == "Good"` desde que se escribió, pero como la
+ calidad era `"Good"` por construcción, esa rama nunca se había podido ejecutar.
+- **El paso 1 de la traza** gana `StatusCode` y `Sin cambiar`, más un cartel propio para
+ las PV estancadas. La columna `StatusCode` muestra `—` cuando coincide con la severidad:
+ existe para el caso en que difieren.
+- **`GET /api/tags/lectura` tuvo que dejar pasar los campos nuevos**: el enriquecimiento ya
+ los traía y el endpoint los descartaba en el último paso, con una lista blanca.
+- **El fixture de tests del conector pasó de `get_value` a `get_data_value`**, con
+ `_DataValueFalso`; y hay un fixture `reloj` que controla `time.monotonic`, porque el
+ estancamiento se mide en segundos reales y probar un umbral de 60 s no puede costar 60 s.
+
+### Un parpadeo no saca al experto de servicio (2026-08-25)
+
+Con la calidad ya real (ver arriba), una PV que llegaba `Bad` desaparecía del `fuzzy_out`
+**en el mismo tick** y las reglas que la nombraban quedaban mudas de inmediato. Un
+parpadeo de un tick del KEPserver —o una reconexión, que después de la sesión persistente
+dura lo que dura un `connect()`— dejaba al SE sin decidir por algo que ya se había
+resuelto solo.
+
+`retencion_s` (en `kepserver.json`, default **5,0 s**, editable en la página) es cuánto se
+sigue usando el último valor bueno de un tag cuya calidad se cayó. A ~6 tick/s son ~30
+ticks: alcanza para cruzar un parpadeo y es corto frente a la ventana del filtro Exp-Q
+(50 s) y a cualquier wait. `0` lo desactiva.
+
+#### Decisiones
+
+- **El reloj no puede ser el `source_ts`.** Este servidor lo estampa en el momento de la
+ lectura, así que como "edad del dato" da siempre cero (verificado; está en *La calidad de
+ dato es real*). Se cuenta desde el **último tick en que ese tag estuvo `Good`**, igual que
+ se mide `estancado_s`.
+- **Lo aplica `_read_tags`, no el conector.** El conector reporta lo que el servidor dijo
+ en *esta* lectura y no debe mentir sobre eso: la página de Tags tiene que seguir mostrando
+ `Bad` mientras el motor usa el valor retenido.
+- **Una PV que nunca estuvo `Good` no se retiene.** No hay último valor bueno que retener,
+ y rellenarla sería inventar — la regla de oro de siempre.
+- **`_init_state()` olvida lo retenido.** Arrancar el motor con el valor de hace media hora
+ es exactamente lo que el arranque bumpless existe para evitar.
+- **El handshake no retiene nada.** Su fail-closed es más duro a propósito: un permiso que
+ no se puede verificar es un permiso denegado, y ahí no hay parpadeo tolerable.
+- **Un límite retenido sostiene a su PV.** Si no, la PV se caía del fuzzy igual y la
+ retención no servía para nada.
+
+#### La interacción con el tracking hubo que arbitrarla
+
+El tracking es **fail-closed sin readback**: si el `pv_key` no se puede leer, la familia se
+retiene. La retención mantiene vivo ese readback durante unos segundos, así que los dos
+mecanismos se pisan. Quedó decidido y probado por separado:
+
+| Caso | Qué pasa |
+|---|---|
+| El readback **nunca** fue legible | no hay nada que retener → fail-closed, la familia se retiene |
+| El readback **parpadea** | la retención lo cubre → el tracking sigue verificando con el último valor bueno |
+
+Es el criterio correcto: un readback que parpadea sigue siendo un readback: no hay motivo
+para congelar el lazo por un tick.
+
+Se ve en el paso 1 de la traza (antigüedad, valor retenido y calidad real) con cartel
+propio, y avisa en la categoría de alerta `calidad`.
+
+### El rate limit rampea, no descarta (2026-08-25)
+
+`rate_sp` en `contrato.json` declara, por familia de SP, cuánto puede moverse ese setpoint
+**por segundo** en unidades de ingeniería. Vacío = sin límite, que es el comportamiento
+anterior.
+
+**Rampea, no descarta, y ahí está toda la decisión.** El tracking sí descarta el paso —a
+propósito, porque el proceso quedó atrás y acumular mandaría un salto de varios pasos
+juntos al liberarse. Un rate limit es lo contrario: la acción es válida y el objetivo es
+correcto, lo único que no se acepta es llegar de un salto. Descartar acá perdería la
+decisión del experto; lo que se hace es entregarla en varios ticks.
+
+#### Se aplica al escribir, no al calcular
+
+No es un detalle de implementación, es lo que hace que el resto del motor siga siendo
+coherente:
+
+| | Por qué |
+|---|---|
+| `_setpoints` (el objetivo interno) avanza completo | El mecanismo de *el wait cuenta solo si la regla actuó* ve que el SP se movió y **no** revierte el wait. Correcto: la regla actuó, su efecto viaja en rampa. Si el rate limit tocara `_setpoints`, el wait se revertiría y la regla volvería a disparar en cada tramo |
+| `_sp_escritos` guarda lo que el DCS aceptó | Es lo que compara la reconciliación con el DCS: un SP a mitad de rampa **no** se lee como intervención manual del operador |
+| El write-on-change reintenta solo | Mientras quede diferencia entre objetivo y escrito, el tag sigue apareciendo como cambiado. La rampa avanza sin código extra |
+
+El primer tick **no rampea**: es el arranque bumpless, que parte del valor vigente en el
+DCS, y rampear hacia un valor que el DCS ya tiene no tiene sentido.
+
+#### El tope del presupuesto salió de verificar, no de diseñar
+
+La primera versión calculaba `paso_max = rate × (ahora − última escritura de este tag)`.
+Medido en el contenedor: tras 5 s retenido por tracking, el SP saltaba **3,94 unidades en
+un solo write**. O sea exactamente lo que el límite existe para impedir, y en el peor
+momento, porque el equipo llevaba un rato quieto. El presupuesto se acumulaba durante toda
+pausa: tracking, handshake denegado, write rechazado, motor recién arrancado.
+
+`RATE_DT_MAX_S = 1.0` acota el presupuesto, y de paso le da a `rate_sp` una segunda lectura
+fácil de explicar: **es también el paso máximo de un solo write.** La rampa sigue avanzando
+a `rate` u/s porque el tick dura décimas de segundo. (Si alguien subiera `piso_s` por
+encima de 1 s, la rampa iría más lenta que el rate declarado; es el lado conservador del
+error.) Con el mismo escenario medido, el tramo de liberación avanza 1,00.
+
+Se ve en el paso 8 de la traza: objetivo, escrito, cuánto falta y el rate aplicado.
+
+### Guardar un JSON no puede dejarlo a medias (2026-08-25)
+
+Todos los `_save_*` escribían directo sobre el archivo destino. El `open(..., "w")` trunca
+**antes** de escribir nada, así que un corte a mitad de `json.dump` no dejaba "la edición
+anterior": dejaba un JSON incompleto, que el loader considera corrupto y por el que **cae a
+la plantilla de Python**. El modo de falla real no era "se perdió la última edición", era
+**la planta arranca con la configuración de otra planta**.
+
+`core/jsonio.escribir_json_atomico` escribe un `.tmp` completo y lo renombra encima del
+destino con `os.replace`. En cualquier instante en que se corte, en el destino hay o la
+versión vieja entera o la nueva entera.
+
+- **El `.tmp` va en el mismo directorio** del destino, no en `/tmp`: `os.replace` solo es
+ atómico dentro del mismo sistema de archivos, y `./config` es un volumen de Docker. Un
+ temporal fuera degradaría el rename a copiar+borrar.
+- **El `fsync` no es decorativo.** Sin él, `os.replace` puede publicar un inodo cuyo
+ contenido sigue en el cache de página: ante un corte de energía el destino queda visible
+ y **vacío**, que es justo el escenario que este módulo evita.
+- **Hay un lock por ruta**, para que dos hilos que guardan el mismo archivo no se pisen el
+ temporal ni el rename.
+
+**El read-modify-write es otro problema.** El lock por ruta protege la escritura, no el
+ciclo leer→modificar→escribir: para eso el lock tiene que estar tomado **desde antes de
+leer**. `tags.json` lo necesita porque tiene cuatro escritores concurrentes —el generador,
+el heartbeat, las rutas de la API y la sincronización del contrato— y ya se corrompió una
+vez por esto. `_tags_lock` (un `RLock` en `web/state.py`) envuelve el ciclo completo en
+`TagGenerator._save_config`, `HeartbeatManager._save_config` y todas las rutas de
+`web/api/tags.py` y `web/api/contrato.py` que tocan tags.
+
+> **Al escribir el test de concurrencia, ojo con el fixture `store`**: monkeypatchea
+> `_save_tags` a un no-op, así que la carrera ocurre sobre un dict en memoria y el test
+> pasa sin probar nada. El que vale corre el generador y el heartbeat **por el camino de
+> producción** contra un `tags.json` real.
+
+### Export / Import de configuración (2026-08-25)
+
+Página `/espesador/export-import` y blueprint `web/api/export_import.py`. Empaqueta
+bloques de `config/espesador/*.json` en un único archivo con
+`"format": "se-hutbay-export"` (versión **2**). Guía operativa: `PUESTA_EN_MARCHA.md`
+sección 8.
+
+#### Qué entra en el paquete
+
+Trece módulos opcionales por casilla: `tags`, `contrato`, `kepserver`, `variables`,
+`filtros`, `fuzzy`, `pendientes`, `estados`, `tracking`, `permisivos`, `waits`,
+`reglas`, `defuzzy`. **No** incluye PostgreSQL ni `licencia.json`.
+
+`tags` exporta `tags.json` entero (OPC-UA + pseudónimos + generador + heartbeat).
+Paquetes v1 con `tags_kepserver` + `entrada_datos` siguen importándose vía
+`_bloques_tags_desde_paquete()`; el preview los muestra como un solo módulo Tags.
+
+#### Decisiones
+
+- **Orden de aplicación fijo** (`ORDEN_MODULOS`): tags → contrato → pipeline →
+ kepserver al final. El contrato después de los tags porque el análisis de impacto
+ y la limpieza de roles leen el mapeo vigente.
+- **Motor detenido** para `apply` y `undo` (409 si corre). Evita mutar JSON que el
+ hilo del SE tiene en memoria.
+- **Respaldo automático antes de aplicar** en `config/espesador/.backup/import_*`.
+ Solo copia los JSON que el import va a tocar. Historial de metadatos en
+ `historial_import.json` (máx. 10 entradas: fecha, módulos, modo, archivos,
+ `exported_at` del paquete).
+- **Sin transacción global**: si `apply` falla a mitad, no hay rollback automático;
+ el operador restaura desde el historial. El respaldo se crea **antes** de escribir.
+- **Tres modos de duplicados** (`agregar` / `reemplazar` / `copias`): listas por id
+ (reglas, waits), merge de dicts (fuzzy, filtros, …), merge fino de variables
+ (`_aplicar_variables` + validador de config), fusión de tags por id/nombre.
+- **KEPserver:** en agregar/copias solo fusiona `timeout_s`, `aceptar_uncertain`,
+ `estancado_alerta_s`, `retencion_s`; host/port de la planta destino no se pisan.
+- **Post-sync:** si entran tags o contrato pero no filtros/tracking, corre la misma
+ lógica que los botones Sincronizar de esas páginas.
+- **Contrato** se exporta/importa con `recargar_contrato()` y análisis de impacto
+ en preview (reglas afectadas si se quitan variables).
+
+#### API
+
+`GET /api/export-import/modulos`, `POST …/export`, `POST …/preview`, `POST …/apply`,
+`GET /api/export-import/historial`, `GET|POST /api/export-import/undo` (body opcional
+`backup_dir`).
+
+### Ningún catálogo sale ya de una plantilla de otra planta (2026-09-01)
+
+Era el último resto del patrón "foto al importar": `variables_disponibles()` ofrecía
+`__PERM_<X>` para cada clave del dict `PERMISIVOS` **hardcodeado del espesador**, no de
+`permisivos.json`. El motor evalúa `cargar_permisivos_json()`, así que esas cinco
+pseudo-variables no existían en ningún tick: la condición se escribía, se guardaba y
+quedaba `no_evaluable` para siempre.
+
+Ahora hay `permisivos_definidos()` / `nombres_permisivos()` en `web/state.py`, que releen
+el JSON en cada llamada — con `_leer_json`, **no** con `cargar_permisivos_json()`, por el
+mismo motivo que `roles_en_uso()`: ese cae a la plantilla del espesador cuando el archivo
+falta y reproduce el ruido que se quiere sacar.
+
+Junto con eso, `_defaults_estados()`, `_defaults_permisivos()` y
+`_permisivos_defaults_deepcopy()` devuelven `{}`, y `correr_prueba_general` dejó de caer
+al `PERMISIVOS` del espesador cuando no se le pasa configuración (hacía divergir la
+simulación de la producción). El botón de la página Estados pasó a llamarse **Vaciar
+estados**: ya no hay default que restaurar. Detalle en `AFINACION_PENDIENTE.md` A20.
+
+### Las filas de una pendiente son tan libres como las de una PV (2026-09-01)
+
+`FUZZY_LABELS_RESERVADAS` era un único conjunto para los dos validadores y contenía
+`INC/DEC/STABLE`. En una PV eso es correcto; en una **pendiente** prohibía exactamente las
+tres etiquetas de la plantilla, así que una pendiente recién creada no se podía guardar.
+
+Quedó partido en dos:
+
+| Conjunto | Contiene | Se aplica a |
+|---|---|---|
+| `LABELS_RESERVADAS_NUCLEO` | `CERCA_ALTO`, `CERCA_BAJO`, `ON`, `OFF` | siempre — las genera el núcleo |
+| `FUZZY_LABELS_RESERVADAS` | núcleo + `INC`, `DEC`, `STABLE` | fuzzy de PV |
+| `PENDIENTE_LABELS_RESERVADAS` | núcleo | fuzzy de pendiente |
+
+El nombre de fila de una pendiente se **edita en la página** (antes era texto plano: la
+única forma de renombrar era Quitar + `+ Fila`), el validador aplica las mismas reglas de
+nombre que el de PV, y hay `- Columna`.
+
+> **Renombrar una fila que una regla nombra se RECHAZA (409)**, con el escape
+> `__forzar__`. Es la contrapartida obligatoria de poder renombrar: desde el JSON un
+> renombre es un borrado + un alta, así que sin esa red la regla queda muda en silencio.
+> `GET /api/pendientes` expone `uso_en_reglas` para avisarlo **antes** de guardar.
+
+### Un valor guardado que ya no existe NUNCA se reemplaza solo (2026-09-01)
+
+Un `<select>` cuyo valor no está entre sus opciones **selecciona la primera**. Aplicado al
+editor de reglas eso significa que abrir y guardar una regla cuya variable fue borrada la
+reescribe con otra variable, en silencio.
+
+Todos los desplegables de catálogo del editor pasan por **`_selCatalogo()`**, que conserva
+el valor huérfano como opción marcada en rojo, y **`_huerfanosEnModal()`** impide guardar
+hasta que alguien elija un reemplazo. La lista de reglas los pinta con ⚠ vía
+`_renderHoja()`. Si agregás un desplegable nuevo que ofrezca un catálogo, usá
+`_selCatalogo` — no armes las `<option>` a mano.
+
+Regla general del proyecto, y vale para lo que viene: **ante un dato que ya no cuadra,
+fallar ruidoso**. Nunca descartar la condición, nunca rellenar con el primero de la lista.
+Ver `AFINACION_PENDIENTE.md` A23.
+
+> Para texto dentro de un atributo HTML usá **`_escapeAttr()`**, no `_escapeHtml()`: este
+> último no escapa comillas y cierra el atributo antes de tiempo.
+
+### Una regla guarda la COPIA del estado, más una etiqueta con su nombre (2026-09-01)
+
+`evaluar_condicion` baja por AND/OR y **no sabe que existen los estados**. Por eso una regla
+guarda las condiciones copiadas, no una referencia viva. Lo que se agregó al lado es
+`ref_estado`:
+
+```json
+{"ref_estado": "HOPPER_LLENO", "AND": [["hopper_nvl_pv_a","HIGH"], ["velocidad_pv","OK"]]}
+```
+
+El motor ve el `AND` y evalúa; la clave de más la ignora — **no hubo que tocar el motor**.
+La interfaz, en cambio, ya no adivina de qué estado salió cada copia comparando condiciones
+(lo que fallaba en cuanto el estado se editaba, y confundía dos estados con las mismas
+condiciones).
+
+Consecuencias que hay que respetar al tocar esto:
+
+- **Editar un estado NO propaga a las reglas.** `PUT /api/estados/<n>` devuelve `usos` con
+  las que quedaron desactualizadas y la página pregunta; solo con `propagar: true` se
+  reescriben. Nunca propagar en silencio.
+- **No desenvolver un `if` de un solo grupo AND si trae `ref_estado`** — se pierde la
+  etiqueta y la regla deja de reconocer el estado. Vale para el backend
+  (`_normalizar_regla_payload`) y para la página (`_condsToItems`).
+- **Anidamiento: un solo nivel**, verificado en las dos direcciones (el referido no puede
+  referenciar; el referido por otro no puede ganar referencias). Eso es lo que hace
+  imposible un ciclo.
+- La copia de un estado anidado se **regenera en el servidor** desde la definición vigente.
+
+Cobertura en `tests/test_estados.py`. Detalle en `AFINACION_PENDIENTE.md` A24.
+
+### No hay botones de "Restaurar default" (2026-09-01)
+
+Se eliminaron los de **Waits**, **Permisivos** y **Variables calc.**, con sus endpoints
+(`/api/waits/reset`, `/api/permisivos/reset`, `/api/variables/reset`). El de Waits había
+repuesto los ocho waits del espesador en `waits.json` — el mismo mecanismo de A20, en la
+última página donde quedaba. `_defaults_waits()` devuelve `[]`.
+
+Lo que queda son botones de **"Vaciar"**, que dejan el archivo en `{}` / `[]`. Si agregás un
+botón de este tipo, que vacíe: no hay plantilla que restaurar.
+
+**"Vaciar (todas)" en Fuzzy vacía también `pendientes.json`** — misma página, misma decisión.
+
+Ver `AFINACION_PENDIENTE.md` A28.
+
+### Ya no queda ninguna plantilla del espesador (2026-09-01)
+
+Borrados `estados_espesador.py`, `reglas_espesador.py` y
+`processes/espesador/permisivos_config.py`. El fallback de `cargar_reglas_json` a las 28
+reglas del espesador era el peor: un `reglas.json` corrupto no detenía el motor, lo ponía a
+operar con las reglas de otra planta. Hoy devuelve `[]`.
+
+**Un archivo de configuración ausente o ilegible se responde con vacío, nunca con la
+plantilla de otra planta.** Si agregás un `cargar_*` nuevo, seguí ese criterio.
+
+### Las etiquetas son POR VARIABLE, y la derivación se declara una sola vez (2026-09-01)
+
+`etiquetas_disponibles()` es la **unión** de todo: sirve para validar *"existe en alguna
+parte"*, **nunca para ofrecer**. Para ofrecer y para validar una hoja concreta se usa
+`etiquetas_por_variable()` / `etiquetas_validas_de(variable)`.
+
+Ofrecer la unión dejaba pedir `LOW` a una pendiente de INC/DEC/STABLE, o `CERCA_ALTO` a un
+fuzzy sin filas `OK` y `HIGH`. Se guardaba, no daba error, y **evaluaba 0 para siempre**.
+
+La regla de qué etiquetas derivadas existen (`NO-<X>`, `CERCA_ALTO`, `CERCA_BAJO`) está en
+**`core/fuzzy/evaluator.py :: etiquetas_derivadas()`**, y la consultan **las dos** partes: el
+expansor que calcula los grados y el catálogo que la interfaz ofrece. Si cambiás cómo se
+deriva algo, cambialo ahí y solo ahí — es lo que impide que la página ofrezca una etiqueta
+que el motor no calcula.
+
+En la página, un par variable+etiqueta se dibuja con **`_parVarLbl()`**, que redibuja el
+selector de etiquetas cuando cambia la variable. No armes un selector de etiquetas suelto:
+una etiqueta sin su variable no se puede validar.
+
+Detalle en `AFINACION_PENDIENTE.md` A27.
+
+### Historial de escrituras al DCS (2026-09-01)
+
+`SEEngine._historial_escrituras` es un anillo de **200** escrituras
+(`HISTORIAL_ESCRITURAS_MAX`), expuesto en `status()` y en `/api/se/trace` como
+`historial_escrituras`, y renderizado en la etapa **9b** de la página de traza.
+
+Existe porque la traza es un anillo de 60 ticks y el SE es **write-on-change**: la mayoría
+de los ticks no escriben nada, así que mirando solo la traza es imposible responder *"qué le
+mandó el experto a la planta en la última hora"*. Es el registro de auditoría de lo único
+que sale del SE hacia el DCS.
+
+Registra también las escrituras **rechazadas** por el DCS: "el experto quiso mover el SP y no
+lo aceptaron" es justamente el evento que hay que poder reconstruir después.
+
+> El valor anterior se fotografía **antes** de pisar `_sp_escritos`, o el historial mostraría
+> "de X a X". Si tocás `_write_setpoints`, respetá ese orden.
+
 ### Configuración sobre código
 
 El contrato, los filtros, los modelos difusos y los límites de SP se leen de JSON.
@@ -677,12 +1365,22 @@ recarga en caliente.
 El backlog vivo está en **`AFINACION_PENDIENTE.md`**: qué se cerró el 2026-08-20, qué
 queda abierto por severidad, con reproducción y arreglo propuesto. Los titulares:
 
+**No queda ningún pendiente de riesgo operativo (B1)**, y desde el 2026-08-25 tampoco
+queda nada de la lista de titulares. **Lo que falta para operar ya no es software: son
+las reglas, los permisivos y la calibración del defuzzy, que se definen con el experto
+de planta.** Lo que sigue abierto en `AFINACION_PENDIENTE.md` es B2/B4 (funcionalidad
+menor y ruido de diagnóstico).
+
 | Prioridad | Tema |
 |---|---|
-| Operativo | `stop()` no comprueba `is_alive()` → dos motores escribiendo al DCS |
-| Operativo | Sesión OPC-UA por tick sin timeout |
-| Operativo | Sin resincronización con el DCS: revierte la intervención manual del operador |
-| Operativo | La calidad OPC-UA es cosmética (no detecta valor congelado) |
+| ~~Funcional~~ | ~~Interlock de habilitación~~ — ya existía: es el handshake DCS fail-closed |
+| ~~Funcional~~ | ~~Retener el último valor bueno con timeout~~ — CERRADO 2026-08-25 |
+| ~~Funcional~~ | ~~Rate limit por SP~~ — CERRADO 2026-08-25 |
+| ~~Consistencia~~ | ~~`_save_*` sin lock y sin atomicidad~~ — CERRADO 2026-08-25 |
+| ~~Operativo~~ | ~~La calidad OPC-UA es cosmética (no detecta valor congelado)~~ — CERRADO 2026-08-25 |
+| ~~Operativo~~ | ~~`stop()` no comprueba `is_alive()` → dos motores escribiendo al DCS~~ — CERRADO 2026-08-25 |
+| ~~Operativo~~ | ~~Sin resincronización con el DCS: revierte la intervención manual~~ — CERRADO 2026-08-25 |
+| ~~Operativo~~ | ~~Sesión OPC-UA por tick sin timeout~~ — CERRADO 2026-08-25 |
 | ~~Funcional~~ | ~~El wait tampoco debe reiniciarse por tracking~~ — CERRADO 2026-08-21 |
 | ~~Funcional~~ | ~~Pendientes: solo existen offline y sin config editable~~ — CERRADO 2026-08-21 |
 | ~~Funcional~~ | ~~Variables derivadas: solo existen offline~~ — CERRADO 2026-08-21 |
@@ -705,26 +1403,26 @@ Ver *Las pendientes son configurables*.
 waits de 900 s duran 900 s y la ventana de pendientes mide 60 s de verdad.
 Ver "Ciclo libre" más abajo.
 
-### 3. Política de calidad de dato — sigue abierto
+### 3. Política de calidad de dato — CERRADO (2026-08-25)
 
-**Actualizado 2026-08-21:** `_read_tags` ya **no** aborta el tick. Una PV o un límite
-con calidad mala sacan a esa variable del `fuzzy_out`; el resto del pipeline corre y las
-reglas que la nombran quedan `no_evaluable`. O sea, lo de "inhibir las reglas que
-dependen de una variable degradada en vez de tirar el tick" ya está. Las CRUDA degradan
-a `0.0` y levantan alerta solo si alguien las usa.
+**2026-08-21:** `_read_tags` dejó de abortar el tick. Una PV o un límite con calidad mala
+sacan a esa variable del `fuzzy_out`; el resto del pipeline corre y las reglas que la
+nombran quedan `no_evaluable`. Las CRUDA degradan a `0.0` y avisan solo si alguien las usa.
 
-Falta todavía: **retener el último valor bueno con timeout** (hoy la variable
-desaparece de inmediato).
+**2026-08-25 (B1.4):** la calidad ya es **real**. Sale del `StatusCode` de OPC-UA, se
+juzga en un solo lugar (`valor_utilizable()`), `Uncertain` se rechaza por defecto y es
+configurable, y hay detección de valor congelado — por estancamiento del valor, no por
+timestamp, que contra este servidor no funciona. Ver *La calidad de dato es real, y se
+juzga en un solo lugar*.
 
-Relacionado: `connectors/kepserver.py` usa `get_value()`, que descarta el StatusCode
-y el SourceTimestamp de OPC-UA. El campo `quality` que se muestra es inventado por el
-código. Con `get_data_value()` se tendría calidad real y detección de congelados.
+**2026-08-25 (B1.5):** cerrado lo que faltaba — **retención del último valor bueno**. Ver
+*Un parpadeo no saca al experto de servicio*.
 
 ### 4. Arranque sin salto de setpoint — CERRADO
 
 Ver "Arranque bumpless".
 
-### 5. Escritura de SP sin control — PARCIALMENTE CERRADO
+### 5. Escritura de SP sin control — CERRADO salvo el interlock
 
 `_write_setpoints()` ya hace **write-on-change**: compara contra el último valor
 efectivamente escrito (`_sp_escritos`) y solo manda la diferencia. Si el write falla
@@ -736,23 +1434,25 @@ Desde 2026-08-20 la escritura además es **honesta**: `write_float_batch` devuel
 referencia de los que el DCS aceptó, y el error sobrevive al final del tick (antes lo
 borraba un `self._last_error = None` incondicional).
 
-**Sigue faltando** el límite de tasa por SP, el interlock de habilitación y la
-resincronización con el DCS si el operador mueve el SP a mano (ver
-`AFINACION_PENDIENTE.md` B1.3).
+Desde 2026-08-25 tiene además **límite de velocidad** (`rate_sp` del contrato, ver *El
+rate limit rampea, no descarta*) y **resincronización con el DCS**: si el operador mueve
+el SP a mano, el SE adopta su valor en vez de revertirlo de un salto.
 
-El DCS ya provisionó el handshake completo (`PU009_Exp_Enable_Ext`, `Enable_FBK`,
-`Exp_HB`, `LIC_Auto/Manual`, selectores). Debería ser **fail-closed**: si el enable no
-se puede leer o tiene calidad mala, no se escribe.
+El **interlock de habilitación** ya existe y estaba mal anotado como pendiente: es
+`_chequear_handshake_dcs`, que corre en cada tick antes de armar el lote y bloquea
+**todas** las familias si el `Enable_FBK` del DCS no llega en `Good` con valor verdadero.
+El handshake completo está provisionado (`PU009_Exp_Enable_Ext`, `Enable_FBK`, `Exp_HB`,
+`LIC_Auto/Manual`, selectores). La calidad real (B1.4) fue lo que lo volvió efectivo: la
+rama de `quality == "Good"` existía desde que se escribió, pero con la calidad inventada
+nunca se había podido ejecutar.
 
-### 6. `_save_tags` sin lock — sigue abierto
+### 6. `_save_tags` sin lock — CERRADO (2026-08-25)
 
-Read-modify-write sin sincronizar, llamado por el generador, el heartbeat y la API.
-Ya se corrompieron datos una vez por esto. Y ningún `_save_*` es atómico: un corte a
-mitad de `json.dump` deja el archivo ilegible y el loader cae a la plantilla de Python
-(ver `AFINACION_PENDIENTE.md` B3.4).
+`_tags_lock` cubre el read-modify-write completo y todos los `_save_*` escriben de forma
+atómica. Ver *Guardar un JSON no puede dejarlo a medias*.
 
-Lo que sí se arregló: suspender un tag ya no **borra** sus rangos del generador; queda
-dormido con su configuración intacta.
+Lo que se había arreglado antes: suspender un tag ya no **borra** sus rangos del
+generador; queda dormido con su configuración intacta.
 
 ### 7. Colisiones de pseudónimo — CERRADO
 
@@ -767,19 +1467,33 @@ AG-004, TK-004, PIC-2391).
    `PU009_Exp_TK004_Lvl_MIN/MAX` acotan `nivel_ag004_a/b` o quedan huérfanos.
 2. **¿AG-004 está aguas arriba o aguas abajo de la bomba?** Define el signo: si está
    aguas abajo, subir velocidad lo llena; si está aguas arriba, lo vacía.
-3. **`limites_sp` de `sp_vel_bomba` quedó en `[20, 95]`**, heredado tal cual de
-   `simulacion.LIMITES_SP`. No cambia el comportamiento anterior, pero **nadie
-   confirmó que ese rango sea el correcto**. Contrastar con `PU009_Speed_MIN/MAX`.
+3. **Los límites de escritura de `velocidad_salida_del_se` siguen siendo el número
+   `[50, 100]` de `contrato.json`.** Desde 2026-09-03 se pueden cablear a
+   `PU009_Speed_MIN/MAX` desde la página de Defuzzificación — que es lo correcto, porque
+   así el SE sigue el límite de ingeniería sin que nadie edite un JSON, y esos mismos tags
+   pueden seguir acotando a `velocidad_pv`. **Falta hacerlo y confirmar con el experto que
+   ese rango sea el de la bomba.**
 4. **Los 11 modelos difusos son plantillas, no ingeniería.** Todos `norm` en dominio
    `[0, 0.5, 1]` con HIGH/OK/LOW simétricos. Hacen que el registry cargue; no
    describen ninguna variable real. Igual con `q=0.15` en los 11 filtros.
 5. **`velocidad_bomba_sp_local` quedó como PV.** Es el setpoint del lazo local de la
    PU-009, no una medición: se va a fuzzificar y exige sus dos límites.
-6. **El `rango` de tracking de `velocidad_sp` quedó en 0.3** y `pv_key` vacío. Con el
-   readback sin declarar la familia no se verifica; hay que decidir qué PV es el readback
-   real de la PU-009 y cuánto desvío tolerar.
-7. `PU009_Corriente` no tiene límites: ¿cuáles son sus rangos de ingeniería?
-8. El tag `PU009_Exp_Hesrt_Int` parece tener un dedazo ("Hesrt" por "Heart").
+6. **El tracking de `velocidad_sp` quedó con `pv_key: velocidad_pv` y `rango: 0.3`.** El
+   readback ya está declarado, pero **el rango es un número de banco de pruebas**: 0.3
+   sobre una velocidad en % es muy estrecho, y con el lag del filtro Exp-Q (50 s) retiene
+   la familia varios segundos en cada movimiento. Se ve en la verificación del rate limit:
+   el SP quedó retenido 5 tramos esperando al readback. Hay que decidir con el experto
+   cuánto desvío es tolerable de verdad.
+7. **`rate_sp` no está declarado**, así que `velocidad_sp` se escribe sin límite de
+   velocidad. El mecanismo está listo y probado; el número es de proceso. La pregunta
+   concreta para el experto: **¿cuántos % por segundo puede aceptar la PU-009?** Ese
+   valor es además el paso máximo de un solo write.
+8. **`retencion_s` quedó en el default de 5,0 s.** Es un valor razonable para cruzar un
+   parpadeo, pero nadie confirmó cuánto tarde este KEPserver en reconectar en la práctica.
+   Si se ven huecos de más de 5 s, conviene subirlo.
+9. `PU009_Corriente` no tiene límites: ¿cuáles son sus rangos de ingeniería? Ahora
+   importa más, porque `corriente` entró al contrato como PV.
+10. El tag `PU009_Exp_Hesrt_Int` parece tener un dedazo ("Hesrt" por "Heart").
 
 ---
 
@@ -790,9 +1504,27 @@ AG-004, TK-004, PIC-2391).
 - **No adivinar mapeos de señal.** Asignar la señal equivocada a una variable no
   produce un error: produce un experto que controla mal en silencio.
 - **Cambios aditivos en el núcleo.**
-- **Correr los tests** después de cada cambio: `python -m pytest tests/ -q`
-- **Validar el JS** de `index.html` tras editarlo — es un archivo grande y un error
-  de sintaxis deja la página muerta sin aviso:
+- **Correr los tests** después de cada cambio: `python -m pytest tests/ -q`.
+ Al 2026-09-08: **270 pasan, 2 fallan, 3 skip**. Los dos que fallan
+ (`test_sp_ilegible_se_inhibe_y_se_recupera_solo` y
+ `test_el_historial_registra_lo_que_se_escribio_al_dcs`) fallan **igual en una copia
+ limpia del proyecto**: están acoplados al `config/` vivo, que cambia al operar la app.
+ Es la regla de abajo (A17) sin cerrar del todo — comprobar contra una copia antes de
+ culpar a un cambio nuevo.
+ Al 2026-09-03: **248 pasan, 0 fallan, 7 skip**. A22 quedó cerrado: `config_completa`
+ escribe ahora un `contrato.json` temporal y devuelve un `_ajustar(**campos)` para
+ cambiarlo desde el cuerpo de un test. `monkeypatch.setattr` sobre `LIMITES_SP_CONTRATO`
+ o `RATE_SP_CONTRATO` **no funciona** — `recargar_contrato()` los vacía y los repuebla
+ desde el archivo. El host necesita `pip install pytest` una vez; el resto de las
+ dependencias ya está. **La imagen del contenedor no trae pytest** —
+ `requirements.txt` no lo incluye, así que `docker compose exec ... pytest` falla.
+- **Un test no debe leer la config viva de la planta.** `_leer_json(<ALGO>_JSON, ...)`
+ sin monkeypatch es una dependencia con la calibración: la red de seguridad prueba el
+ cableado y no puede caerse porque alguien afine una regla. Ya pasó dos veces
+ (`AFINACION_PENDIENTE.md` A17).
+- **Validar el JS** de `index.html` y de `graficos.html` tras editarlos — son archivos
+  grandes y un error de sintaxis deja la página muerta sin aviso (cambiar el nombre del
+  archivo en el comando según cuál se tocó):
   ```bash
   python3 -c "import re;s=open('web/templates/index.html',encoding='utf-8').read();open('/tmp/x.js','w').write(max(re.findall(r'<script>(.*?)</script>',s,re.S),key=len))" && node --check /tmp/x.js
   ```

@@ -1,0 +1,18 @@
+{
+  "hopper_nvl_pv_a": {
+    "q": 0.15,
+    "ventana_s": 50.0
+  },
+  "velocidad_pv": {
+    "q": 0.15,
+    "ventana_s": 50.0
+  },
+  "hopper_nvl_pv_b": {
+    "q": 0.15,
+    "ventana_s": 50.0
+  },
+  "corriente": {
+    "q": 0.15,
+    "ventana_s": 50.0
+  }
+}

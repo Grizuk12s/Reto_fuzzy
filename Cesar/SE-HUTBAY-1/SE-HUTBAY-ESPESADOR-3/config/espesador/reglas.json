@@ -10,26 +10,69 @@
       [
         "hopper_nvl_pv_a",
         "HIGH"
+      ],
+      [
+        "pend_hopper_nvl_pv_a_5min",
+        "INC"
       ]
     ],
     "then": [
       {
-        "accion": "AUMENTAR_SP_VEL",
+        "accion": "AUMENTAR",
         "waits": [
           {
-            "descripcion": "Mide la velocidad",
-            "nombre": "SP Velocidad A Hopper",
+            "descripcion": "Espera tras acelerar la bomba",
+            "nombre": "Alto",
             "tipo": "custom",
             "variable_controlada": "velocidad_salida_del_se",
-            "wait_id": "wait::sp_velocidad_a_hopper",
-            "duracion_s": 10,
-            "accion": "AUMENTAR_SP_VEL"
+            "wait_id": "wait::alto",
+            "duracion_s": 14,
+            "accion": "AUMENTAR"
           }
         ],
         "reiniciar_waits": []
       }
     ],
     "weight": 1.0,
-    "priority": 100.0
+    "priority": 100.0,
+    "min_activacion": 0.5
+  },
+  {
+    "id": "A2_Prueba_Hopper_Lmita",
+    "bloque": "estabilidad",
+    "fuerza": [
+      "hopper_nvl_pv_a",
+      "LOW"
+    ],
+    "if": [
+      [
+        "hopper_nvl_pv_a",
+        "LOW"
+      ],
+      [
+        "pend_hopper_nvl_pv_a_5min",
+        "DEC"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "BAJANDO",
+        "waits": [
+          {
+            "descripcion": "Espera tras frenar la bomba",
+            "nombre": "Bajo",
+            "tipo": "custom",
+            "variable_controlada": "velocidad_salida_del_se",
+            "wait_id": "wait::bajo",
+            "duracion_s": 15,
+            "accion": "BAJANDO"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 50.0,
+    "min_activacion": 0.5
   }
 ]
