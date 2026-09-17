@@ -1,0 +1,22 @@
+name: se-hutbay-espesador-3
+
+services:
+  se-espesador:
+    image: se-espesador:3.0
+    container_name: se-hutbay-espesador-3
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      # OJO: solo aplica si config/espesador/kepserver.json falta o esta corrupto.
+      # Ese JSON tiene prioridad sobre esta variable (connectors/kepserver.py:96,
+      # _load_config hace {**defaults, **json}).
+      - KEPSERVER_URL=opc.tcp://192.168.137.1:49320
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

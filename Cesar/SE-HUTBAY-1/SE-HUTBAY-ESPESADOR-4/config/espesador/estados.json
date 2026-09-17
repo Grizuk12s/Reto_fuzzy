@@ -1,0 +1,26 @@
+{
+  "Hopper_alto": {
+    "nombre": "Hopper_alto",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "hopper_nvl_pv_a",
+          "HIGH"
+        ]
+      ]
+    }
+  },
+  "Hopper_Bajo": {
+    "nombre": "Hopper_Bajo",
+    "tipo": "estado",
+    "condicion": {
+      "AND": [
+        [
+          "hopper_nvl_pv_a",
+          "LOW"
+        ]
+      ]
+    }
+  }
+}

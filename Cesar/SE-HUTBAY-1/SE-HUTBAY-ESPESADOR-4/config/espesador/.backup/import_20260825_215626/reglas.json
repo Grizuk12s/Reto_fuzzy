@@ -1,0 +1,69 @@
+[
+  {
+    "id": "A1_Prueba_Hopper_Lmita",
+    "bloque": "estabilidad",
+    "fuerza": [
+      "hopper_nvl_pv_a",
+      "HIGH"
+    ],
+    "if": [
+      [
+        "hopper_nvl_pv_a",
+        "HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "BAJAR_SP_VEL",
+        "waits": [
+          {
+            "descripcion": "Mide la velocidad",
+            "nombre": "SP Velocidad A Hopper",
+            "tipo": "custom",
+            "variable_controlada": "velocidad_salida_del_se",
+            "wait_id": "wait::sp_velocidad_a_hopper",
+            "duracion_s": 10,
+            "accion": "BAJAR_SP_VEL"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 100.0,
+    "enabled": true
+  },
+  {
+    "id": "A2_Prueba_Hopper_Lmita",
+    "bloque": "estabilidad",
+    "fuerza": [
+      "hopper_nvl_pv_a",
+      "HIGH"
+    ],
+    "if": [
+      [
+        "hopper_nvl_pv_a",
+        "HIGH"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "BAJAR_SP_VEL",
+        "waits": [
+          {
+            "descripcion": "Mide la velocidad",
+            "nombre": "SP Velocidad A Hopper",
+            "tipo": "custom",
+            "variable_controlada": "velocidad_salida_del_se",
+            "wait_id": "wait::sp_velocidad_a_hopper",
+            "duracion_s": 10,
+            "accion": "BAJAR_SP_VEL"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 50.0
+  }
+]

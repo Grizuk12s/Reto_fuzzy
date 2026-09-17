@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prueba/Demo -- Export / Import</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+nav{display:flex;gap:8px;padding:12px 20px;background:#0b1322;border-bottom:1px solid #1e293b;flex-wrap:wrap}
+nav a{color:#94a3b8;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem;transition:.15s}
+nav a:hover{background:#1e293b;color:#e2e8f0}
+nav a.active{background:#1e293b;color:#38bdf8;font-weight:600}
+.container{max-width:820px;margin:0 auto;padding:32px 24px}
+.page-header{margin-bottom:28px}
+.page-header h1{font-size:1.6rem;font-weight:700;margin-bottom:6px}
+.process-accent{background:linear-gradient(135deg,#a855f7,#38bdf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{color:#64748b;font-size:.85rem;line-height:1.5;max-width:640px}
+.panel{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:24px 28px;margin-bottom:24px}
+.panel-title{font-size:1rem;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.panel-title .num{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.8rem;background:#4f46e5;color:#fff;flex-shrink:0}
+.panel-desc{font-size:.78rem;color:#64748b;margin-bottom:16px;line-height:1.5}
+.grupo-label{font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin:14px 0 8px}
+.grupo-label:first-child{margin-top:0}
+.check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
+.check-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;cursor:pointer;transition:.15s}
+.check-item:hover{border-color:#475569}
+.check-item input{margin-top:2px;accent-color:#a855f7;cursor:pointer}
+.check-item .ci-label{font-size:.82rem;font-weight:600;color:#e2e8f0}
+.check-item .ci-hint{font-size:.68rem;color:#64748b;margin-top:2px;line-height:1.4}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
+.btn{padding:10px 20px;border-radius:8px;border:none;cursor:pointer;font-size:.88rem;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:8px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:#0ea5e9;color:#fff}
+.btn-primary:hover:not(:disabled){background:#0284c7}
+.btn-secondary{background:#6366f1;color:#fff}
+.btn-secondary:hover:not(:disabled){background:#4f46e5}
+.btn-ghost{background:transparent;color:#94a3b8;border:1px solid #334155}
+.btn-ghost:hover:not(:disabled){border-color:#a855f7;color:#e2e8f0}
+.file-input{display:none}
+.modo-row{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.modo-btn{padding:8px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:.78rem;font-weight:600;cursor:pointer;transition:.15s}
+.modo-btn:hover{border-color:#475569;color:#e2e8f0}
+.modo-btn.active{border-color:#a855f7;background:rgba(168,85,247,.12);color:#c4b5fd}
+.preview-box{margin-top:16px;padding:14px 16px;border-radius:10px;background:#0f172a;border:1px solid #334155;font-size:.82rem;line-height:1.6;display:none}
+.preview-box.show{display:block}
+.preview-box .meta{color:#94a3b8;font-size:.75rem;margin-bottom:10px}
+.preview-box .sel-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin-top:8px}
+.sel-pill{padding:4px 10px;border-radius:6px;font-size:.72rem;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#7dd3fc}
+.sel-pill.off{opacity:.35;background:rgba(100,116,139,.08);border-color:#334155;color:#64748b}
+.warn{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);color:#fbbf24;font-size:.78rem}
+.ok{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);color:#4ade80;font-size:.78rem}
+.err{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:.78rem}
+.warn-box{margin:0 0 20px;padding:12px 16px;border-radius:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);color:#fbbf24;font-size:.82rem;display:none}
+.warn-box.show{display:block}
+#file-name{font-size:.78rem;color:#94a3b8}
+.hist-row{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.hist-row select{flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.78rem}
+.hist-table-wrap{overflow-x:auto;margin-top:12px}
+.hist-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.hist-table th,.hist-table td{padding:10px 12px;text-align:left;border-bottom:1px solid #334155;vertical-align:top}
+.hist-table th{color:#64748b;font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.hist-table tr:hover td{background:rgba(15,23,42,.5)}
+.hist-modulos{color:#94a3b8;line-height:1.5;max-width:280px}
+.hist-archivos{font-size:.7rem;color:#64748b;margin-top:4px}
+.hist-empty{padding:20px;text-align:center;color:#64748b;font-size:.82rem;border:1px dashed #334155;border-radius:10px}
+.btn-sm{padding:6px 12px;font-size:.75rem}
+</style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
+</head>
+<body>
+<nav>
+  <a href="/" style="color:#38bdf8;font-weight:700;margin-right:4px">Reto Digital</a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada">Entrada de Datos</a>
+  <a href="/espesador/graficos">Explorador de Series</a>
+  <a href="/espesador/diagrama">Diagrama de Flujo</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
+  <a href="/espesador/export-import" class="active">Export / Import</a>
+</nav>
+<div class="container">
+
+<div class="page-header">
+  <h1><span class="process-accent">Export / Import</span></h1>
+  <p class="subtitle">Exporta bloques de configuracion a un JSON y restauralos en otro entorno. El archivo guarda la fecha y que casillas estaban marcadas.</p>
+</div>
+
+<div id="motor-warn" class="warn-box">
+  El motor SE esta <b>corriendo</b>. Detenlo en Configuracion SE antes de importar.
+</div>
+
+<!-- EXPORT -->
+<div class="panel">
+  <div class="panel-title"><span class="num">1</span> Exportar</div>
+  <p class="panel-desc">Marca los bloques que quieres incluir y guarda un archivo JSON en tu PC.</p>
+  <div id="export-checks"></div>
+  <div class="toolbar">
+    <button type="button" class="btn btn-ghost" onclick="marcarTodosExport(true)">Marcar todos</button>
+    <button type="button" class="btn btn-ghost" onclick="marcarTodosExport(false)">Limpiar</button>
+    <button type="button" class="btn btn-primary" id="btn-export" onclick="exportar()">Guardar JSON...</button>
+  </div>
+  <div id="export-msg"></div>
+</div>
+
+<!-- IMPORT -->
+<div class="panel">
+  <div class="panel-title"><span class="num">2</span> Importar</div>
+  <p class="panel-desc">Abre un JSON exportado desde esta pagina. Solo se aceptan archivos con formato <code style="color:#38bdf8">se-hutbay-export</code>.</p>
+  <div class="toolbar">
+    <input type="file" id="file-input" class="file-input" accept=".json,application/json" onchange="onArchivoElegido(event)">
+    <button type="button" class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Buscar archivo JSON...</button>
+    <span id="file-name">Ningun archivo seleccionado</span>
+  </div>
+
+  <div id="import-preview" class="preview-box">
+    <div class="meta" id="import-meta"></div>
+    <div><b style="color:#e2e8f0;font-size:.78rem">Casillas del paquete:</b></div>
+    <div class="sel-list" id="import-sel-list"></div>
+    <div id="import-conflicts"></div>
+
+    <p style="margin-top:14px;font-size:.78rem;color:#94a3b8">Si hay duplicados (p. ej. reglas con el mismo id), elige como resolverlos:</p>
+    <div class="modo-row" id="modo-row">
+      <button type="button" class="modo-btn active" data-modo="agregar" onclick="setModo('agregar', this)">Agregar (omitir duplicados)</button>
+      <button type="button" class="modo-btn" data-modo="reemplazar" onclick="setModo('reemplazar', this)">Reemplazar duplicados</button>
+      <button type="button" class="modo-btn" data-modo="copias" onclick="setModo('copias', this)">Guardar copias (_Copia_N)</button>
+    </div>
+    <div class="toolbar" style="margin-top:12px">
+      <button type="button" class="btn btn-primary" id="btn-import" onclick="aplicarImport()">Aplicar importacion</button>
+    </div>
+  </div>
+  <div id="import-msg"></div>
+</div>
+
+<!-- HISTORIAL -->
+<div class="panel">
+  <div class="panel-title"><span class="num">3</span> Historial de importaciones</div>
+  <p class="panel-desc">Cada importacion guarda un respaldo automatico de los JSON que iba a tocar (hasta 10 entradas). Restaura uno con el motor SE detenido.</p>
+  <div id="hist-empty" class="hist-empty" style="display:none">Aun no hay importaciones registradas.</div>
+  <div class="hist-table-wrap" id="hist-table-wrap" style="display:none">
+    <table class="hist-table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Modulos</th>
+          <th>Modo</th>
+          <th>Respaldo</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="hist-tbody"></tbody>
+    </table>
+  </div>
+  <div id="hist-msg"></div>
+</div>
+
+</div>
+
+<script>
+const state = {
+  modulos: [],
+  modo: 'agregar',
+  paquete: null,
+  motorCorriendo: false,
+  historialBackups: [],
+};
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function selectedFromDom(prefix) {
+  const out = {};
+  state.modulos.forEach(m => {
+    const el = document.getElementById(prefix + m.id);
+    out[m.id] = !!(el && el.checked);
+  });
+  return out;
+}
+
+function renderExportChecks() {
+  const box = document.getElementById('export-checks');
+  const grupos = {};
+  state.modulos.forEach(m => {
+    (grupos[m.grupo] ||= []).push(m);
+  });
+  let html = '';
+  for (const [grupo, items] of Object.entries(grupos)) {
+    html += `<div class="grupo-label">${esc(grupo)}</div><div class="check-grid">`;
+    html += items.map(m => `
+      <label class="check-item">
+        <input type="checkbox" id="exp-${esc(m.id)}" value="${esc(m.id)}" checked>
+        <div>
+          <div class="ci-label">${esc(m.label)}</div>
+          <div class="ci-hint">${esc(m.hint)}</div>
+        </div>
+      </label>`).join('');
+    html += '</div>';
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('input[type=checkbox]').forEach(function (el) {
+    el.addEventListener('change', function () { ActivityAlerts.markDirty(); });
+  });
+}
+
+function marcarTodosExport(on) {
+  state.modulos.forEach(m => {
+    const el = document.getElementById('exp-' + m.id);
+    if (el) el.checked = on;
+  });
+  ActivityAlerts.markDirty();
+}
+
+function nombreArchivoExport() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `se-export_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.json`;
+}
+
+async function guardarJsonEnDisco(obj) {
+  const json = JSON.stringify(obj, null, 2);
+  const nombre = nombreArchivoExport();
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: nombre,
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      });
+      const w = await handle.createWritable();
+      await w.write(json);
+      await w.close();
+      return true;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return false;
+    }
+  }
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return true;
+}
+
+async function exportar() {
+  const msg = document.getElementById('export-msg');
+  msg.innerHTML = '';
+  const selected = selectedFromDom('exp-');
+  if (!Object.values(selected).some(Boolean)) {
+    msg.innerHTML = '<div class="err">Marca al menos un bloque.</div>';
+    return;
+  }
+  const btn = document.getElementById('btn-export');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/export-import/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Error al exportar');
+    const ok = await guardarJsonEnDisco(data.package);
+    if (ok) {
+      msg.innerHTML = '<div class="ok">Archivo guardado. Incluye fecha y casillas marcadas en el JSON.</div>';
+      const n = Object.values(selected).filter(Boolean).length;
+      ActivityAlerts.onSave(true, 'Exportacion guardada en disco',
+        ActivitySummary.exportModules(selected));
+    }
+  } catch (e) {
+    msg.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    ActivityAlerts.onSave(false, e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setModo(modo, btn) {
+  state.modo = modo;
+  document.querySelectorAll('.modo-btn').forEach(b => b.classList.toggle('active', b === btn));
+}
+
+function renderConflictoClave(label, info) {
+  if (!info || info.error) {
+    return info && info.error
+      ? `<div class="err" style="margin-top:10px">${esc(label)}: ${esc(info.error)}</div>` : '';
+  }
+  if (info.diferencias) {
+    if (!info.diferencias.length) {
+      return `<div class="ok" style="margin-top:10px">${esc(label)}: igual al destino (timeout/calidad).</div>`;
+    }
+    return `<div class="warn" style="margin-top:10px"><b>${esc(label)}:</b> difiere en `
+      + esc(info.diferencias.join(', '))
+      + `. ${esc(info.nota || '')}</div>`;
+  }
+  if (!info.duplicados) return '';
+  if (info.duplicados.length) {
+    const lista = info.duplicados.slice(0, 10).join(', ');
+    const mas = info.duplicados.length > 10 ? '...' : '';
+    return `<div class="warn" style="margin-top:10px"><b>${esc(label)} duplicados (${info.duplicados.length}):</b> `
+      + esc(lista) + mas
+      + `<br>Nuevos: ${(info.nuevos || []).length}</div>`;
+  }
+  if (info.nuevos && info.nuevos.length) {
+    return `<div class="ok" style="margin-top:10px">${esc(label)}: ${info.nuevos.length} nuevo(s), sin duplicados.</div>`;
+  }
+  return '';
+}
+
+const CONFLICTO_LABELS = {
+  reglas: 'Reglas', waits: 'Waits', fuzzy: 'Fuzzy', filtros: 'Filtros',
+  defuzzy: 'Defuzzy', pendientes: 'Pendientes', estados: 'Estados',
+  tracking: 'Tracking', permisivos: 'Permisivos', variables: 'Variables calc.',
+  kepserver: 'KEPserver',
+};
+
+function renderImportPreview(data) {
+  const box = document.getElementById('import-preview');
+  const meta = document.getElementById('import-meta');
+  const list = document.getElementById('import-sel-list');
+  const conf = document.getElementById('import-conflicts');
+  box.classList.add('show');
+
+  meta.textContent = data.exported_at
+    ? `Exportado el ${data.exported_at}`
+    : 'Paquete sin fecha de exportacion';
+
+  list.innerHTML = state.modulos.map(m => {
+    const on = data.selected && data.selected[m.id];
+    const det = data.resumen && data.resumen[m.id] ? ` — ${data.resumen[m.id]}` : '';
+    return `<span class="sel-pill ${on ? '' : 'off'}">${on ? '&#10003;' : '&#10007;'} ${esc(m.label)}${esc(det)}</span>`;
+  }).join('');
+
+  let confHtml = '';
+
+  const tags = data.conflictos && data.conflictos.tags;
+  if (tags) {
+    if (tags.duplicados && tags.duplicados.length) {
+      confHtml += `<div class="warn"><b>Tags existentes (${tags.duplicados.length}):</b> `
+        + esc(tags.duplicados.slice(0, 8).join(', '))
+        + (tags.duplicados.length > 8 ? '...' : '')
+        + `<br>Nuevos: ${tags.nuevos.length}</div>`;
+    } else if (tags.nuevos && tags.nuevos.length) {
+      confHtml += `<div class="ok">Tags: ${tags.nuevos.length} nuevo(s) por agregar.</div>`;
+    }
+  }
+
+  const ctr = data.conflictos && data.conflictos.contrato;
+  if (ctr) {
+    if (ctr.error) {
+      confHtml += `<div class="err" style="margin-top:10px">Contrato invalido: ${esc(ctr.error)}</div>`;
+    } else if (ctr.requiere_confirmacion) {
+      const q = (ctr.quitadas || []).map(x => x.variable).join(', ');
+      confHtml += `<div class="warn" style="margin-top:10px"><b>Contrato con impacto:</b> `
+        + `${ctr.n_reglas_impactadas} regla(s) afectada(s).`
+        + (q ? ` Variables quitadas: ${esc(q)}.` : '')
+        + ` Se aplicara al confirmar importacion.</div>`;
+    } else if (!ctr.sin_cambios) {
+      confHtml += `<div class="ok" style="margin-top:10px">Contrato: cambios sin impacto grave detectado.</div>`;
+    }
+  }
+
+  // Cableado de limites que apunta a tags que esta planta no va a tener. No
+  // rompe el import (entra como huerfano y la pagina de Fuzzy lo pinta en
+  // rojo), pero enterarse despues de aplicar es tarde: aca todavia se puede
+  // elegir no importar ese modulo.
+  const lim = data.conflictos && data.conflictos.limites;
+  if (lim && lim.huerfanos && lim.huerfanos.length) {
+    const filas = lim.huerfanos.slice(0, 10).map(h =>
+      `${esc(h.variable)}.${esc(h.bound)} &rarr; <code>${esc(h.tag)}</code>`).join('<br>');
+    confHtml += `<div class="warn" style="margin-top:10px"><b>Limites sin tag en esta planta `
+      + `(${lim.huerfanos.length}):</b><br>${filas}`
+      + (lim.huerfanos.length > 10 ? '<br>...' : '')
+      + `<br>Se importan igual, pero esas variables no se fuzzifican —o ese setpoint no se `
+      + `escribe— hasta que elijas un tag de reemplazo en Fuzzificacion / Defuzzificacion.</div>`;
+  }
+
+  for (const [key, label] of Object.entries(CONFLICTO_LABELS)) {
+    confHtml += renderConflictoClave(label, data.conflictos && data.conflictos[key]);
+  }
+
+  conf.innerHTML = confHtml;
+  state.motorCorriendo = !!data.motor_corriendo;
+  actualizarAvisoMotor();
+  document.getElementById('btn-import').disabled = state.motorCorriendo;
+}
+
+async function onArchivoElegido(ev) {
+  const msg = document.getElementById('import-msg');
+  msg.innerHTML = '';
+  const file = ev.target.files && ev.target.files[0];
+  document.getElementById('file-name').textContent = file ? file.name : 'Ningun archivo seleccionado';
+  if (!file) return;
+
+  if (!file.name.toLowerCase().endsWith('.json')) {
+    msg.innerHTML = '<div class="err">Solo se aceptan archivos .json</div>';
+    state.paquete = null;
+    document.getElementById('import-preview').classList.remove('show');
+    return;
+  }
+
+  let texto;
+  try {
+    texto = await file.text();
+  } catch (e) {
+    msg.innerHTML = `<div class="err">No se pudo leer el archivo: ${esc(e.message)}</div>`;
+    return;
+  }
+
+  let pkg;
+  try {
+    pkg = JSON.parse(texto);
+  } catch (e) {
+    msg.innerHTML = '<div class="err">El archivo no es un JSON valido.</div>';
+    return;
+  }
+
+  if (pkg.format !== 'se-hutbay-export') {
+    msg.innerHTML = '<div class="err">No es un paquete de exportacion de SE HUTBAY.</div>';
+    return;
+  }
+
+  state.paquete = pkg;
+
+  try {
+    const r = await fetch('/api/export-import/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pkg),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Vista previa fallida');
+    renderImportPreview(data);
+    ActivityAlerts.post({
+      action: 'unsaved',
+      page: 'export_import',
+      page_label: 'Export / Import',
+      message: 'Importacion pendiente de aplicar',
+      detail: file.name,
+    });
+  } catch (e) {
+    msg.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+async function aplicarImport() {
+  const msg = document.getElementById('import-msg');
+  msg.innerHTML = '';
+  if (!state.paquete) {
+    msg.innerHTML = '<div class="err">Primero elige un archivo JSON.</div>';
+    return;
+  }
+  if (state.motorCorriendo) {
+    msg.innerHTML = '<div class="err">Deten el motor SE antes de importar.</div>';
+    return;
+  }
+  const btn = document.getElementById('btn-import');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/export-import/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ package: state.paquete, modo: state.modo }),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      const det = (data.errores || []).join('; ') || data.error;
+      throw new Error(det || 'La importacion fallo');
+    }
+    let html = '<div class="ok">Importacion aplicada.</div>';
+    if (data.backup_dir) {
+      html += `<div class="ok" style="margin-top:8px">Respaldo previo: ${esc(data.backup_dir)}</div>`;
+    }
+    if (data.aviso) html += `<div class="warn" style="margin-top:8px">${esc(data.aviso)}</div>`;
+    if (data.aplicados && data.aplicados.post_sync) {
+      const ps = data.aplicados.post_sync;
+      if (ps.filtros_sync) {
+        html += `<div class="ok" style="margin-top:8px">Filtros sincronizados: +${(ps.filtros_sync.agregadas||[]).length} PV</div>`;
+      }
+      if (ps.tracking_sync) {
+        html += `<div class="ok" style="margin-top:8px">Tracking sincronizado: +${(ps.tracking_sync.agregadas||[]).length} SP</div>`;
+      }
+    }
+    msg.innerHTML = html;
+    const keys = Object.keys(data.aplicados || {}).filter(function (k) {
+      return k !== 'post_sync';
+    });
+    ActivityAlerts.onSave(true, 'Importacion aplicada',
+      ActivitySummary.importApply(data.aplicados), { restart: true });
+    await refrescarHistorial();
+  } catch (e) {
+    msg.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    ActivityAlerts.onSave(false, e.message);
+  } finally {
+    btn.disabled = state.motorCorriendo;
+  }
+}
+
+function actualizarAvisoMotor() {
+  const box = document.getElementById('motor-warn');
+  if (box) box.classList.toggle('show', state.motorCorriendo);
+}
+
+function formatearFecha(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString('es-CL', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch (e) {
+    return iso;
+  }
+}
+
+function renderHistorial(entradas) {
+  const empty = document.getElementById('hist-empty');
+  const wrap = document.getElementById('hist-table-wrap');
+  const tbody = document.getElementById('hist-tbody');
+  if (!empty || !wrap || !tbody) return;
+
+  const lista = entradas || [];
+  const hay = lista.length > 0;
+  empty.style.display = hay ? 'none' : 'block';
+  wrap.style.display = hay ? 'block' : 'none';
+  if (!hay) {
+    tbody.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = lista.map(h => {
+    const mods = (h.modulos_labels || h.modulos || []).join(', ') || '—';
+    const archivos = (h.archivos || []).join(', ');
+    const exportado = h.exported_at
+      ? `<div class="hist-archivos">Paquete: ${esc(formatearFecha(h.exported_at))}</div>` : '';
+    const archHtml = archivos
+      ? `<div class="hist-archivos" title="${esc(archivos)}">${esc(archivos)}</div>` : '';
+    const disabled = state.motorCorriendo ? ' disabled' : '';
+    return `<tr>
+      <td>${esc(formatearFecha(h.applied_at))}${exportado}</td>
+      <td class="hist-modulos">${esc(mods)}</td>
+      <td>${esc(h.modo_label || h.modo || '—')}</td>
+      <td><code style="font-size:.7rem;color:#7dd3fc">${esc(h.backup_nombre || '—')}</code>${archHtml}</td>
+      <td><button type="button" class="btn btn-ghost btn-sm" onclick="restaurarDesdeHistorial(${JSON.stringify(h.backup_dir)})"${disabled}>Restaurar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function refrescarHistorial() {
+  try {
+    const r = await fetch('/api/export-import/historial');
+    const data = await r.json();
+    if (data.motor_corriendo !== undefined) {
+      state.motorCorriendo = !!data.motor_corriendo;
+      actualizarAvisoMotor();
+    }
+    state.historialBackups = data.entradas || [];
+    renderHistorial(state.historialBackups);
+    const btnImport = document.getElementById('btn-import');
+    if (btnImport && state.paquete) btnImport.disabled = state.motorCorriendo;
+  } catch (e) {
+    renderHistorial([]);
+  }
+}
+
+async function restaurarDesdeHistorial(backupDir) {
+  const msg = document.getElementById('hist-msg');
+  if (state.motorCorriendo) {
+    if (msg) msg.innerHTML = '<div class="err">Deten el motor SE antes de restaurar.</div>';
+    return;
+  }
+  if (!backupDir) {
+    if (msg) msg.innerHTML = '<div class="err">Respaldo no valido.</div>';
+    return;
+  }
+  if (!confirm('Restaurar la configuracion de este respaldo? Se sobrescriben los JSON respaldados.')) return;
+  if (msg) msg.innerHTML = '';
+  try {
+    const r = await fetch('/api/export-import/undo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup_dir: backupDir }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'No se pudo restaurar');
+    if (msg) {
+      msg.innerHTML = `<div class="ok">Restaurado: ${esc((data.restaurados||[]).join(', '))}</div>`
+        + (data.aviso ? `<div class="warn" style="margin-top:8px">${esc(data.aviso)}</div>` : '');
+    }
+    state.paquete = null;
+    document.getElementById('import-preview').classList.remove('show');
+    document.getElementById('file-name').textContent = 'Ningun archivo seleccionado';
+    document.getElementById('import-msg').innerHTML = '';
+    const n = (data.restaurados || []).length;
+    ActivityAlerts.onSave(true, 'Configuracion restaurada desde respaldo',
+      ActivitySummary.join([
+        ActivitySummary.count(n, 'modulo restaurado', 'modulos restaurados'),
+        n ? ActivitySummary.fmtList(data.restaurados || [], 8) : '',
+      ]), { restart: true });
+  } catch (e) {
+    if (msg) msg.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    ActivityAlerts.onSave(false, e.message);
+  } finally {
+    await refrescarHistorial();
+  }
+}
+
+async function refrescarEstadoMotor() {
+  try {
+    const r = await fetch('/api/se/status');
+    const data = await r.json();
+    state.motorCorriendo = !!data.running;
+  } catch (e) {
+    state.motorCorriendo = false;
+  }
+  actualizarAvisoMotor();
+  const btn = document.getElementById('btn-import');
+  if (btn && state.paquete) btn.disabled = state.motorCorriendo;
+  await refrescarHistorial();
+}
+
+async function init() {
+  try {
+    const r = await fetch('/api/export-import/modulos');
+    const data = await r.json();
+    state.modulos = data.modulos || [];
+    state.motorCorriendo = !!data.motor_corriendo;
+    renderExportChecks();
+    actualizarAvisoMotor();
+    await refrescarEstadoMotor();
+  } catch (e) {
+    document.getElementById('export-checks').innerHTML =
+      `<div class="err">No se pudo cargar el catalogo de modulos: ${esc(e.message)}</div>`;
+  }
+}
+
+init();
+</script>
+<script src="/static/activity-summary.js"></script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'export_import',
+  pageLabel: 'Export / Import',
+  restartOnSave: false,
+});
+</script>
+</body>
+</html>

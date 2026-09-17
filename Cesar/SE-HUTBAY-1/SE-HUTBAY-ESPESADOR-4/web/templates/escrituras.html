@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Historial de escrituras al DCS — SE Espesador</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+header{position:sticky;top:0;z-index:10;background:#1e293b;border-bottom:1px solid #334155;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.05rem;font-weight:700}
+header .sub{font-size:.78rem;color:#94a3b8}
+a.back{color:#38bdf8;text-decoration:none;font-size:.82rem}
+a.back:hover{text-decoration:underline}
+main{padding:22px;max-width:1250px;margin:0 auto}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+select,button{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 11px;font-size:.8rem;cursor:pointer}
+button:hover,select:hover{border-color:#38bdf8}
+.panel{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0 18px 14px}
+.panel h2{font-size:.9rem;margin:0;padding:13px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;color:#94a3b8;font-weight:600;padding:7px 9px;border-bottom:1px solid #334155;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+td{padding:7px 9px;border-bottom:1px solid #0f172a;vertical-align:top}
+tr:last-child td{border-bottom:none}
+.empty{color:#64748b;padding:18px 0;font-size:.85rem}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:.76rem}
+.mut{color:#64748b}
+.ok{color:#22c55e}
+.bad{color:#f87171}
+.warn{color:#f59e0b}
+tr.rechazada td{background:#2a1416}
+.kpi{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px}
+.kpi div{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:9px 15px;min-width:130px}
+.kpi b{display:block;font-size:1.25rem;line-height:1.5}
+.kpi span{font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em}
+.nota{background:#1e293b;border:1px solid #334155;border-left:3px solid #38bdf8;border-radius:6px;
+  padding:10px 14px;font-size:.8rem;color:#94a3b8;margin-bottom:16px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>Historial de escrituras al DCS</h1>
+  <div class="sub">Ultimas <b id="cap">100</b> &mdash; lo unico que el SE le manda a la planta</div>
+  <span style="flex:1"></span>
+  <label class="sub">Auto-refresco
+    <select id="auto" onchange="reprogramar()">
+      <option value="0">off</option>
+      <option value="2000" selected>2 s</option>
+      <option value="5000">5 s</option>
+      <option value="15000">15 s</option>
+    </select>
+  </label>
+  <button onclick="cargar()">Actualizar</button>
+  <a class="back" href="/espesador/traza" onclick="if(window.opener){window.close();return false}">&larr; Volver a la traza</a>
+</header>
+
+<main>
+  <div class="nota">
+    El SE es <b>write-on-change</b>: solo escribe cuando el setpoint se mueve mas que la banda
+    muerta, no en cada ciclo. Que pasen minutos sin una fila nueva es lo normal, no una falla.
+    Una fila <span class="bad">en rojo</span> es una escritura que el DCS <b>rechazo</b>.
+  </div>
+
+  <div class="kpi">
+    <div><b id="k-total">0</b><span>en memoria</span></div>
+    <div><b id="k-ok" class="ok">0</b><span>aceptadas</span></div>
+    <div><b id="k-bad" class="bad">0</b><span>rechazadas</span></div>
+    <div><b id="k-ultima">&mdash;</b><span>ultima escritura</span></div>
+  </div>
+
+  <div class="panel">
+    <h2>Detalle</h2>
+    <div id="tabla"><div class="empty">Cargando&hellip;</div></div>
+  </div>
+</main>
+
+<script>
+const CAP = 100;
+let timer = null;
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function num(v, d) {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  return isNaN(n) ? esc(v) : n.toFixed(d === undefined ? 2 : d);
+}
+function hace(ts) {
+  if (!ts) return '—';
+  const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  if (s < 60)   return s + ' s';
+  if (s < 3600) return Math.floor(s / 60) + ' min';
+  return Math.floor(s / 3600) + ' h ' + Math.floor((s % 3600) / 60) + ' min';
+}
+
+function render(filas) {
+  document.getElementById('cap').textContent = CAP;
+  const vis = filas.slice(0, CAP);
+  const ok  = vis.filter(f => f.ok).length;
+  document.getElementById('k-total').textContent = vis.length;
+  document.getElementById('k-ok').textContent    = ok;
+  document.getElementById('k-bad').textContent   = vis.length - ok;
+  document.getElementById('k-ultima').textContent = vis.length ? hace(vis[0].ts_wall) : '—';
+
+  const box = document.getElementById('tabla');
+  if (!vis.length) {
+    box.innerHTML = '<div class="empty">Todavia no se escribio ningun setpoint al DCS '
+      + 'desde que arranco el motor.<br><br>Si esperabas escrituras, revisa en la traza la '
+      + 'etapa <b>9 &middot; Escritura al KEPserver</b>: puede haber una familia inhibida '
+      + '(handshake del DCS, tracking o falta de limites en el contrato).</div>';
+    return;
+  }
+  let h = '<table><thead><tr><th>Hora</th><th>Hace</th><th>Tick</th><th>Setpoint</th>'
+        + '<th>Tag</th><th>Valor</th><th>Cambio</th><th>Resultado</th></tr></thead><tbody>';
+  for (const f of vis) {
+    const hora = f.ts_wall ? new Date(f.ts_wall * 1000).toLocaleTimeString() : '—';
+    const cambio = (f.anterior === null || f.anterior === undefined)
+      ? '<span class="mut">primera escritura</span>'
+      : num(f.anterior, 2) + ' → ' + num(f.valor, 2)
+        + ' <span class="' + (f.delta >= 0 ? 'ok' : 'warn') + '">('
+        + (f.delta >= 0 ? '+' : '') + num(f.delta, 3) + ')</span>';
+    h += '<tr class="' + (f.ok ? '' : 'rechazada') + '">'
+       + '<td>' + hora + '</td>'
+       + '<td class="mut">' + hace(f.ts_wall) + '</td>'
+       + '<td class="mut">' + esc(f.tick) + '</td>'
+       + '<td class="mono">' + esc(f.sp || '') + '</td>'
+       + '<td class="mono">' + esc(f.tag) + '</td>'
+       + '<td><b>' + num(f.valor, 2) + '</b></td>'
+       + '<td>' + cambio + '</td>'
+       + '<td>' + (f.ok ? '<span class="ok">escrito</span>'
+                        : '<span class="bad">RECHAZADO</span> <span class="mut">'
+                          + esc(f.error || '') + '</span>')
+       + '</td></tr>';
+  }
+  box.innerHTML = h + '</tbody></table>';
+}
+
+async function cargar() {
+  try {
+    // n=0: no interesan las trazas, solo el historial. Pedir trazas seria
+    // arrastrar cientos de KB por refresco para tirarlos.
+    const r = await fetch('/api/se/trace?n=0');
+    const d = await r.json();
+    render(d.historial_escrituras || []);
+  } catch (e) {
+    document.getElementById('tabla').innerHTML =
+      '<div class="empty bad">No se pudo consultar el motor: ' + esc(e.message) + '</div>';
+  }
+}
+
+function reprogramar() {
+  if (timer) clearInterval(timer);
+  const ms = parseInt(document.getElementById('auto').value, 10);
+  if (ms > 0) timer = setInterval(cargar, ms);
+}
+
+cargar();
+reprogramar();
+</script>
+</body>
+</html>

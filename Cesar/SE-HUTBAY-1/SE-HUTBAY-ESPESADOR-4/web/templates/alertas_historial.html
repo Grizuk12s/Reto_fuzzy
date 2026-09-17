@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Historial de alertas — SE Espesador</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+header{position:sticky;top:0;z-index:10;background:#1e293b;border-bottom:1px solid #334155;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.05rem;font-weight:700}
+header .sub{font-size:.78rem;color:#94a3b8}
+a.back{color:#38bdf8;text-decoration:none;font-size:.82rem}
+a.back:hover{text-decoration:underline}
+main{padding:22px;max-width:1200px;margin:0 auto}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+.toolbar label{font-size:.78rem;color:#94a3b8}
+select,button{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 11px;font-size:.8rem;cursor:pointer}
+button:hover,select:hover{border-color:#38bdf8}
+.panel{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0 18px 14px}
+.panel h2{font-size:.9rem;margin:0;padding:13px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;color:#94a3b8;font-weight:600;padding:7px 9px;border-bottom:1px solid #334155;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+td{padding:7px 9px;border-bottom:1px solid #0f172a;vertical-align:top}
+tr:last-child td{border-bottom:none}
+.badge{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.03em}
+.empty{color:#64748b;padding:18px 0;font-size:.85rem}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:.76rem;color:#94a3b8}
+.mut{color:#64748b}
+</style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
+</head>
+<body>
+<header>
+  <h1>Historial de alertas</h1>
+  <div class="sub">Ultimas 100 entradas — persistidas en <code>config/espesador/activity_log.json</code></div>
+  <span style="flex:1"></span>
+  <button onclick="cargar()">Actualizar</button>
+  <a class="back" href="/espesador#reglas" onclick="if(window.opener){window.close();return false}">← Volver al SE</a>
+</header>
+
+<main>
+  <div class="toolbar">
+    <label for="filtro">Filtrar por tipo</label>
+    <select id="filtro" onchange="cargar()">
+      <option value="">Todas</option>
+      <option value="unsaved">Sin guardar</option>
+      <option value="saved">Guardado exitoso</option>
+      <option value="restart">Reinicio requerido</option>
+      <option value="error">Errores / fallas</option>
+      <option value="info">Sistema (inicio, detencion, etc.)</option>
+    </select>
+    <span class="mut" id="contador">—</span>
+  </div>
+  <div class="panel">
+    <h2>Eventos — del mas reciente al mas antiguo</h2>
+    <div id="tabla" class="empty">Cargando…</div>
+  </div>
+</main>
+
+<script>
+const KINDS = ACTIVITY_KINDS_JSON;
+
+function esc(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fecha(ts) {
+  return ts ? new Date(ts * 1000).toLocaleString() : '—';
+}
+
+async function cargar() {
+  const kind = document.getElementById('filtro').value;
+  const url = '/api/activity-log?scope=history' + (kind ? '&kind=' + encodeURIComponent(kind) : '');
+  const r = await fetch(url);
+  const d = await r.json();
+  const entries = d.entries || [];
+  document.getElementById('contador').textContent = entries.length + ' entrada(s)';
+
+  const el = document.getElementById('tabla');
+  if (!entries.length) {
+    el.className = 'empty';
+    el.innerHTML = 'Sin entradas para este filtro.';
+    return;
+  }
+  el.className = '';
+  let html = '<table><thead><tr>'
+    + '<th>Hora</th><th>Tipo</th><th>Pagina</th><th>Mensaje</th><th>Detalle</th>'
+    + '</tr></thead><tbody>';
+  for (const e of entries) {
+    const k = KINDS[e.kind] || {label: e.kind, color: '#64748b'};
+    html += '<tr>'
+      + '<td class="mono">' + esc(fecha(e.ts)) + '</td>'
+      + '<td><span class="badge" style="background:' + k.color + '22;color:' + k.color + '">'
+      + esc(k.label) + '</span></td>'
+      + '<td>' + esc(e.page_label || e.page || '—') + '</td>'
+      + '<td>' + esc(e.message) + '</td>'
+      + '<td class="mono mut">' + esc(e.detail || '—') + '</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+cargar();
+setInterval(cargar, 8000);
+</script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'alertas_historial',
+  pageLabel: 'Historial de alertas',
+  restartOnSave: false,
+});
+</script>
+</body>
+</html>

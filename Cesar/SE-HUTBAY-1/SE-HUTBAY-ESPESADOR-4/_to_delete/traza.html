@@ -1,0 +1,125 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+header{position:sticky;top:0;z-index:10;background:#1e293b;border-bottom:1px solid #334155;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.05rem;font-weight:700}
+header .sub{font-size:.78rem;color:#94a3b8}
+a.back{color:#38bdf8;text-decoration:none;font-size:.82rem}
+a.back:hover{text-decoration:underline}
+.btn-hist{display:inline-block;background:#1d4ed8;color:#fff;text-decoration:none;
+  border-radius:6px;padding:6px 12px;font-size:.78rem;font-weight:600}
+.btn-hist:hover{background:#2563eb}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid #475569;background:#0f172a;color:#94a3b8}
+.pill.on{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.12);color:#22c55e}
+.pill.off{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.12);color:#ef4444}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+main{padding:22px;max-width:1400px;margin:0 auto}
+.stage{background:#1e293b;border:1px solid #334155;border-radius:10px;margin-bottom:14px;overflow:hidden}
+.stage>summary{cursor:pointer;padding:12px 18px;font-weight:700;font-size:.9rem;display:flex;align-items:center;gap:10px;list-style:none}
+.stage>summary::-webkit-details-marker{display:none}
+.stage>summary::before{content:'▸';color:#64748b;font-size:.9rem;transition:transform .15s}
+.stage[open]>summary::before{transform:rotate(90deg)}
+.stage .num{margin-left:auto;font-size:.72rem;font-weight:600;color:#64748b;background:#0f172a;border:1px solid #334155;border-radius:999px;padding:2px 10px}
+.stage .body{padding:0 18px 16px}
+.stage.bad{border-color:#ef4444}
+.stage.warn{border-color:#f59e0b}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;color:#94a3b8;font-weight:600;padding:7px 9px;border-bottom:1px solid #334155;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+td{padding:6px 9px;border-bottom:1px solid #1e293b;vertical-align:top}
+tr:last-child td{border-bottom:none}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;background:#0f172a;padding:1px 6px;border-radius:4px}
+.mono{font-family:ui-monospace,Consolas,monospace}
+.ok{color:#22c55e}.bad{color:#ef4444}.warn{color:#f59e0b}.mut{color:#64748b}
+.badge{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.03em}
+.b-ok{background:rgba(34,197,94,.15);color:#22c55e}
+.b-bad{background:rgba(239,68,68,.15);color:#ef4444}
+.b-warn{background:rgba(245,158,11,.15);color:#f59e0b}
+.b-mut{background:rgba(100,116,139,.18);color:#94a3b8}
+.b-pv{background:rgba(168,85,247,.15);color:#a855f7}
+.b-cruda{background:rgba(8,145,178,.18);color:#22d3ee}
+.b-lim{background:rgba(99,102,241,.18);color:#818cf8}
+.b-sp{background:rgba(34,197,94,.15);color:#22c55e}
+.bar{display:inline-block;height:7px;border-radius:3px;background:#38bdf8;vertical-align:middle;margin-right:6px}
+.empty{color:#64748b;padding:14px 0;font-size:.82rem}
+.banner{border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:.85rem;border:2px solid}
+.banner.bad{border-color:#ef4444;background:rgba(239,68,68,.08)}
+.banner.warn{border-color:#f59e0b;background:rgba(245,158,11,.08)}
+.banner h3{margin:0 0 5px;font-size:.95rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.kv{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px}
+.kv .k{font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.kv .v{font-size:1rem;font-weight:700;font-family:ui-monospace,Consolas,monospace;margin-top:3px}
+/* Celda de aceleracion. Es una celda y no una fila de tabla porque los tres
+   numeros (acel, umbral y la razon entre los dos) se leen juntos o no se leen:
+   es lo que se mira para calibrar el umbral. */
+.acel-cell{background:#0f172a;border:1px solid #334155;border-left-width:3px;border-radius:8px;padding:10px 12px}
+.acel-cell.st-ACELERANDO{border-left-color:#ef4444}
+.acel-cell.st-DESACELERANDO{border-left-color:#22c55e}
+.acel-cell.st-ESTABLE{border-left-color:#475569}
+.acel-cell .an{font-family:ui-monospace,Consolas,monospace;font-size:.8rem;color:#e2e8f0;font-weight:600;word-break:break-all}
+.acel-cell .asrc{font-size:.68rem;color:#64748b;margin:1px 0 7px}
+.acel-cell .arow{display:flex;justify-content:space-between;gap:8px;font-size:.72rem;color:#94a3b8;padding:1px 0}
+.acel-cell .arow b{font-family:ui-monospace,Consolas,monospace;color:#e2e8f0;font-weight:700}
+.acel-bar{height:5px;background:#1e293b;border-radius:3px;overflow:hidden;margin-top:7px}
+.acel-bar i{display:block;height:100%;border-radius:3px}
+select,button{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 11px;font-size:.8rem;cursor:pointer}
+button:hover{border-color:#38bdf8}
+.flow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px}
+.flow .step{flex:1;min-width:88px;text-align:center;padding:8px 5px;border-radius:7px;border:1px solid #334155;background:#1e293b;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+.flow .step.done{border-color:#22c55e;color:#22c55e}
+.flow .step.stop{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.1)}
+.flow .step.skip{opacity:.35}
+
+body{margin:0;padding:20px}</style></head><body>
+<details class="stage" open><summary>4 · Fuzzificacion, pendientes y aceleraciones<span class="num">6 variables · 3 acel</span></summary>
+<div class="body" id="out"></div></details>
+<script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function num(v,d){return (v===null||v===undefined||!isFinite(Number(v)))?'\u2014':Number(v).toFixed(d);}
+// Las aceleraciones van en CELDAS y no en una fila mas de la tabla de fuzzy.
+// El motivo es la calibracion: `umbral_estable` se elige mirando cuanto salta
+// |2a| con el proceso en regimen, y para eso hay que ver el numero, el umbral
+// y la RAZON entre los dos AL MISMO TIEMPO. Repartidos en columnas de una
+// tabla ancha, con la variable perdida entre las PV, eso no se lee.
+function celdasAceleraciones(filas) {
+  if (!filas.length) return '';
+  return '<div class="mut" style="font-size:.73rem;margin:2px 0 8px">'
+    + '<b>Aceleraciones</b> — ajuste cuadratico sobre la ventana. La barra es '
+    + '<code>|2a| / umbral</code>: llena al 100% justo cuando deja de ser ESTABLE. '
+    + 'Si salta de un tick a otro con el proceso quieto, el umbral esta bajo.</div>'
+    + '<div class="grid">' + filas.map(function(f) {
+        const u = Number(f.umbral_estable) || 0;
+        const margen = u > 0 ? Math.abs(Number(f.aceleracion)) / u : null;
+        // La barra se satura a 3x: mas alla el numero exacto no cambia
+        // ninguna decision y la barra dejaria de distinguir el rango util.
+        const pct = margen === null ? 0 : Math.min(100, (margen / 3) * 100);
+        const col = f.estado === 'ACELERANDO' ? '#ef4444'
+                  : (f.estado === 'DESACELERANDO' ? '#22c55e' : '#475569');
+        const cls = f.estado === 'ACELERANDO' ? 'b-bad'
+                  : (f.estado === 'DESACELERANDO' ? 'b-ok' : 'b-mut');
+        return '<div class="acel-cell st-' + esc(f.estado) + '">'
+          + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:start">'
+          + '<span class="an">' + esc(f.var) + '</span>'
+          + '<span class="badge ' + cls + '">' + esc(f.estado) + '</span></div>'
+          + '<div class="asrc">' + esc(f.fuente || '?') + ' &middot; ventana '
+          + num(f.ventana_s, 1) + ' s &middot; ' + esc(String(f.n_puntos)) + ' puntos</div>'
+          + '<div class="arow"><span>rate</span><b>' + num(f.rate, 4) + ' u/s</b></div>'
+          + '<div class="arow"><span>aceleracion</span><b>' + num(f.aceleracion, 4)
+          + ' u/s&sup2;</b></div>'
+          + '<div class="arow"><span>umbral ESTABLE</span><b>' + num(f.umbral_estable, 4)
+          + '</b></div>'
+          + '<div class="arow"><span>margen |2a|/umbral</span><b style="color:' + col + '">'
+          + (margen === null ? '\u2014' : num(margen, 2) + '\u00d7') + '</b></div>'
+          + '<div class="acel-bar" title="'
+          + (margen === null ? 'sin umbral' : 'margen ' + num(margen, 2) + 'x (barra al 100% = 3x)')
+          + '"><i style="width:' + pct.toFixed(1) + '%;background:' + col + '"></i></div>'
+          + '</div>';
+      }).join('') + '</div>';
+}
+
+
+document.getElementById('out').innerHTML = celdasAceleraciones([
+ {var:'hopper_nvl_pv_a_Acceleration_5s',fuente:'hopper_nvl_pv_a',ventana_s:5,rate:-0.4213,aceleracion:-0.0271,umbral_estable:0.01,n_puntos:97,estado:'ACELERANDO'},
+ {var:'hopper_nvl_pv_a_Acceleration_60s',fuente:'hopper_nvl_pv_a',ventana_s:60,rate:-0.0041,aceleracion:0.0009,umbral_estable:0.004,n_puntos:240,estado:'ESTABLE'},
+ {var:'corriente_Acceleration_10s',fuente:'corriente',ventana_s:10,rate:1.902,aceleracion:-0.0355,umbral_estable:0.02,n_puntos:184,estado:'DESACELERANDO'}]);
+</script></body></html>

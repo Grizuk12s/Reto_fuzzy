@@ -1,0 +1,166 @@
+================================================================================
+  SE-HUTBAY-ESPESADOR-3 -- Como ejecutar el sistema
+  Unico documento de ejecucion. Para exportar y desplegar: DESPLIEGUE.txt
+================================================================================
+
+  Dos formas de correrlo:
+
+    A) Python directo (Windows, desarrollo)  -> Flask dev server
+    B) Docker (Windows o Linux)              -> Gunicorn, igual que produccion
+
+  Documentacion de fondo (que hace el sistema, decisiones, pendientes):
+    PUESTA_EN_MARCHA.md    guia operativa + estado de puesta en marcha
+    CLAUDE.md              arquitectura, decisiones y pendientes
+
+
+================================================================================
+  A. PYTHON DIRECTO  (desarrollo en Windows)
+================================================================================
+
+  Requisitos: Python 3.10+
+
+A.1  Crear el entorno virtual (solo la primera vez)
+
+     cd "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
+     python -m venv .venv
+     .venv\Scripts\activate
+     pip install -r requirements.txt
+
+     Nota: gunicorn NO se instala en Windows (usa fork() de Unix). El
+     requirements.txt ya lo limita con el marker sys_platform != "win32".
+
+A.2  Ejecutar
+
+     .venv\Scripts\activate
+     python app.py
+
+     -> http://127.0.0.1:5000/
+
+A.3  Comandos utiles
+
+     Verificar que todo importa, sin levantar el servidor:
+       python -c "import app; print('OK -', len(list(app.app.url_map.iter_rules())), 'rutas')"
+
+     Correr el motor por consola, sin Flask:
+       python runner.py
+
+     Salir del entorno virtual:
+       deactivate
+
+
+================================================================================
+  B. DOCKER  (identico a produccion: Gunicorn)
+================================================================================
+
+B.1  Desarrollo en Windows -- construye desde el codigo fuente
+
+     Usa el docker-compose.yml de la RAIZ del proyecto (tiene build: . y
+     extra_hosts para alcanzar el KEPserver del host).
+
+       docker compose build
+       docker compose up -d
+       docker compose logs -f se-espesador
+       docker compose ps
+
+     -> http://127.0.0.1:5000/
+
+B.2  Produccion en la VM Linux -- NO construye, carga una imagen ya hecha
+
+     Usa el compose de deploy\ (image: en vez de build:). Todo el
+     procedimiento esta en DESPLIEGUE.txt.
+
+B.3  Operacion diaria (cualquiera de los dos entornos)
+
+     docker compose logs -f se-espesador    logs en vivo
+     docker compose restart                 reiniciar
+     docker compose stop | start            parar / arrancar
+     docker compose down                    borra el contenedor (config/ queda)
+     docker exec -it se-hutbay-espesador-3 sh    entrar al contenedor
+
+B.4  Healthcheck
+
+     Docker consulta cada 30s:  GET http://127.0.0.1:5000/health
+
+       docker inspect --format='{{.State.Health.Status}}' se-hutbay-espesador-3
+
+     Tarda ~20 s en pasar de "starting" a "healthy".
+
+
+================================================================================
+  C. CONFIGURACION -- donde vive y quien manda
+================================================================================
+
+  Toda la configuracion viva esta en  config/espesador/*.json  y se edita
+  desde la interfaz web, sin reconstruir la imagen:
+
+    kepserver.json     host + puerto OPC-UA          <- OJO, ver C.2
+    postgres.json      credenciales de la BD
+    licencia.json      firma HMAC + checkpoint
+    tags.json          catalogo de tags
+    contrato.json      contrato de variables
+    reglas.json        reglas del motor difuso
+    fuzzy.json         funciones de membresia
+    defuzzy.json       tablas Sugeno
+    variables.json     variables crudas y calculadas
+    permisivos.json    condiciones de permisivos
+    estados.json       estados y subestados
+    waits.json         catalogo de waits (cooldowns)
+    filtros.json       parametros del filtro Exp-Q
+    tracking.json      configuracion de tracking
+
+C.1  Persistencia en Docker
+
+     El compose monta  ./config:/app/config  como bind mount: la carpeta
+     config/ del HOST es la fuente de verdad. Lo que se edite en la UI
+     sobrevive a reinicios y a cambios de version.
+
+     Por eso docker compose SIEMPRE se ejecuta desde la carpeta que
+     contiene config/. Lanzado desde otro directorio, el contenedor
+     arranca sin configuracion y queda en Restarting.
+
+C.2  kepserver.json manda sobre KEPSERVER_URL
+
+     connectors/kepserver.py hace  _load_config() = {**defaults, **json}:
+     el JSON PISA a la variable de entorno del compose. KEPSERVER_URL solo
+     aplica si el archivo falta o esta corrupto.
+
+     En desarrollo el JSON dice host.docker.internal, que en Linux no
+     resuelve. Sintoma confuso: el compose muestra la IP correcta y el SE
+     no ve el KEPserver igual. Ver DESPLIEGUE.txt.
+
+C.3  Backup rapido antes de una prueba invasiva
+
+     Windows:  xcopy /E /I /Y config config-backup
+     Linux:    tar -czf config-backup-$(date +%Y%m%d-%H%M).tar.gz config/
+
+
+================================================================================
+  D. GUNICORN
+================================================================================
+
+  Parametros en  gunicorn.conf.py . El contenedor lo lanza solo.
+
+    workers      = 1      OBLIGATORIO. El motor mantiene estado en memoria
+                          y una unica conexion OPC-UA. NO subir sin refactor.
+    worker_class = gthread
+    threads      = 4
+    timeout      = 120s
+
+  Overrides por variable de entorno en el compose:
+    GUNICORN_BIND (0.0.0.0:5000) / GUNICORN_THREADS (4)
+    GUNICORN_TIMEOUT (120) / GUNICORN_LOGLEVEL (info)
+
+
+================================================================================
+  E. MODOS DE ENTRADA
+================================================================================
+
+  En la seccion "Tags KEPserver" hay un toggle "Modo de Entrada":
+
+    TAGS REALES   El SE lee del KEPserver. Requiere PLC + tags configurados.
+    SIMULACION    El Generador de Datos interno inventa valores y los
+                  escribe al KEPserver. Para demos sin PLC.
+
+  Flujo por tick:
+    KEPserver -> PV/CRUDA -> filtro Exp-Q -> fuzzificacion -> reglas ->
+    defuzzificacion Sugeno -> SP -> KEPserver -> PLC

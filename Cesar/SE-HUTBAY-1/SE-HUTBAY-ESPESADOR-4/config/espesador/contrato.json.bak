@@ -1,0 +1,19 @@
+{
+  "variables_proceso": [
+    "torque",
+    "bed_mass",
+    "bed_level",
+    "densidad",
+    "torque_bomba",
+    "potencia_bomba",
+    "presion_descarga",
+    "presion_diferencial",
+    "nivel_rastra"
+  ],
+  "setpoints": [
+    "sp_tonelaje",
+    "sp_floculante",
+    "sp_vel_bomba"
+  ],
+  "descripciones": {}
+}

@@ -1,0 +1,11 @@
+{
+  "hopper_nvl_pv_a_Acceleration_5s": {
+    "variable": "hopper_nvl_pv_a",
+    "ventana_s": 5.0,
+    "umbral_estable": 0.01,
+    "umbral_rate": null,
+    "min_puntos": 3,
+    "habilitado": true,
+    "descripcion": ""
+  }
+}
