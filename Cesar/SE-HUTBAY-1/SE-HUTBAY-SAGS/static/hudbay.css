@@ -1,0 +1,105 @@
+/* ============================================================
+   Capa de marca Hudbay — se carga DESPUES del <style> de cada
+   pagina, asi que manda sobre el. Solo toca "cromo" (marca,
+   navegacion, titulos, accion primaria). Los colores con
+   significado de proceso (verde OK, rojo alarma, ambar aviso)
+   se dejan intactos a proposito.
+   Carbon Hudbay #152128 · Rojo Hudbay #EE3524
+   ============================================================ */
+:root{
+  --hb-rojo:#ee3524;
+  --hb-rojo-osc:#c82a1b;
+  --hb-carbon:#152128;
+  --hb-carbon-osc:#0a1216;
+  --hb-fondo:#101a20;
+  --hb-borde:#23323b;
+  --hb-texto:#e8eef1;
+  --hb-texto-2:#a2b1b9;
+}
+
+/* --- Barra lateral --- */
+.sidebar{background:var(--hb-carbon-osc);border-right:1px solid var(--hb-borde)}
+.sidebar .brand{border-bottom:1px solid var(--hb-borde);padding:2px 6px 12px 6px;display:block}
+.sidebar .brand img.hb-logo{width:100%;max-width:150px;height:auto;display:block}
+.sidebar.collapsed .brand{padding:2px 0 10px 0}
+/* Colapsada: el wordmark no cabe, se cambia por el icono de marca */
+.sidebar .brand img.hb-logo-min{display:none}
+.sidebar.collapsed .brand img.hb-logo{display:none}
+.sidebar.collapsed .brand img.hb-logo-min{display:block;width:28px;height:28px;margin:0 auto;border-radius:7px}
+.sidebar a.active{color:var(--hb-rojo);border-left-color:var(--hb-rojo);background:#1b2a32}
+/* Paginas sueltas: navegacion superior */
+nav a.active{background:#1b2a32;color:var(--hb-rojo);font-weight:600}
+.filter-btn.active{background:rgba(238,53,36,.12);border-color:var(--hb-rojo);color:#ff7a68;font-weight:600}
+.sidebar.collapsed a.active{border-bottom-color:var(--hb-rojo)}
+
+/* --- Titulos y cabeceras --- */
+h1{color:var(--hb-texto);letter-spacing:-.01em;border-left:4px solid var(--hb-rojo);padding-left:12px}
+.modal h3{color:var(--hb-rojo);border-left:3px solid var(--hb-rojo);padding-left:10px}
+/* .process-accent pinta texto con degradado y -webkit-text-fill-color:transparent,
+   asi que hay que reemplazar el degradado, no el color. */
+h1 .process-accent,.process-accent{background-image:linear-gradient(135deg,#ee3524,#ff7a5f)!important;background-color:transparent!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important;color:transparent!important}
+
+/* --- Accion primaria --- */
+.btn-primary{background:var(--hb-rojo);color:#fff}
+.btn-primary:hover{background:var(--hb-rojo-osc)}
+/* Destructivo: contorno, para no confundirse con la accion de marca */
+.btn-danger{background:transparent;border:1px solid #ee5a48;color:#ff8a78}
+.btn-danger:hover{background:rgba(238,53,36,.14);color:#ffb3a8}
+
+/* --- Foco --- */
+input:focus,select:focus,textarea:focus{border-color:var(--hb-rojo);box-shadow:0 0 0 2px rgba(238,53,36,.18)}
+
+/* --- Franja de marca arriba de las paginas sueltas --- */
+body>header{border-top:3px solid var(--hb-rojo)}
+
+/* --- Logo en la navegacion superior de las paginas sueltas --- */
+.hb-nav-brand{display:flex;align-items:center;padding:4px 12px 4px 0;margin-right:8px;border-right:1px solid var(--hb-borde)}
+.hb-nav-brand:hover{background:none}
+.hb-navlogo{height:17px;width:auto;display:block}
+
+/* --- Firma ReTO Digital al pie de la barra lateral --- */
+/* La barra es un flex en columna: sin esto los hijos se encogen y el logo
+   de arriba sale recortado al crecer el contenido. */
+.sidebar>*{flex-shrink:0}
+.sidebar .hb-sig{margin-top:auto;padding:14px 8px 10px;border-top:1px solid var(--hb-borde);opacity:.45;transition:opacity .2s}
+.sidebar .hb-sig:hover{opacity:1;background:none}
+.sidebar .hb-sig img{width:100%;max-width:96px;height:auto;display:block}
+/* Colapsada no hay ancho para el wordmark de ReTO y cualquier recorte
+   queda ilegible: la firma se oculta y vuelve al expandir. */
+.sidebar.collapsed .hb-sig{display:none}
+
+/* ============================================================
+   Barras de scroll
+   Venian nativas del sistema (blancas en Windows) y cortaban el
+   tema oscuro por la mitad. Se pintan en la carta Hudbay.
+   ============================================================ */
+*{scrollbar-width:thin;scrollbar-color:#35474f transparent}          /* Firefox */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2c3d46;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#41565f;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:active{background:var(--hb-rojo);border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-corner{background:transparent}
+
+/* La barra lateral es mas oscura que el resto: el pulgar necesita
+   menos contraste para no convertirse en un elemento mas del menu. */
+.sidebar{scrollbar-color:#33454e transparent}
+.sidebar::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb{background:#33454e}
+.sidebar::-webkit-scrollbar-thumb:hover{background:#48606b}
+.sidebar.collapsed::-webkit-scrollbar{width:5px}
+
+/* ============================================================
+   Barra inferior de Ultimas Ejecuciones
+   Es position:fixed para quedar anclada abajo, asi que por si
+   sola tapaba el final del contenido al expandirse. Ahora .main
+   reserva esa altura, como las barras laterales reservan ancho.
+   El estado vive en el body (.act-expanded) y lo pone
+   toggleActivityBar() en index.html.
+   ============================================================ */
+.main{padding-bottom:54px;transition:padding-bottom .3s ease}
+body.act-expanded .main{padding-bottom:278px}
+
+/* Su borde izquierdo sigue a la barra lateral cuando se colapsa */
+.activity-bar{transition:height .3s ease,left .25s ease}
+body.sb-collapsed .activity-bar{left:52px}

@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.claude/
+*.md
+*.txt
+!requirements.txt
+_to_delete/
+_backup_*/
+_respaldo_*/
+*.bak_*

@@ -9,3 +9,4 @@ __pycache__/
 *.txt
 !requirements.txt
 _to_delete/
+_backup_*/

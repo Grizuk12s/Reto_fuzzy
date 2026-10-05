@@ -6,11 +6,15 @@ Rutas:
   POST                 /api/alerts/<alert_id>/resolve
   POST                 /api/alerts/clear
   GET                  /api/se/status
+  GET/PUT              /api/se/piso
   POST                 /api/se/start
   POST                 /api/se/stop
   GET                  /api/entrada
   GET                  /api/entrada/history
   GET                  /api/entrada/escalas
+  GET                  /api/diagrama/hopper
+  GET/PUT              /api/diagrama/estadistica
+  POST                 /api/diagrama/estadistica/calcular
   POST                 /api/simulacion
   POST                 /api/simulacion/start
   GET                  /api/simulacion/next
@@ -20,6 +24,7 @@ IT-7: extraído de app.py.
 """
 from __future__ import annotations
 
+import time
 import traceback
 
 from flask import Blueprint, jsonify, request
@@ -31,15 +36,20 @@ from web.state import (
     _alerts,
     _activity_log,
     _se_engine,
+    _estadistica_nivel,
     _load_tags,
     _read_kepserver_tags_batch,
     _get_tag_history,
+    _tag_history, _tag_history_lock,
     _sim_state,
     _definiciones_lista_a_dict,
     _get_trazas,
     grabador_start, grabador_stop, grabador_estado, grabador_historial,
     GrabadorLimiteActivosError,
     sincronizar_alerta_licencia,
+    cortes_motor,
+    generacion_motor,
+    cargar_motor_cfg,
 )
 
 bp_se = Blueprint("se", __name__)
@@ -136,6 +146,58 @@ def api_se_status():
     return jsonify(_se_engine.status())
 
 
+@bp_se.route("/api/se/piso", methods=["GET"])
+def api_se_piso_get():
+    """Ritmo del lazo: lo configurado y lo que se esta logrando de verdad.
+
+    `piso_ms` es lo pedido; `periodo_ms` es lo que el motor consigue, que es
+    `max(dur_tick_ms, piso_ms)`. Si `dormido_ms` vive en cero, el piso no esta
+    limitando nada y bajarlo no cambia el ritmo: manda el tick.
+    """
+    est = _se_engine.status()
+    return jsonify({
+        "piso_s":          cargar_motor_cfg()["piso_s"],
+        "piso_s_activo":   est.get("piso_s"),
+        "piso_ms":         est.get("piso_ms"),
+        "periodo_ms":      est.get("periodo_ms"),
+        "ticks_por_s":     est.get("ticks_por_s"),
+        "dur_tick_ms":     est.get("dur_tick_ms"),
+        "dur_tick_max_ms": est.get("dur_tick_max_ms"),
+        "dormido_ms":      est.get("dormido_ms"),
+        "running":         est.get("running", False),
+        "max_s":           _se_engine.PISO_S_MAX,
+    })
+
+
+@bp_se.route("/api/se/piso", methods=["PUT"])
+def api_se_piso_put():
+    """Cambia el piso. Se aplica EN VIVO: no reinicia ni vacia ventanas."""
+    body = request.get_json(force=True) if request.content_length else {}
+    body = body or {}
+    if "piso_s" in body:
+        bruto = body["piso_s"]
+    elif "piso_ms" in body:
+        try:
+            bruto = float(body["piso_ms"]) / 1000.0
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "piso_ms invalido."}), 400
+    else:
+        return jsonify({"ok": False, "error": "Falta piso_s (o piso_ms)."}), 400
+    try:
+        piso = float(bruto)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "piso_s invalido."}), 400
+    if piso < 0 or piso > _se_engine.PISO_S_MAX:
+        return jsonify({"ok": False,
+                        "error": f"El piso debe estar entre 0 y {_se_engine.PISO_S_MAX} s."}), 400
+    res = _se_engine.set_piso(piso)
+    _activity_log.log_info(
+        "Ritmo del motor actualizado",
+        f"piso_s={res['piso_s']} (aplicado en vivo, sin reiniciar el lazo)",
+    )
+    return jsonify(res)
+
+
 @bp_se.route("/api/se/start", methods=["POST"])
 def api_se_start():
     """Arranca el motor en ciclo libre.
@@ -152,7 +214,9 @@ def api_se_start():
     elif "intervalo_s" in body:
         piso = float(body["intervalo_s"])
     else:
-        piso = _se_engine.PISO_S_DEFAULT
+        # Sin piso explicito manda motor.json, no el default de clase: el front
+        # ya no tiene por que saber a que ritmo corre el motor de esta planta.
+        piso = cargar_motor_cfg()["piso_s"]
     # Cualquier excepcion inesperada del arranque salia como la pagina HTML de
     # error de Flask, y el front — que hace r.json() — informaba
     # "Unexpected token '<'", ocultando el motivo real. Se traduce a JSON.
@@ -184,6 +248,108 @@ def api_se_start():
     return jsonify({"ok": True, "running": True})
 
 
+@bp_se.route("/api/se/restart", methods=["POST"])
+def api_se_restart():
+    """Aplica la configuracion nueva sin soltar el lazo ni vaciar las ventanas.
+
+    Existe como UN endpoint y no como stop+start desde el navegador por dos
+    motivos. El primero es que entre las dos llamadas hay un viaje de red: con
+    dos pestanas abiertas, o con una recarga a destiempo, se podian solapar un
+    stop y un start de rondas distintas. El segundo es que el estado que hay
+    que conservar (buffers de pendientes, reloj, objetivo interno de los SP)
+    solo existe dentro del proceso: no se puede transportar por HTTP.
+
+    `caliente=false` fuerza el reinicio clasico — suelta ENABLE_EXT y arranca
+    con todas las ventanas vacias.
+    """
+    body = request.get_json(force=True) if request.content_length else {}
+    body = body or {}
+    caliente = bool(body.get("caliente", True))
+    piso = None
+    if "piso_s" in body:
+        try:
+            piso = float(body["piso_s"])
+        except (TypeError, ValueError):
+            piso = None
+    try:
+        res = _se_engine.reiniciar(caliente=caliente, piso_s=piso) or {}
+    except Exception as exc:
+        detalle = f"{type(exc).__name__}: {exc}"
+        _activity_log.log_error(
+            "se", "Motor SE",
+            "El reinicio del motor fallo con una excepcion",
+            detalle + "\n" + traceback.format_exc(limit=5),
+        )
+        return jsonify({"ok": False, "running": _se_engine._running,
+                        "error": "Fallo interno al reiniciar el motor. " + detalle}), 500
+    if not res.get("ok"):
+        _activity_log.log_error(
+            "se", "Motor SE", "No se pudo reiniciar el motor",
+            str(res.get("error") or ""),
+        )
+        return jsonify({"ok": False, "running": _se_engine._running,
+                        "error": res.get("error"),
+                        "generacion": res.get("generacion")}), 400
+    _activity_log.clear_restart()
+    avisos = res.get("avisos") or []
+    _activity_log.log_info(
+        "Configuracion aplicada" + ("" if res.get("caliente") else " (reinicio frio)"),
+        "\n".join(avisos) if avisos else
+        ("El motor se reinicio conservando el lazo y las ventanas."
+         if res.get("caliente") else "El motor se reinicio desde cero."),
+    )
+    return jsonify({"ok": True, "running": _se_engine._running,
+                    "caliente": bool(res.get("caliente")),
+                    "generacion": res.get("generacion"),
+                    "avisos": avisos})
+
+
+@bp_se.route("/api/se/auto-aplicar", methods=["GET"])
+def api_se_auto_aplicar_get():
+    """Estado del auto-aplicar: interruptor, si hay cambios sin aplicar y el
+    resultado del ultimo reinicio automatico (con sus avisos)."""
+    from web.state import _auto_aplicador
+    return jsonify(_auto_aplicador.estado())
+
+
+@bp_se.route("/api/se/auto-aplicar", methods=["PUT"])
+def api_se_auto_aplicar_put():
+    """Enciende o apaga el auto-aplicar. Es UNO para todo el sistema (motor.json),
+    no uno por navegador."""
+    from web.state import _auto_aplicador, guardar_auto_aplicar
+    body = request.get_json(force=True, silent=True) or {}
+    if "enabled" not in body:
+        return jsonify({"ok": False, "error": "Falta 'enabled'."}), 400
+    guardar_auto_aplicar(bool(body["enabled"]))
+    return jsonify({"ok": True, **_auto_aplicador.estado()})
+
+
+@bp_se.route("/api/se/reinicios", methods=["GET"])
+def api_se_reinicios():
+    """Tramos en que el motor estuvo abajo, para pintarlos sobre el trending.
+
+    Lo consume el Explorador de Series, que corre en otra pestana y no tiene
+    forma de enterarse de un reinicio disparado desde el panel. Sin esto, una
+    linea plana no distingue 'el proceso esta quieto' de 'el SE estuvo caido'.
+    """
+    def _num(nombre):
+        v = request.args.get(nombre)
+        if v in (None, ""):
+            return None
+        try:
+            return float(v)
+        except ValueError:
+            return None
+
+    cortes = cortes_motor(_num("from_ms"), _num("to_ms"))
+    return jsonify({
+        "cortes": cortes,
+        "generacion": generacion_motor(),
+        "running": _se_engine._running,
+        "ahora_ms": time.time() * 1000.0,
+    })
+
+
 @bp_se.route("/api/se/trace", methods=["GET"])
 def api_se_trace():
     """Traza del pipeline: que paso en cada etapa del ultimo (o ultimos N) ticks.
@@ -200,6 +366,10 @@ def api_se_trace():
     return jsonify({
         "trazas": trazas,
         "running": estado.get("running", False),
+        # Cambia en cada arranque: la Traza la compara con la que vio antes
+        # para saber que el motor se reinicio y limpiar lo que quedo en
+        # pantalla del motor anterior.
+        "generacion": estado.get("generacion", 0),
         "disponibles": len(_get_trazas(0)),
         # El anillo de trazas guarda pocos segundos en ciclo libre; el
         # historial de disparos sobrevive y es lo que permite ver que una
@@ -256,6 +426,155 @@ def api_se_stop():
     return jsonify({"ok": bool(res.get("ok")),
                     "error": res.get("error"),
                     "running": _se_engine._running})
+
+
+# ============================================================
+# API — Diagrama del Hopper (refresco cada 1 s mientras el motor corre)
+# ============================================================
+
+# Que variable del diagrama sale de que ROL de tag. Los roles son los del
+# contrato (contrato.json / tags.json): si un rol no esta cableado a un tag
+# habilitado, esa casilla viaja como `null` y el diagrama muestra "--".
+_ROLES_HOPPER = {
+    "nivel":      "hopper_nvl_pv_a",
+    "nivel_min":  "hopper_nvl_pv_a_lmin",
+    "nivel_max":  "hopper_nvl_pv_a_lmax",
+    "vel_pv":     "velocidad_pv",
+    "vel_min":    "velocidad_pv_lmin",
+    "vel_max":    "velocidad_pv_lmax",
+    "vel_sp_dcs": "velocidad_sp_del_dcs_referencia_de_arranque",
+    "vel_sp_se":  "velocidad_salida_del_se",
+    "corriente":  "corriente",
+}
+
+
+def _ultimo_de_historial(nombres: list[str]) -> dict[str, dict]:
+    """Ultimo valor conocido por tag, SIN copiar los buffers completos.
+
+    `_get_tag_history()` copia 3600 muestras por tag: a 1 Hz es un desperdicio.
+    Aca se toma solo la cola de cada deque, bajo el candado.
+    """
+    out: dict[str, dict] = {}
+    with _tag_history_lock:
+        for n in nombres:
+            buf = _tag_history.get(n)
+            if buf:
+                out[n] = {"value": buf[-1]["v"], "t": buf[-1]["t"]}
+    return out
+
+
+@bp_se.route("/api/diagrama/hopper", methods=["GET"])
+def api_diagrama_hopper():
+    """Variables del Hopper para la pagina Diagrama.
+
+    - Motor ENCENDIDO: valores de la ULTIMA lectura del propio motor
+      (`_last_read`), es decir lo que el SE esta viendo en este tick. No abre
+      otra sesion OPC-UA por cada refresco; solo lee del KEPserver los tags que
+      el motor no haya leido.
+    - Motor APAGADO: no toca el KEPserver. Devuelve el ultimo valor conocido del
+      buffer de historial, marcado `en_vivo=false`, para que la pagina no quede
+      vacia pero tampoco simule datos frescos.
+    """
+    est = _se_engine.status()
+    running = bool(est.get("running"))
+
+    por_rol = {t.get("rol"): t for t in _load_tags().get("tags", [])
+               if t.get("enabled", True) and t.get("rol")}
+    tags = {k: por_rol[r] for k, r in _ROLES_HOPPER.items() if r in por_rol}
+    nombres = [t["name"] for t in tags.values()]
+
+    live: dict[str, dict] = {}
+    if running and nombres:
+        snap = dict(getattr(_se_engine, "_last_read", None) or {})
+        live = {n: snap[n] for n in nombres if n in snap}
+        faltan = [n for n in nombres if n not in live]
+        if faltan:
+            live.update(_read_kepserver_tags_batch(faltan))
+    elif nombres:
+        live = _ultimo_de_historial(nombres)
+
+    def _num(v):
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    variables: dict[str, dict | None] = {}
+    for clave in _ROLES_HOPPER:
+        t = tags.get(clave)
+        if t is None:
+            variables[clave] = None
+            continue
+        info = live.get(t["name"]) or {}
+        valor = _num(info.get("value"))
+        if running:
+            calidad = info.get("quality") or "Unknown"
+            ok = bool(info.get("exists", False)) and valor is not None \
+                and str(calidad).lower() != "bad"
+        else:
+            calidad = "Last"
+            ok = valor is not None
+        variables[clave] = {
+            "tag":    t["name"],
+            "nombre": t.get("pseudonimo") or t["name"],
+            "unidad": t.get("unidad_ing", ""),
+            "valor":  valor if ok else None,
+            "calidad": calidad,
+            "ok":     ok,
+        }
+
+    hs = est.get("handshake") or {}
+    return jsonify({
+        "running":    running,
+        "en_vivo":    running,
+        "generacion": est.get("generacion"),
+        "tick":       est.get("tick"),
+        "t_s":        est.get("t_s"),
+        "periodo_ms": est.get("periodo_ms"),
+        "setpoints":  est.get("setpoints", {}),
+        "lazo": {
+            "habilitado": bool(hs.get("enabled")),
+            "ultimo":     hs.get("ultimo"),
+        },
+        "variables":  variables,
+        "estadistica": _estadistica_nivel.estado(),
+        "ts":         time.time(),
+    })
+
+
+@bp_se.route("/api/diagrama/estadistica", methods=["GET"])
+def api_estadistica_get():
+    return jsonify(_estadistica_nivel.estado())
+
+
+@bp_se.route("/api/diagrama/estadistica", methods=["PUT"])
+def api_estadistica_put():
+    """Edita el rango (`ventana_min`) y cada cuanto se calcula (`recalculo_min`).
+
+    Se rechaza lo que no sea numerico o quede fuera de [1, ventana_max_min]:
+    un rango silenciosamente recortado haria creer que se calculo sobre una
+    ventana que no es la pedida.
+    """
+    body = request.get_json(silent=True) or {}
+    actual = _estadistica_nivel.config()
+    tope = actual["ventana_max_min"]
+    nuevo = {}
+    for k in ("ventana_min", "recalculo_min"):
+        if body.get(k) is None:
+            continue
+        try:
+            v = float(body[k])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": f"{k} debe ser un numero."}), 400
+        if v != int(v) or v < 1 or v > tope:
+            return jsonify({"ok": False,
+                            "error": f"{k} debe ser un entero de minutos entre 1 y {tope}."}), 400
+        nuevo[k] = int(v)
+    _estadistica_nivel.configurar(**nuevo)
+    return jsonify({"ok": True, **_estadistica_nivel.estado()})
+
+
+@bp_se.route("/api/diagrama/estadistica/calcular", methods=["POST"])
+def api_estadistica_calcular():
+    _estadistica_nivel.calcular_ahora()
+    return jsonify({"ok": True, **_estadistica_nivel.estado()})
 
 
 # ============================================================
@@ -328,7 +647,7 @@ def api_grafico_anotaciones():
     invisible. Quien necesita comparar ventanas tiene la traza y la pagina de
     Aceleracion, que las muestran todas.
     """
-    from web.state import construir_mapeo
+    from web.state import construir_mapeo, anotaciones_por_tag
 
     trazas = _get_trazas(1)
     tz = (trazas[-1] if trazas else {}) or {}
@@ -336,64 +655,25 @@ def api_grafico_anotaciones():
         running = bool(_se_engine.status().get("running"))
     except Exception:
         running = False
-
-    por_var, pend_por_fuente, acel_por_fuente = {}, {}, {}
-    for f in (tz.get("fuzzy") or []):
-        var = f.get("var")
-        if not var:
-            continue
-        if f.get("es_pendiente"):
-            fuente = f.get("fuente")
-            if fuente and fuente not in pend_por_fuente:
-                pend_por_fuente[fuente] = f
-        elif f.get("es_aceleracion"):
-            fuente = f.get("fuente")
-            if fuente and fuente not in acel_por_fuente:
-                acel_por_fuente[fuente] = f
-        else:
-            por_var[var] = f
-
-    mapeo = construir_mapeo()
-    tag_var: dict[str, str] = {}
-    for tag, rol in (mapeo.get("tag_to_pv") or {}).items():
-        tag_var[tag] = rol
-    for tag, rol in (mapeo.get("tag_to_cruda") or {}).items():
-        tag_var.setdefault(tag, rol)
-    for rol, tag in (mapeo.get("sp_to_tag") or {}).items():
-        tag_var.setdefault(tag, rol)
-
-    por_tag = {}
-    for tag, var in tag_var.items():
-        f = por_var.get(var) or {}
-        p = pend_por_fuente.get(var)
-        a = acel_por_fuente.get(var)
-        por_tag[tag] = {
-            "var":   var,
-            "valor": f.get("valor"),
-            "dom":   f.get("dom"),
-            "lmin":  f.get("lmin"),
-            "lmax":  f.get("lmax"),
-            "pendiente": ({
-                "var":           p.get("var"),
-                "slope_per_min": p.get("slope_per_min"),
-                "ventana_s":     p.get("ventana_s"),
-                "dom":           p.get("dom"),
-            } if p else None),
-            "aceleracion": ({
-                "var":         a.get("var"),
-                "rate":        a.get("rate"),
-                "aceleracion": a.get("aceleracion"),
-                "ventana_s":   a.get("ventana_s"),
-                "dom":         a.get("dom"),
-                # `dom` (la dinamica) puede venir VACIO: es la variable
-                # moviendose a velocidad constante, que no esta acelerando ni
-                # frenando ni ESTABLE. El signo siempre viene, asi que el
-                # tooltip tiene algo que decir en ese caso en vez de un hueco.
-                "signo":       a.get("signo"),
-            } if a else None),
-        }
-
+    por_tag = anotaciones_por_tag(tz, construir_mapeo())
     return jsonify({"running": running, "ts": tz.get("ts"), "por_tag": por_tag})
+
+
+@bp_se.route("/api/se/grafico/anotaciones/historial", methods=["GET"])
+def api_grafico_anotaciones_historial():
+    """Dominio, pendiente y aceleracion POR INSTANTE, para el tooltip.
+
+    Query: tags (csv), from_ms, to_ms. Una muestra por segundo mientras el
+    motor corrio; donde no corrio no hay muestras (y el grafico no inventa).
+    """
+    from web.state import historial_anotaciones
+    tags = [t.strip() for t in request.args.get("tags", "").split(",") if t.strip()]
+    try:
+        from_ms = float(request.args.get("from_ms", 0))
+        to_ms = float(request.args.get("to_ms", time.time() * 1000.0))
+    except ValueError:
+        return jsonify({"error": "from_ms / to_ms deben ser numericos."}), 400
+    return jsonify({"puntos": historial_anotaciones(from_ms, to_ms, tags or None)})
 
 
 @bp_se.route("/api/entrada/escalas", methods=["GET"])

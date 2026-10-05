@@ -1,0 +1,11 @@
+{
+  "sp_de_otra_planta": {
+    "arranque": {
+      "fuente": "tag",
+      "tag": "PLC_DE_OTRA.PLANTA_SP"
+    },
+    "habilitado": true,
+    "pv_key": "pv_inexistente",
+    "rango": 0.5
+  }
+}

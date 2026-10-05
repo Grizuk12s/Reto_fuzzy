@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "next_id": 6,
+  "unsaved": {
+    "estados": 1
+  },
+  "restart": {
+    "waits": 3
+  },
+  "issues": {},
+  "entries": [
+    {
+      "id": 1,
+      "kind": "unsaved",
+      "page": "estados",
+      "page_label": "Estados",
+      "message": "Cambios sin guardar en Estados",
+      "detail": "",
+      "ts": 1790883264.892067,
+      "last_seen": 1790883264.892067,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": false
+    },
+    {
+      "id": 2,
+      "kind": "saved",
+      "page": "waits",
+      "page_label": "Waits",
+      "message": "Wait guardado: ASD",
+      "detail": "wait nuevo: ASD · sin SP vinculado",
+      "ts": 1790883269.3864083,
+      "last_seen": 1790883269.3864083,
+      "expires_at": 1790883274.3864083,
+      "pinned": false,
+      "dismissed": false
+    },
+    {
+      "id": 3,
+      "kind": "restart",
+      "page": "waits",
+      "page_label": "Waits",
+      "message": "Cambios guardados en Waits: reinicia el motor para aplicarlos",
+      "detail": "wait nuevo: ASDASDASD · sin SP vinculado",
+      "ts": 1790883269.3996222,
+      "last_seen": 1790883274.449278,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": false
+    },
+    {
+      "id": 4,
+      "kind": "error",
+      "page": "waits",
+      "page_label": "Waits",
+      "message": "Wait 'wait::asd' ya existe",
+      "detail": "",
+      "ts": 1790883271.8184302,
+      "last_seen": 1790883271.8184302,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": false
+    },
+    {
+      "id": 5,
+      "kind": "saved",
+      "page": "waits",
+      "page_label": "Waits",
+      "message": "Wait guardado: ASDASDASD",
+      "detail": "wait nuevo: ASDASDASD · sin SP vinculado",
+      "ts": 1790883274.435806,
+      "last_seen": 1790883274.435806,
+      "expires_at": 1790883279.435806,
+      "pinned": false,
+      "dismissed": false
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+[
+  {
+    "wait_id": "wait::sp_velocidad_a_hopper",
+    "nombre": "SP Velocidad A Hopper",
+    "tipo": "custom",
+    "variable_controlada": "velocidad_salida_del_se",
+    "descripcion": "Mide la velocidad"
+  }
+]

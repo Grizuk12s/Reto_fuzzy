@@ -8,6 +8,232 @@
   Ultimo despliegue realizado con este procedimiento: 0.4
 
 
+LICENCIA NUEVA (2026-10-01) -- HASTA EL 2026-10-31
+-----------------------------------------
+
+  La licencia de prototipo se extendio: vence 2026-10-31 (antes 2026-10-12).
+  Detalle: CAMBIOS_LICENCIA_2026-10-01.md
+
+  En planta NO hace falta redesplegar ni reiniciar. Copiar el archivo
+    Claude outputs/licencia_hasta_2026-10-31.json
+  sobre
+    <carpeta de despliegue>/config/espesador/licencia.json
+
+  Verificar: pagina Licenciamiento -> Estado "Activa" y vence 2026-10-31.
+  Si dice "Manipulada": reloj de la VM atrasado (TRAMPA 8).
+  Con el contenedor en UTC vence el 31-oct a las 21:00 hora de Chile.
+
+
+NOVEDADES 0.45 -- LEER ANTES DE ACTUALIZAR
+-----------------------------------------
+
+  0. EL CONTENEDOR CAMBIA DE NOMBRE  (lo unico que pide un paso distinto)
+
+     Antes:  se-hutbay-espesador-3        (proyecto se-hutbay-espesador-3)
+     Ahora:  se-espesador-A0-45           (proyecto se-espesador-a0-45)
+
+     Desde esta version el nombre lleva la version, para ver con un
+     `docker ps` que version corre en cada VM. Consecuencia: el compose
+     nuevo NO conoce al contenedor viejo. En este salto hay que bajar el
+     0.44 a mano ANTES del up -d (si no: puerto 5000 ocupado):
+
+       cd /opt/se-0.44 && sudo docker compose down
+       sudo docker rm -f se-hutbay-espesador-3        # por si quedo colgando
+       sudo docker ps -a --filter name=espesador      # no debe listar nada
+
+     Rollback al 0.44: bajar el 0.45 desde SU carpeta y levantar el viejo.
+
+       cd /opt/se-0.45 && sudo docker compose down
+       cd /opt/se-0.44 && sudo docker compose up -d
+
+  1. APLICAR CAMBIOS LO HACE EL SERVIDOR, NO LA PESTANA
+
+     Antes el reinicio en caliente al guardar lo disparaba la pagina
+     principal: con esa pestana cerrada, un Guardar en otra pagina no se
+     aplicaba. Ahora el servidor vigila la configuracion y reinicia en
+     caliente ~1 s despues del ultimo guardado, haya o no paginas abiertas.
+     El interruptor "Auto-reinicio" es uno para todo el sistema
+     (motor.json, clave auto_aplicar; ausente = encendido).
+
+  2. EXPLORADOR DE SERIES: DOMINIO, PENDIENTE Y ACELERACION POR INSTANTE
+
+     El tooltip mostraba los del ultimo tick aunque el cursor estuviera en
+     un punto de hace 20 min. Ahora el motor graba 1 muestra/s (3 h, en
+     RAM) y el tooltip usa la del instante bajo el cursor.
+
+  3. ORDEN MANUAL
+
+     - Reglas de IGUAL prioridad: flechas en la columna ID. A igual
+       prioridad se evalua de arriba hacia abajo; si comparten un wait,
+       gana la de arriba.
+     - Filas de fuzzy y de pendientes: flechas por fila. Antes se
+       reordenaban solas en orden alfabetico (lo hacia el servidor al
+       responder); ahora se guarda el orden que se elija.
+       OJO: los fuzzy existentes quedaron alfabeticos; ordenarlos una vez
+       y Guardar.
+
+  4. INTERFAZ
+
+     - Traza, paso 4: columnas ocultables (Compacto / Todas), pendiente y
+       aceleracion en columnas propias.
+     - Botones de tabla iguales en Fuzzy, Pendientes y Defuzzy.
+     - Boton "Vaciar" en todas las paginas 2 a 8 (nuevo en Variables,
+       Waits, Permisivos y Reglas).
+
+  5. EXPORT / IMPORT
+
+     - El paquete conserva el orden de filas de fuzzy y pendientes.
+     - Importar en Reemplazar aplica el orden de reglas del paquete.
+     - Modulo nuevo "Motor": piso del lazo y auto-aplicar.
+     - Un paquete de 0.44 se importa sin problemas (sin bloque Motor).
+
+  COMPATIBILIDAD
+
+  Mismo formato de JSON que 0.44: se puede volver atras sin migrar.
+  motor.json gana la clave auto_aplicar, que 0.44 ignora.
+  Detalle tecnico: CAMBIOS_AUTO_APLICAR.md.
+
+
+NOVEDADES 0.44 -- LEER ANTES DE ACTUALIZAR
+-----------------------------------------
+
+  Cambio SOLO de interfaz. No se toco ni una linea de Python: motor,
+  blueprints, endpoints y formato de configuracion quedan identicos a 0.43.
+  Un contenedor 0.43 y uno 0.44 leen y escriben los mismos JSON, asi que se
+  puede volver atras sin migrar nada.
+
+  1. IDENTIDAD HUDBAY
+
+     La paleta slate/cyan pasa a la carta Hudbay: carbon #152128 en tarjetas y
+     tablas, #101A20 de fondo, rojo #EE3524 en la accion primaria y en la
+     navegacion activa. Los colores CON SIGNIFICADO DE PROCESO no se tocaron:
+     verde OK, rojo alarma, ambar aviso y las pastillas de dinamica y signo
+     siguen exactamente igual. En una sala de control el color de estado es
+     informacion, no decoracion.
+
+     Como la accion primaria quedo en rojo, el boton destructivo paso a rojo
+     CONTORNEADO para no confundirse con ella. Guardar = relleno,
+     Eliminar = contorno.
+
+  2. LOGOS
+
+     Portada (/): logo ReTO Digital, con una franja superior discreta con el
+     wordmark de Hudbay. Paginas internas: Hudbay en la barra lateral y en la
+     navegacion superior; ReTO queda como firma al pie del menu.
+     Favicon nuevo en todas las paginas.
+
+  3. DETALLES DE INTERFAZ
+
+     - Barras de scroll en la carta Hudbay (antes eran las blancas del sistema).
+     - La barra de Ultimas Ejecuciones ya no tapa el contenido al expandirse:
+       la zona principal reserva su altura, y su borde izquierdo sigue al menu
+       cuando se colapsa. El estado abierto/cerrado se recuerda.
+
+  ARCHIVOS NUEVOS EN static/: hudbay.css, hudbay-logo.png, favicon.png,
+  reto-digital.png, reto-digital-dark.png, reto-digital-original.png.
+  El detalle completo del cambio esta en CAMBIOS_REDISENO_HUDBAY.md.
+
+
+NOVEDADES 0.43 -- LEER ANTES DE ACTUALIZAR
+-----------------------------------------
+
+  Afinacion pedida en planta. Cinco temas, ninguno pide rehacer configuracion:
+  todo lo que habia en disco se sigue leyendo igual.
+
+  1. RITMO DEL LAZO VISIBLE Y CONFIGURABLE
+
+     El motor corre en CICLO LIBRE: el "piso" es un periodo MINIMO, no el
+     periodo del lazo. Al final de cada vuelta duerme lo que le falte para
+     completarlo, y si el tick tardo mas, no duerme nada. O sea:
+
+         ritmo real = max(duracion del tick, piso)
+
+     Nuevo campo "Piso del lazo (ms)" en la barra del motor (pagina Tags), y
+     al lado, con el motor corriendo: periodo real, ticks/s, duracion del
+     tick, tick maximo y cuanto durmio.
+
+     COMO USARLO: mirar "dormido". Si es > 0 el piso manda y bajarlo acelera
+     el lazo. Si es 0, manda la duracion del tick (tipicamente la latencia de
+     OPC-UA) y el piso no cambia nada: el retardo esta en otro lado.
+
+     Se aplica EN VIVO: no reinicia el motor ni vacia ventanas. Se guarda en
+     config/espesador/motor.json (se crea solo; ausente = 0,05 s).
+
+  2. AUTO-REINICIO EN CALIENTE: AHORA ENCENDIDO POR DEFECTO
+
+     El toggle ya existia pero nacia apagado, asi que editar filtros o
+     pendientes no aplicaba nada hasta pulsar Iniciar Sistema. Ahora arranca
+     encendido. El reinicio es en caliente: no suelta el lazo del DCS ni vacia
+     las ventanas. Si el operador lo apaga, su eleccion se recuerda.
+
+  3. VENTANA DE PENDIENTE EN SEGUNDOS + RELACION 2x-4x
+
+     Antes se declaraba en minutos: pedir 20 s obligaba a escribir 0.33. Ahora
+     el campo es en segundos, y al lado se muestra cuantas veces mide la
+     ventana del filtro de esa variable. Lo recomendado es 2x a 4x:
+
+         < 2x  la pendiente mide el transitorio del filtro, no el proceso
+         > 4x  promedia cambios reales y la tendencia llega tarde
+
+     Es un AVISO, no un rechazo. Los pendientes.json viejos (`ventana_min`) se
+     siguen leyendo y se migran al guardar desde la pagina.
+
+     EN ESTA PLANTA: la pendiente quedo en 120 s sobre un filtro de 50 s
+     (2.4x, dentro del rango) pero los dos valores son grandes. Al bajar el
+     filtro hay que bajar la pendiente en la misma proporcion; la pagina lo
+     pide sola.
+
+  4. ESTADOS CON ALTERNATIVAS (GRUPO OR)
+
+     Un estado ya no es solo un AND de condiciones: tiene boton "+ Grupo OR".
+     Con eso el escenario del experto se declara como UN estado con nombre:
+
+         Alto = (Alto y NO bajando)  o  (OK y subiendo)
+         Bajo = (Bajo y NO subiendo) o  (OK y bajando)
+
+     Antes habia que partirlo en dos estados y rearmarlo dentro de CADA regla.
+     El "NO" se escribe eligiendo la etiqueta negada (NO-DEC, NO-INC, ...), que
+     el nucleo genera sola para cada etiqueta definida.
+
+     El motor no cambio: ya evaluaba OR y NOT. Lo que faltaba era declararlo.
+
+  5. RATIFICACION DE LA PENDIENTE CON LA ACELERACION
+
+     Opcional, por pendiente, desplegable "ratificar con ...". Contrasta la
+     tendencia larga contra el `rate` de una aceleracion corta (5-10 s):
+
+         mismo lado               la tendencia se sostiene: pasa
+         rate en su banda muerta  no desmiente nada: pasa
+         lado contrario           se fuzzifica como pendiente NULA
+
+     OJO, ES FAIL-CLOSED: si se declara ratificacion y la aceleracion no esta
+     disponible, la pendiente NO se emite y las reglas que la nombran quedan
+     no evaluables (con el motivo en la traza). No se puede borrar ni
+     deshabilitar una aceleracion que esta ratificando a alguna pendiente.
+
+     ANTES DE ACTIVARLA: calibrar `umbral_estable` de esa aceleracion mirando
+     la traza. Hoy esta en el valor neutro de plantilla, no en una calibracion
+     de este hopper. La segunda derivada amplifica el ruido.
+
+     Viene APAGADA: el tracking de esta planta no se toca si no se elige nada.
+
+  6. IMPORT DE TRACKING PV-SP: AHORA VALIDA
+
+     El import escribia tracking.json crudo, sin pasar por el validador que si
+     usa la pagina. Un paquete de otra planta podia dejar un `pv_key` que aca
+     no existe —y entonces el motor RETIENE esa familia y el SE deja de
+     escribir ese SP— o un `arranque.tag` ajeno, que es peor porque no levanta
+     alerta: la familia no se siembra nunca.
+
+     Ahora el import usa el mismo validador y RECHAZA el bloque entero, sin
+     tocar el archivo. El preview avisa antes, con la familia, el campo y el
+     efecto. Si el paquete viene de otra planta: desmarcar Tracking PV-SP e
+     importar el resto.
+
+     El modo "copias" en tracking se aplica como "agregar": una familia es el
+     identificador de un SP, no admite copias.
+
+
 NOVEDADES 0.41 -- LEER ANTES DE ACTUALIZAR
 -----------------------------------------
 
@@ -282,13 +508,13 @@ CONVENCION DE VERSIONES -- una carpeta por version, nombres fijos adentro
                               tag de imagen  se-espesador:<VER>
                               archivo        se-espesador-<VER>.tar
 
-  NO cambia nunca:            name: se-hutbay-espesador-3
-                              container_name: se-hutbay-espesador-3
+  Desde 0.45 cambian tambien:  name: se-espesador-a0-<VER sin punto>   (ej. a0-45)
+                              container_name: se-espesador-A0-<VER sin punto>
 
-  El nombre del contenedor se mantiene fijo a proposito. Si cambiara en cada
-  version, el compose de la version nueva no encontraria el contenedor viejo
-  al hacer down, y el up -d chocaria por el puerto 5000 con un contenedor
-  cuyo nombre ya no sabes. Ver TRAMPA 3.
+  Hasta 0.44 el nombre era fijo (se-hutbay-espesador-3). Ahora lleva la
+  version para saber que corre en cada VM. El costo: el compose nuevo no
+  conoce al contenedor viejo, asi que el viejo se baja SIEMPRE desde su
+  propia carpeta (D.2) antes del up -d. Ver TRAMPA 3.
 
 
 ================================================================================
@@ -307,7 +533,9 @@ A.1  Preparar los archivos de la version nueva
        cd /d "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
        powershell -NoProfile -Command "(gc deploy\docker-compose-0.35.yml) -replace '0\.35','<VER>' | sc deploy\docker-compose-<VER>.yml"
 
-     El de 0.41 YA ESTA CREADO: para esta version se saltea este paso.
+     El de 0.45 YA ESTA CREADO (deploy\docker-compose-0.45.yml): para esta
+     version se saltea este paso. Desde 0.45, al clonar hay que cambiar
+     tambien name: y container_name: (llevan la version).
 
      deploy\kepserver.json NO cambia con la version: ya apunta a
      192.168.137.1:49320.
@@ -419,7 +647,8 @@ D.2  Bajar la version anterior
 
      Si quedo algo colgando, borrar por nombre (no depende del proyecto):
 
-       sudo docker rm -f se-hutbay-espesador-3
+       sudo docker ps -a --filter name=espesador
+       sudo docker rm -f <nombre que liste>      # 0.44 o anterior: se-hutbay-espesador-3
 
 D.3  Cargar la imagen nueva
 
@@ -440,7 +669,7 @@ D.5  Verificar
 
        curl http://127.0.0.1:5000/health
        curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/static/vendor/chart.umd.js
-       sudo docker inspect --format='{{.State.Health.Status}}' se-hutbay-espesador-3
+       sudo docker inspect --format='{{.State.Health.Status}}' se-espesador-A0-<VER sin punto>
 
      El segundo curl debe dar 200: prueba de que los assets locales se
      sirven y la UI no depende de internet.
@@ -475,8 +704,8 @@ D.7  Limpiar -- SOLO con la version nueva confirmada en el navegador
 
 ROLLBACK
 
+       cd /opt/se-<VER> && sudo docker compose down
        cd /opt/se-<VER_ANTERIOR>
-       sudo docker rm -f se-hutbay-espesador-3
        sudo docker compose up -d
 
      La config de cada version vive en su propia carpeta y no se toca.
@@ -522,10 +751,12 @@ TRAMPA 3 -- docker compose down no borra el contenedor si cambio la carpeta
 
      Conflict. The container name "/se-hutbay-espesador-3" is already in use
 
-  Antiveneno: los compose de deploy\ llevan  name: se-hutbay-espesador-3
-  explicito, y el borrado de emergencia es por nombre:
+  Antiveneno: los compose de deploy\ llevan  name:  explicito, y el
+  borrado de emergencia es por nombre. Desde 0.45 el nombre cambia con la
+  version, asi que primero se lista:
 
-     sudo docker rm -f se-hutbay-espesador-3
+     sudo docker ps -a --filter name=espesador
+     sudo docker rm -f <nombre listado>
 
   No se pierde nada: la config vive en el bind mount ./config del host.
 

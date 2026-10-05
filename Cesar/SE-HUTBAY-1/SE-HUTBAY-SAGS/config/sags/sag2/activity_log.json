@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "next_id": 10,
+  "unsaved": {
+    "fuzzy": 9
+  },
+  "restart": {
+    "export_import": 4
+  },
+  "issues": {
+    "desfase:sp_sin_tabla": 8
+  },
+  "entries": [
+    {
+      "id": 1,
+      "kind": "info",
+      "page": "",
+      "page_label": "Sistema",
+      "message": "Motor SE iniciado",
+      "detail": "piso_s=0.05",
+      "ts": 1790883837.5838327,
+      "last_seen": 1790883837.5838327,
+      "expires_at": 1790883842.5838327,
+      "pinned": false,
+      "dismissed": false
+    },
+    {
+      "id": 2,
+      "kind": "unsaved",
+      "page": "export_import",
+      "page_label": "Export / Import",
+      "message": "Importacion pendiente de aplicar",
+      "detail": "se-export_2026-10-01_1649.json",
+      "ts": 1790884209.5625496,
+      "last_seen": 1790884209.6167324,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": true
+    },
+    {
+      "id": 3,
+      "kind": "saved",
+      "page": "export_import",
+      "page_label": "Export / Import",
+      "message": "Importacion aplicada",
+      "detail": "1 modulo importado · tags · +4 filtros, +2 tracking",
+      "ts": 1790884211.8740146,
+      "last_seen": 1790884211.8740146,
+      "expires_at": 1790884216.8740146,
+      "pinned": false,
+      "dismissed": false
+    },
+    {
+      "id": 4,
+      "kind": "restart",
+      "page": "export_import",
+      "page_label": "Export / Import",
+      "message": "Cambios guardados en Export / Import: reinicia el motor para aplicarlos",
+      "detail": "1 modulo importado · tags · +4 filtros, +2 tracking",
+      "ts": 1790884211.8866801,
+      "last_seen": 1790884211.8866801,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": false
+    },
+    {
+      "id": 5,
+      "kind": "error",
+      "page": "tracking",
+      "page_label": "Tracking PV-SP",
+      "message": "2 entrada(s) apuntan a variables que no estan en el contrato: el SE las ignora.",
+      "detail": "velocidad_salida_del_se, velocidad_sp_del_dcs_referencia_de_arranque. Suele pasar al renombrar el pseudonimo de un tag: renombra la entrada al identificador nuevo o volve a sincronizar esta pagina.",
+      "ts": 1790894382.888404,
+      "last_seen": 1790949020.7497094,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": true
+    },
+    {
+      "id": 6,
+      "kind": "error",
+      "page": "filtros",
+      "page_label": "Filtros Exp-Q",
+      "message": "4 entrada(s) apuntan a variables que no estan en el contrato: el SE las ignora.",
+      "detail": "corriente, hopper_nvl_pv_a, nivel_transmisor_a, velocidad_pv. Suele pasar al renombrar el pseudonimo de un tag: renombra la entrada al identificador nuevo o volve a sincronizar esta pagina.",
+      "ts": 1790894382.9007566,
+      "last_seen": 1790949020.755345,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": true
+    },
+    {
+      "id": 7,
+      "kind": "error",
+      "page": "contrato",
+      "page_label": "Contrato de Variables",
+      "message": "6 tag(s) PV/SP no estan en el contrato: el SE no los ve.",
+      "detail": "corriente, hopper_nvl_pv_a, nivel_transmisor_a, velocidad_pv, velocidad_salida_del_se, velocidad_sp_del_dcs_referencia_de_arranque. Pulsa 'Sincronizar con tags' para incorporarlos.",
+      "ts": 1790894382.9265227,
+      "last_seen": 1790949020.7717915,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": true
+    },
+    {
+      "id": 8,
+      "kind": "error",
+      "page": "defuzzy",
+      "page_label": "Defuzzificacion",
+      "message": "Setpoint del contrato sin tabla Sugeno: las reglas que lo muevan van a disparar sin efecto.",
+      "detail": "velocidad_salida_del_se, velocidad_sp_del_dcs_referencia_de_arranque",
+      "ts": 1790950837.1808295,
+      "last_seen": 1790967028.2034435,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": false
+    },
+    {
+      "id": 9,
+      "kind": "unsaved",
+      "page": "fuzzy",
+      "page_label": "Fuzzificacion",
+      "message": "Cambios sin guardar en Fuzzificacion",
+      "detail": "",
+      "ts": 1790951154.6015687,
+      "last_seen": 1790951154.6015687,
+      "expires_at": null,
+      "pinned": true,
+      "dismissed": false
+    }
+  ]
+}

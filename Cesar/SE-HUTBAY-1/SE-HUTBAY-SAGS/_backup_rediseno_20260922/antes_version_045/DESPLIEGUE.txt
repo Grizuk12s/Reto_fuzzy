@@ -1,0 +1,745 @@
+================================================================================
+  SE-HUTBAY-ESPESADOR-3 -- Exportar y desplegar
+  Windows dev -> USB -> Windows destino -> VM Linux -> contenedor arriba
+  Unico documento de despliegue. Para ejecutar en local: COMO_EJECUTAR.txt
+================================================================================
+
+  Reemplazar <VER> por la version que se despliega (ej. 0.35).
+  Ultimo despliegue realizado con este procedimiento: 0.4
+
+
+NOVEDADES 0.44 -- LEER ANTES DE ACTUALIZAR
+-----------------------------------------
+
+  Cambio SOLO de interfaz. No se toco ni una linea de Python: motor,
+  blueprints, endpoints y formato de configuracion quedan identicos a 0.43.
+  Un contenedor 0.43 y uno 0.44 leen y escriben los mismos JSON, asi que se
+  puede volver atras sin migrar nada.
+
+  1. IDENTIDAD HUDBAY
+
+     La paleta slate/cyan pasa a la carta Hudbay: carbon #152128 en tarjetas y
+     tablas, #101A20 de fondo, rojo #EE3524 en la accion primaria y en la
+     navegacion activa. Los colores CON SIGNIFICADO DE PROCESO no se tocaron:
+     verde OK, rojo alarma, ambar aviso y las pastillas de dinamica y signo
+     siguen exactamente igual. En una sala de control el color de estado es
+     informacion, no decoracion.
+
+     Como la accion primaria quedo en rojo, el boton destructivo paso a rojo
+     CONTORNEADO para no confundirse con ella. Guardar = relleno,
+     Eliminar = contorno.
+
+  2. LOGOS
+
+     Portada (/): logo ReTO Digital, con una franja superior discreta con el
+     wordmark de Hudbay. Paginas internas: Hudbay en la barra lateral y en la
+     navegacion superior; ReTO queda como firma al pie del menu.
+     Favicon nuevo en todas las paginas.
+
+  3. DETALLES DE INTERFAZ
+
+     - Barras de scroll en la carta Hudbay (antes eran las blancas del sistema).
+     - La barra de Ultimas Ejecuciones ya no tapa el contenido al expandirse:
+       la zona principal reserva su altura, y su borde izquierdo sigue al menu
+       cuando se colapsa. El estado abierto/cerrado se recuerda.
+
+  ARCHIVOS NUEVOS EN static/: hudbay.css, hudbay-logo.png, favicon.png,
+  reto-digital.png, reto-digital-dark.png, reto-digital-original.png.
+  El detalle completo del cambio esta en CAMBIOS_REDISENO_HUDBAY.md.
+
+
+NOVEDADES 0.43 -- LEER ANTES DE ACTUALIZAR
+-----------------------------------------
+
+  Afinacion pedida en planta. Cinco temas, ninguno pide rehacer configuracion:
+  todo lo que habia en disco se sigue leyendo igual.
+
+  1. RITMO DEL LAZO VISIBLE Y CONFIGURABLE
+
+     El motor corre en CICLO LIBRE: el "piso" es un periodo MINIMO, no el
+     periodo del lazo. Al final de cada vuelta duerme lo que le falte para
+     completarlo, y si el tick tardo mas, no duerme nada. O sea:
+
+         ritmo real = max(duracion del tick, piso)
+
+     Nuevo campo "Piso del lazo (ms)" en la barra del motor (pagina Tags), y
+     al lado, con el motor corriendo: periodo real, ticks/s, duracion del
+     tick, tick maximo y cuanto durmio.
+
+     COMO USARLO: mirar "dormido". Si es > 0 el piso manda y bajarlo acelera
+     el lazo. Si es 0, manda la duracion del tick (tipicamente la latencia de
+     OPC-UA) y el piso no cambia nada: el retardo esta en otro lado.
+
+     Se aplica EN VIVO: no reinicia el motor ni vacia ventanas. Se guarda en
+     config/espesador/motor.json (se crea solo; ausente = 0,05 s).
+
+  2. AUTO-REINICIO EN CALIENTE: AHORA ENCENDIDO POR DEFECTO
+
+     El toggle ya existia pero nacia apagado, asi que editar filtros o
+     pendientes no aplicaba nada hasta pulsar Iniciar Sistema. Ahora arranca
+     encendido. El reinicio es en caliente: no suelta el lazo del DCS ni vacia
+     las ventanas. Si el operador lo apaga, su eleccion se recuerda.
+
+  3. VENTANA DE PENDIENTE EN SEGUNDOS + RELACION 2x-4x
+
+     Antes se declaraba en minutos: pedir 20 s obligaba a escribir 0.33. Ahora
+     el campo es en segundos, y al lado se muestra cuantas veces mide la
+     ventana del filtro de esa variable. Lo recomendado es 2x a 4x:
+
+         < 2x  la pendiente mide el transitorio del filtro, no el proceso
+         > 4x  promedia cambios reales y la tendencia llega tarde
+
+     Es un AVISO, no un rechazo. Los pendientes.json viejos (`ventana_min`) se
+     siguen leyendo y se migran al guardar desde la pagina.
+
+     EN ESTA PLANTA: la pendiente quedo en 120 s sobre un filtro de 50 s
+     (2.4x, dentro del rango) pero los dos valores son grandes. Al bajar el
+     filtro hay que bajar la pendiente en la misma proporcion; la pagina lo
+     pide sola.
+
+  4. ESTADOS CON ALTERNATIVAS (GRUPO OR)
+
+     Un estado ya no es solo un AND de condiciones: tiene boton "+ Grupo OR".
+     Con eso el escenario del experto se declara como UN estado con nombre:
+
+         Alto = (Alto y NO bajando)  o  (OK y subiendo)
+         Bajo = (Bajo y NO subiendo) o  (OK y bajando)
+
+     Antes habia que partirlo en dos estados y rearmarlo dentro de CADA regla.
+     El "NO" se escribe eligiendo la etiqueta negada (NO-DEC, NO-INC, ...), que
+     el nucleo genera sola para cada etiqueta definida.
+
+     El motor no cambio: ya evaluaba OR y NOT. Lo que faltaba era declararlo.
+
+  5. RATIFICACION DE LA PENDIENTE CON LA ACELERACION
+
+     Opcional, por pendiente, desplegable "ratificar con ...". Contrasta la
+     tendencia larga contra el `rate` de una aceleracion corta (5-10 s):
+
+         mismo lado               la tendencia se sostiene: pasa
+         rate en su banda muerta  no desmiente nada: pasa
+         lado contrario           se fuzzifica como pendiente NULA
+
+     OJO, ES FAIL-CLOSED: si se declara ratificacion y la aceleracion no esta
+     disponible, la pendiente NO se emite y las reglas que la nombran quedan
+     no evaluables (con el motivo en la traza). No se puede borrar ni
+     deshabilitar una aceleracion que esta ratificando a alguna pendiente.
+
+     ANTES DE ACTIVARLA: calibrar `umbral_estable` de esa aceleracion mirando
+     la traza. Hoy esta en el valor neutro de plantilla, no en una calibracion
+     de este hopper. La segunda derivada amplifica el ruido.
+
+     Viene APAGADA: el tracking de esta planta no se toca si no se elige nada.
+
+  6. IMPORT DE TRACKING PV-SP: AHORA VALIDA
+
+     El import escribia tracking.json crudo, sin pasar por el validador que si
+     usa la pagina. Un paquete de otra planta podia dejar un `pv_key` que aca
+     no existe —y entonces el motor RETIENE esa familia y el SE deja de
+     escribir ese SP— o un `arranque.tag` ajeno, que es peor porque no levanta
+     alerta: la familia no se siembra nunca.
+
+     Ahora el import usa el mismo validador y RECHAZA el bloque entero, sin
+     tocar el archivo. El preview avisa antes, con la familia, el campo y el
+     efecto. Si el paquete viene de otra planta: desmarcar Tracking PV-SP e
+     importar el resto.
+
+     El modo "copias" en tracking se aplica como "agregar": una familia es el
+     identificador de un SP, no admite copias.
+
+
+NOVEDADES 0.41 -- LEER ANTES DE ACTUALIZAR
+-----------------------------------------
+
+  Un solo tema: que hace el SE cuando NO hay licencia valida (vencida,
+  manipulada, ausente). No pide tocar configuracion.
+
+  La licencia de prototipo tiene TOPE DURO el 2026-10-12: vale hasta ese dia
+  inclusive y deja de valer el 13-oct. Despues del tope tampoco se puede
+  activar otra desde la pagina Licenciamiento.
+
+  1. QUE SE CORTA Y QUE SIGUE SIN LICENCIA
+
+       Escritura de SP al DCS (normal y espejo)   BLOQUEADA
+       Generador de datos de tags                 NO FUNCIONA (no genera,
+                                                  no graba, no escribe,
+                                                  no arranca)
+       Edicion de tags / escritura manual         BLOQUEADA
+       Heartbeat                                  SIGUE FUNCIONANDO
+       Lectura, motor difuso, traza, graficos     SIGUEN
+
+     Cambio respecto de la 0.4: antes el heartbeat TAMBIEN se cortaba sin
+     licencia. Ahora sigue pulsando: es la senal de vida que vigila el DCS.
+
+  2. EL SE SUELTA EL CONTROL EXTERNO (ENABLE_EXT)
+
+     Antes el SE solo escribia ENABLE_EXT al arrancar (True) y al detener
+     (False). Si la licencia vencia con el motor corriendo, ENABLE_EXT quedaba
+     en True con un SE que ya no escribe: el DCS creia que el experto mandaba
+     y el SP quedaba congelado.
+
+     Ahora:
+       - Licencia vence con el motor corriendo -> el SE escribe
+         ENABLE_EXT=False UNA vez (revisa cada 1 s). Es el mismo camino que
+         el boton Detener. Si el write falla, lo reintenta.
+       - Arrancar el motor sin licencia -> NO pide el control.
+       - Activar una licencia nueva NO vuelve a pedir el control solo:
+         hay que REINICIAR EL MOTOR, como siempre.
+
+     CONFIRMAR con quien programo el DCS que ENABLE_EXT=0 con el heartbeat
+     todavia vivo produce la misma transferencia que detener el SE.
+
+  3. ALERTA CONSTANTE
+
+     Sin licencia, la barra de alertas muestra SIEMPRE "No hay licencia
+     activa...". Si se marca resuelta vuelve a los ~5 s. Se cierra sola al
+     activar una licencia valida.
+
+  VERIFICAR DESPUES DE LEVANTAR (paso D.5)
+
+     Pagina Licenciamiento -> Estado "Activa" y vence 2026-10-12.
+     Si dice "Manipulada": reloj de la VM atrasado respecto del archivo
+     (ver TRAMPA 8).
+
+  COMPATIBILIDAD
+
+     Ningun JSON cambia de formato. La 0.4 se puede volver a levantar sin
+     deshacer nada.
+
+
+NOVEDADES 0.4 -- LEER ANTES DE ACTUALIZAR
+----------------------------------------
+
+  Un solo cambio, sobre la ACELERACION que entro en la 0.39. No pide tocar
+  configuracion: `aceleraciones.json` no cambio de formato y lo que este
+  declarado sigue sirviendo tal cual.
+
+  Pero SI cambia el comportamiento de una etiqueta existente. Es lo unico
+  que hay que mirar de esta version, y esta en el punto 2.
+
+  1. EL SIGNO DE LA ACELERACION -- tres etiquetas nuevas
+
+     ACELERANDO no dice para que lado. Una variable que sube cada vez mas
+     rapido y una que se escapa hacia abajo cada vez mas rapido salen las dos
+     ACELERANDO, y una regla escrita sobre la dinamica no las distingue.
+
+     Cada aceleracion publica ahora DOS etiquetas a la vez, de dos familias
+     independientes:
+
+       Dinamica   ACELERANDO / DESACELERANDO / ESTABLE
+                  -> la magnitud del cambio, .crece o baja?
+
+       Signo      ACELERACION_POSITIVA / ACELERACION_NEGATIVA
+                  ACELERACION_NULA
+                  -> hacia que lado empuja 2a
+
+     Las seis, y sus seis NO-<X>, se ofrecen sobre la misma variable en las
+     CONDICIONES de las reglas, en los Estados y en los Subestados. La tabla:
+
+       rate    2a         dinamica        signo
+       ------  ---------  --------------  ---------------------
+       sube    positiva   ACELERANDO      ACELERACION_POSITIVA
+       baja    negativa   ACELERANDO      ACELERACION_NEGATIVA
+       sube    negativa   DESACELERANDO   ACELERACION_NEGATIVA
+       baja    positiva   DESACELERANDO   ACELERACION_POSITIVA
+       banda   banda      ESTABLE         ACELERACION_NULA
+       FUERA   banda      (ninguna)       ACELERACION_NULA
+
+     El signo se mide contra la MISMA banda muerta que separa ESTABLE, asi
+     que no hay un segundo numero que calibrar.
+
+     Se ve en la pagina Aceleracion (dos pastillas por tarjeta y una fila
+     "signo" en el panel en vivo), en la traza (paso 4) y en el Explorador de
+     Series (tooltip y tarjeta de estadistica).
+
+  2. ATENCION -- ESTABLE se volvio mas estricto
+
+     Antes: ESTABLE con |2a| < umbral, mirara el rate lo que mirara. Una
+     variable subiendo a VELOCIDAD CONSTANTE salia ESTABLE.
+
+     Ahora: ESTABLE exige que el rate Y la aceleracion esten los dos dentro
+     de su banda muerta. La variable moviendose parejo ya no lleva NINGUNA
+     etiqueta dinamica: se reporta solo con ACELERACION_NULA, y las tres
+     NO-ACELERANDO / NO-DESACELERANDO / NO-ESTABLE quedan en 1.
+
+     El motivo: ESTABLE es correcto leido como "la magnitud del cambio no
+     cambia", pero se lee --y se escriben reglas-- como "el proceso esta
+     quieto", que es lo contrario de lo que pasa cuando la variable se esta
+     escapando parejo.
+
+     QUE HAY QUE HACER ANTES DE ACTUALIZAR:
+
+       Revisar con el experto de planta toda regla, estado o subestado que
+       nombre ESTABLE sobre una aceleracion. Si lo usaba para decir "no se
+       esta escapando", esa regla YA NO DISPARA con la variable moviendose a
+       velocidad constante.
+
+       Donde mirarlo: pagina Aceleracion, linea "La usan las reglas" de cada
+       tarjeta. Y con el motor arriba, la traza paso 4 muestra la dinamica y
+       el signo de cada tick.
+
+       No se arregla bajando la banda muerta: eso vuelve a meter el ruido.
+       Si lo que la regla queria decir era "el proceso esta quieto", la
+       condicion correcta hoy es ESTABLE; si era "2a es despreciable", es
+       ACELERACION_NULA.
+
+     Si no hay ninguna aceleracion declarada, o ninguna regla la nombra por
+     ESTABLE, esta version no cambia nada.
+
+  COMPATIBILIDAD
+
+     `aceleraciones.json` no cambia de formato: los paquetes de export/import
+     de la UI y las configuraciones guardadas siguen siendo validos, y la
+     0.39 se puede volver a levantar sin deshacer nada.
+
+
+NOVEDADES 0.39 -- LEER ANTES DE ACTUALIZAR
+------------------------------------------
+
+  Tres cambios que se ven en planta. Ninguno pide tocar configuracion para
+  arrancar: el que hay se conserva tal cual y la version anterior sigue
+  sirviendo si hay que volver atras.
+
+  1. TRANSFERENCIA BUMPLESS -- el SP del SE se iguala al del DCS
+
+     Antes: el SP del SE se corregia UNA vez, en el instante en que el DCS
+     entregaba el lazo. Entre medio quedaba congelado en el ultimo valor que
+     el SE habia escrito, aunque el operador moviera el equipo a mano durante
+     horas; y si justo en ese instante la referencia no se podia leer, la
+     familia quedaba sin escribir.
+
+     Ahora, mientras ENABLE_FBK esta en 0 (el DCS no autoriza), el SE iguala
+     su setpoint al SP del DCS EN CADA TICK -- tanto su objetivo interno como
+     el tag que le escribe al DCS. Cuando ENABLE_FBK pasa a 1, deja de
+     seguirlo y el SE manda desde ese valor. La transferencia no produce salto
+     ni en la decision del SE ni en la senal que el DCS ve.
+
+     ATENCION, es lo unico que hay que mirar de esta version: el SE ESCRIBE
+     su tag de salida con el permiso DENEGADO. La escritura esta acotada por
+     construccion -- lo unico que puede salir sin autorizacion es el valor que
+     acaba de leer del SP del DCS, nunca uno calculado por las reglas, y como
+     mucho una vez por segundo. Verificar despues de levantar: con el FBK en
+     0, el tag del SE tiene que quedar igual al SP del DCS y seguirlo.
+
+     De donde sale la referencia se elige en Tracking PV-SP, columna Arranque
+     (SP de referencia del DCS / PV de readback / ninguno). El interruptor
+     "Habilitado" del tracking NO influye en el bumpless: solo controla el
+     bloqueo por seguimiento.
+
+  2. ACELERACION -- pagina nueva
+
+     Una pendiente dice si la variable sube o baja; una aceleracion dice si
+     ese movimiento se esta agrandando o achicando. Se declaran en la pagina
+     Aceleracion (5a), una o varias por variable, cada una con su ventana en
+     segundos, y quedan disponibles en las CONDICIONES de las reglas, en los
+     Estados y en los Subestados, con sus etiquetas ACELERANDO /
+     DESACELERANDO / ESTABLE y sus negaciones NO-ACELERANDO / NO-DESACELERANDO.
+
+     Nace vacio: si no se declara ninguna, nada cambia.
+
+     El umbral de ESTABLE por defecto (0,01 u/s2) es una PLANTILLA NEUTRA, no
+     ingenieria -- igual que los modelos difusos y el q de los filtros. Hay
+     que calibrarlo por variable con el proceso corriendo: la pagina muestra
+     el numero real y una barra de margen para eso. Sin calibrar, el estado
+     salta con el ruido.
+
+  3. EXPLORADOR DE SERIES -- objetivo interno del SE graficable
+
+     Filtro SE nuevo. Grafica el "objetivo interno del SE" al lado del SP del
+     DCS para ver la transferencia: con el FBK en 0 van pegados, con el FBK en
+     1 se separan.
+
+
+NOVEDADES 0.35 -- LEER ANTES DE ACTUALIZAR
+------------------------------------------
+
+  Dos cosas que antes solo se podian tocar editando JSON a mano ahora tienen
+  pagina. Al levantar la version nueva, el arranque MIGRA la configuracion
+  existente sola: es aditiva e idempotente, no borra nada, y se puede volver a
+  la version anterior sin deshacer nada (los campos viejos siguen ahi).
+
+  1. LIMITES DE LAS VARIABLES -- se declaran donde se usan
+
+     Antes: el limite de una PV era el campo "rol" de un tag LIM, asignado en
+     la pagina de Tags; el tope de escritura de un SP eran dos numeros en
+     contrato.json que NINGUNA pagina editaba.
+
+     Ahora: cada fuzzy y cada familia de defuzzy tiene su propia tabla de
+     limites, donde se elige el tag por pseudonimo, mas un respaldo numerico
+     opcional. El tag siempre manda; el numero solo cubre el bound que no
+     tiene tag, y hay que encenderlo a mano.
+
+     Consecuencia practica: un mismo tag puede acotar VARIAS variables. Los
+     limites fisicos de la bomba (PU009_Speed_MIN/MAX) pueden ser a la vez la
+     escala de su PV y el tope de escritura de su setpoint, sin duplicar el
+     tag en KEPserver.
+
+     Que hace la migracion al arrancar:
+       - adopta los roles LIM viejos como cableado del fuzzy que los usa;
+       - adopta limites_sp de contrato.json como respaldo numerico de la
+         familia de defuzzy, HABILITADO (esos numeros estan clipeando hoy;
+         apagarlos dejaria el setpoint sin tope, o sea sin escritura).
+     Los avisos de la migracion quedan en la campana de alertas.
+
+     Un tag de limite que no exista en esta planta NO se reemplaza solo: queda
+     marcado en rojo en su pagina y no deja guardar hasta elegir reemplazo.
+
+  2. HANDSHAKE CON EL DCS -- se configura en Tags
+
+     ENABLE_FBK / ENABLE_EXT siempre vivieron en tags.json, pero no habia
+     forma de editarlos desde la interfaz. Ahora hay un panel en la pagina de
+     Tags, al lado del de Heartbeat, con el estado en vivo (NO EXIGIDO /
+     EXIGIDO / AUTORIZADO / DENEGADO) y el motivo cuando el DCS deniega.
+
+     Importa porque es fail-closed: mal configurado, el SE calcula todo y NO
+     escribe ningun setpoint. Verificarlo despues de levantar la version.
+
+     El handshake tambien viaja ahora en el paquete de exportacion de la UI
+     (antes no, y una planta clonada arrancaba sin permiso sin decir por que).
+
+
+ESCENARIO
+---------
+
+    Windows desarrollo                    VM Linux "ubuntu-docker"
+    (Docker Desktop)                      192.168.137.94
+         |                                usuario: operador
+         | build + save                        |
+         v                                     v
+    C:\...\Desktop\SE <VER>  --USB-->  Windows destino  --scp-->  /opt/se-<VER>
+                                       (adadministrator)              |
+                                                                      v
+                                                          contenedor :5000
+                                                                      |
+                        KEPserver + PostgreSQL  <--- OPC-UA / TCP -----+
+                        192.168.137.1:49320
+
+
+CONVENCION DE VERSIONES -- una carpeta por version, nombres fijos adentro
+-------------------------------------------------------------------------
+
+  Cambia con la version:      carpeta /opt/se-<VER>
+                              tag de imagen  se-espesador:<VER>
+                              archivo        se-espesador-<VER>.tar
+
+  NO cambia nunca:            name: se-hutbay-espesador-3
+                              container_name: se-hutbay-espesador-3
+
+  El nombre del contenedor se mantiene fijo a proposito. Si cambiara en cada
+  version, el compose de la version nueva no encontraria el contenedor viejo
+  al hacer down, y el up -d chocaria por el puerto 5000 con un contenedor
+  cuyo nombre ya no sabes. Ver TRAMPA 3.
+
+
+================================================================================
+  PARTE A -- GENERAR EL PAQUETE (Windows de desarrollo)
+================================================================================
+
+  Requisito: Docker Desktop abierto y con el icono activo.
+  Usar CMD. PowerShell tiene la ejecucion de scripts deshabilitada en este
+  equipo (ver TRAMPA 1).
+
+A.1  Preparar los archivos de la version nueva
+
+     En deploy\ hay un compose por version (0.31 ... 0.41). Para la siguiente,
+     clonar el ultimo y cambiarle el tag:
+
+       cd /d "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
+       powershell -NoProfile -Command "(gc deploy\docker-compose-0.35.yml) -replace '0\.35','<VER>' | sc deploy\docker-compose-<VER>.yml"
+
+     El de 0.44 YA ESTA CREADO (deploy\docker-compose-0.44.yml): para esta
+     version se saltea este paso.
+
+     deploy\kepserver.json NO cambia con la version: ya apunta a
+     192.168.137.1:49320.
+
+A.2  Construir, exportar y armar la carpeta
+
+       cd /d "C:\Users\cvall\OneDrive\Desktop\RETO\SE-HUTBAY\Reto_fuzzy\Cesar\SE-HUTBAY-1\SE-HUTBAY-ESPESADOR-3"
+       set DEST=C:\Users\cvall\OneDrive\Desktop\SE <VER>
+       mkdir "%DEST%"
+
+       docker build -t se-espesador:<VER> .
+       docker save -o "%DEST%\se-espesador-<VER>.tar" se-espesador:<VER>
+
+       xcopy /E /I /Y config "%DEST%\config"
+       del /S /Q "%DEST%\config\*.bak"
+
+       copy /Y deploy\docker-compose-<VER>.yml "%DEST%\docker-compose.yml"
+       copy /Y deploy\kepserver.json "%DEST%\config\espesador\kepserver.json"
+       copy /Y DESPLIEGUE.txt "%DEST%\LEEME.txt"
+
+       dir "%DEST%"
+
+A.3  Verificar
+
+     El dir debe listar 4 elementos:
+
+       se-espesador-<VER>.tar    ~200-400 MB, la imagen autocontenida
+       docker-compose.yml        con image: se-espesador:<VER>
+       config\                   los JSON, con kepserver.json corregido
+       LEEME.txt
+
+     Anotar el tamano exacto en bytes del .tar: se compara en cada salto.
+     (Referencia 0.31: 211101696 bytes.)
+
+     El copy de kepserver.json es el paso que no se puede saltar. Ver TRAMPA 4.
+
+
+================================================================================
+  PARTE B -- AL USB
+================================================================================
+
+       set USB=E:\se-demo
+       mkdir "%USB%"
+       xcopy /E /I /Y "%DEST%\*" "%USB%"
+       dir "%USB%"
+
+  La letra del pendrive se ve con:  wmic logicaldisk get name,volumename
+
+  Expulsar SIEMPRE desde el explorador ("quitar hardware de forma segura").
+  Con 200 MB Windows sigue escribiendo en segundo plano aunque el xcopy ya
+  haya devuelto el prompt.
+
+
+================================================================================
+  PARTE C -- WINDOWS DESTINO -> VM LINUX
+================================================================================
+
+C.1  Del USB al disco local
+
+       xcopy /E /I /Y E:\se-demo "C:\Users\adadministrator\Desktop\SE <VER>"
+
+C.2  Probar la VM
+
+       ping -n 3 192.168.137.94
+       ssh operador@192.168.137.94 "hostname; docker --version"
+
+     Clave de operador: 1234
+     La primera conexion pide aceptar la huella del host: escribir  yes
+
+C.3  Enviar por scp
+
+       scp -r "C:\Users\adadministrator\Desktop\SE <VER>" operador@192.168.137.94:/home/operador/
+
+     Tarda varios minutos sin mostrar avance. Es normal.
+     /home/operador/ es solo zona de paso. Ver TRAMPA 2.
+
+  Si no hay scp en ese Windows (where scp no devuelve nada):
+     - SMB:  sudo mount -t cifs //10.0.10.155/se-demo /mnt/win -o username=adadministrator
+     - USB directo en la VM:  lsblk ; sudo mount /dev/sdb1 /mnt/usb
+
+
+================================================================================
+  PARTE D -- VM LINUX: DEJAR LA VERSION ARRIBA
+================================================================================
+
+       ssh operador@192.168.137.94
+
+  operador NO esta en el grupo docker: todos los comandos docker van con sudo.
+
+D.1  Mover a su carpeta de version y verificar la transferencia
+
+       ls -la /home/operador/
+       sudo mv "/home/operador/SE <VER>" /opt/se-<VER>
+       sudo chown -R operador:operador /opt/se-<VER>
+       ls -la /opt/se-<VER>
+       du -b /opt/se-<VER>/se-espesador-<VER>.tar
+
+     Ese numero debe ser identico al anotado en A.3. Si es menor, la copia
+     se corto: el docker load fallara con un error de formato.
+
+D.2  Bajar la version anterior
+
+     Las IMAGENES no se detienen; se detienen los CONTENEDORES. Y la imagen
+     anterior no se borra todavia: es el rollback.
+
+       sudo docker ps
+       cd /opt/se-<VER_ANTERIOR> && sudo docker compose down
+       sudo docker ps -a | grep espesador        # no debe devolver nada
+
+     Si quedo algo colgando, borrar por nombre (no depende del proyecto):
+
+       sudo docker rm -f se-hutbay-espesador-3
+
+D.3  Cargar la imagen nueva
+
+       cd /opt/se-<VER>
+       sudo docker load -i se-espesador-<VER>.tar     # usar Tab para completar
+       sudo docker images | grep se-espesador
+
+     Debe imprimir:  Loaded image: se-espesador:<VER>
+
+D.4  Levantar
+
+       sudo docker compose up -d
+       sudo docker compose ps
+
+     El cd a /opt/se-<VER> no es opcional: el compose monta ./config.
+
+D.5  Verificar
+
+       curl http://127.0.0.1:5000/health
+       curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/static/vendor/chart.umd.js
+       sudo docker inspect --format='{{.State.Health.Status}}' se-hutbay-espesador-3
+
+     El segundo curl debe dar 200: prueba de que los assets locales se
+     sirven y la UI no depende de internet.
+     El health tarda ~20 s en pasar de starting a healthy.
+
+     Desde el navegador de Windows, SIEMPRE con Ctrl+F5 (ver TRAMPA 5):
+
+       http://192.168.137.94:5000/
+
+     Si no responde desde Windows:   sudo ufw allow 5000/tcp
+
+D.6  Configurar conexiones desde la UI
+
+       Panel "Conexion KEPserver":  192.168.137.1 / 49320
+           -> Probar conexion -> Guardar
+       Vista Postgres: host, puerto, usuario, password, base
+           -> Probar conexion -> Guardar configuracion
+
+     Comprobar red desde la VM si algo falla:
+       ping -c 3 192.168.137.1
+       nc -zv 192.168.137.1 49320
+       nc -zv 192.168.137.1 5432
+
+D.7  Limpiar -- SOLO con la version nueva confirmada en el navegador
+
+       sudo docker rmi se-espesador:<VER_ANTERIOR>
+       rm /opt/se-<VER_ANTERIOR>/se-espesador-<VER_ANTERIOR>.tar
+       rm -f /home/operador/se-espesador-<VER>.tar
+
+     Conservar SIEMPRE una version anterior cargada. La VM no tiene internet:
+     si borras la imagen vieja y la nueva falla, hay que volver al pendrive.
+
+ROLLBACK
+
+       cd /opt/se-<VER_ANTERIOR>
+       sudo docker rm -f se-hutbay-espesador-3
+       sudo docker compose up -d
+
+     La config de cada version vive en su propia carpeta y no se toca.
+
+
+================================================================================
+  TRAMPAS -- errores reales que ya costaron tiempo
+================================================================================
+
+TRAMPA 1 -- PowerShell no ejecuta los .ps1 en este equipo
+---------------------------------------------------------
+  .\exportar_v2.ps1 falla con "la ejecucion de scripts esta deshabilitada"
+  (PSSecurityException / UnauthorizedAccess). Intentos:
+
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass   -> no basto
+    powershell -NoProfile -ExecutionPolicy Bypass -File ...      -> no basto
+
+  Antiveneno: el bloque de comandos CMD de la PARTE A hace exactamente lo
+  mismo que el script, sin depender de la politica. El script se conserva
+  como referencia de lo que debe generarse.
+
+  Variante relacionada: en PowerShell, si abres una consola nueva las
+  variables se pierden, y "$dest\archivo.tar" con $dest nulo escribe en
+  C:\archivo.tar sin dar error.
+
+
+TRAMPA 2 -- scp -r anida la carpeta si el destino ya existe
+------------------------------------------------------------
+  scp -r carpeta usuario@host:/ruta/  crea /ruta/carpeta la primera vez,
+  pero si /ruta/carpeta YA existe deja el contenido en /ruta/carpeta/carpeta.
+  Paso con SE-KB-Base, Grafico-T-Real y "SE 0.31".
+  Sintoma: "cp: cannot stat ... No such file or directory".
+
+  Antiveneno: verificar SIEMPRE con  ls -la ~  antes de mover.
+
+
+TRAMPA 3 -- docker compose down no borra el contenedor si cambio la carpeta
+----------------------------------------------------------------------------
+  Compose identifica el proyecto por el nombre del DIRECTORIO, salvo que el
+  compose declare  name:  explicito. Al renombrar /opt/se-2.0 a /opt/se-3.0,
+  el contenedor viejo quedo etiquetado con el proyecto "se-2.0", el down
+  desde la carpeta nueva no encontro nada, y el up -d choco:
+
+     Conflict. The container name "/se-hutbay-espesador-3" is already in use
+
+  Antiveneno: los compose de deploy\ llevan  name: se-hutbay-espesador-3
+  explicito, y el borrado de emergencia es por nombre:
+
+     sudo docker rm -f se-hutbay-espesador-3
+
+  No se pierde nada: la config vive en el bind mount ./config del host.
+
+
+TRAMPA 4 -- kepserver.json manda sobre KEPSERVER_URL
+-----------------------------------------------------
+  connectors/kepserver.py hace _load_config() = {**defaults, **json}: el
+  JSON PISA la variable de entorno del compose. En desarrollo el JSON dice
+  host.docker.internal, que en la VM Linux no resuelve.
+  Sintoma confuso: el compose muestra la IP correcta y el SE no ve el
+  KEPserver igual.
+
+  Antiveneno: deploy\kepserver.json ya trae 192.168.137.1:49320 y se copia
+  encima en A.2. De todas formas la IP se puede corregir desde la UI: la
+  conexion al KEPserver no condiciona el arranque del contenedor.
+
+
+TRAMPA 5 -- el navegador cachea la pagina rota
+-----------------------------------------------
+  Tras cada actualizacion, abrir con Ctrl+F5. Sin refresco forzado el
+  navegador sirve la version cacheada y parece que el arreglo no quedo.
+
+
+TRAMPA 6 -- typos en el nombre del .tar
+----------------------------------------
+  "open se-espesdaor-0.32.tar: no such file or directory" no es un problema
+  de Docker ni del paquete: son letras cambiadas de lugar.
+  Antiveneno: escribir  sudo docker load -i se-  y pulsar Tab.
+
+
+TRAMPA 7 -- docker sin sudo
+----------------------------
+  "permission denied while trying to connect to the docker API at
+  unix:///var/run/docker.sock": el usuario operador no esta en el grupo
+  docker. No esta roto; anteponer sudo. Si se quiere sin sudo:
+     sudo usermod -aG docker $USER && newgrp docker
+
+
+TRAMPA 8 -- el reloj del host invalida la licencia
+---------------------------------------------------
+  La licencia usa firma HMAC + checkpoint monotonico. Si el reloj retrocede
+  se marca como manipulada.
+     sudo timedatectl set-ntp true
+     sudo timedatectl set-timezone America/Santiago
+
+
+================================================================================
+  DIAGNOSTICO RAPIDO
+================================================================================
+
+  Sintoma                                  Causa probable / fix
+  ---------------------------------------  ------------------------------------
+  no such image se-espesador:<VER>         falto el docker load
+  contenedor en Restarting                 compose lanzado fuera de la carpeta
+                                           con config/
+  Conflict. container name in use          TRAMPA 3 -> docker rm -f por nombre
+  el navegador no abre :5000               sudo ufw allow 5000/tcp
+  la UI no ve el KEPserver                 TRAMPA 4, o IP cambiada -> corregir
+                                           en la UI y docker compose restart
+  el arreglo "no quedo"                    TRAMPA 5 -> Ctrl+F5
+  healthcheck en "starting"                todavia cargando, esperar ~20 s
+  permission denied con docker             TRAMPA 7 -> sudo
+  licencia "manipulada"                    TRAMPA 8 -> set-ntp true
+
+
+================================================================================
+  ESTADO FUNCIONAL -- leer antes de prometer control
+================================================================================
+
+  Este paquete sirve para validar conexion, lectura de tags y trazas.
+  No para control: faltan limites de planta (_lmin/_lmax por variable) y
+  reglas/defuzzy/permisivos/estados/waits pueden estar vacios. El SE se
+  niega a iniciar con el mapeo incompleto, y es el comportamiento correcto:
+  prefiere no arrancar antes que fuzzificar sobre limites en cero.
+
+  Detalle en CLAUDE.md y PUESTA_EN_MARCHA.md.

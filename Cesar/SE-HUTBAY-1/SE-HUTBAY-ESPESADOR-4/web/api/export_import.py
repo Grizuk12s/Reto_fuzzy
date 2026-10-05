@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shutil
 from datetime import datetime, timezone
@@ -36,6 +37,7 @@ from web.state import (
     PENDIENTES_JSON,
     ACELERACIONES_JSON,
     TAGS_JSON,
+    MOTOR_JSON,
 )
 
 bp_export_import = Blueprint("export_import", __name__)
@@ -111,6 +113,11 @@ MODULOS = {
         "hint": "reglas.json",
         "grupo": "Pipeline",
     },
+    "motor": {
+        "label": "Motor (ritmo y auto-aplicar)",
+        "hint": "motor.json — piso del lazo y aplicar cambios en caliente",
+        "grupo": "Pipeline",
+    },
     "defuzzy": {
         "label": "Defuzzificacion",
         "hint": "defuzzy.json — tablas Sugeno y limites de escritura del SP",
@@ -133,6 +140,7 @@ ORDEN_MODULOS = [
     "waits",
     "reglas",
     "defuzzy",
+    "motor",
     "kepserver",
 ]
 
@@ -150,6 +158,7 @@ _MODULO_A_RUTA: dict[str, str] = {
     "waits": WAITS_JSON_PATH,
     "reglas": REGLAS_JSON,
     "defuzzy": DEFUZZY_JSON,
+    "motor": MOTOR_JSON,
     "kepserver": kep_mod.CONFIG_JSON,
 }
 
@@ -290,6 +299,11 @@ def _leer_modulo(clave: str):
         return copy.deepcopy(_leer_json(REGLAS_JSON, []))
     if clave == "defuzzy":
         return copy.deepcopy(_leer_json(DEFUZZY_JSON, {}))
+    if clave == "motor":
+        # Se exporta lo EFECTIVO (con defaults), no el archivo crudo: un
+        # motor.json ausente igual tiene un piso y un auto-aplicar vigentes.
+        from web.state import cargar_motor_cfg
+        return dict(cargar_motor_cfg())
     raise KeyError(clave)
 
 
@@ -725,7 +739,13 @@ def _sincronizar_tracking_post() -> dict:
         return {"agregadas": [], "quitadas": []}
     nuevo = {f: v for f, v in actual.items() if f in idents}
     for i in agregadas:
-        nuevo[i] = {"pv_key": "", "rango": 0.0, "habilitado": False}
+        # Igual que `api_sincronizar_tracking`: con el bloque `arranque`
+        # explicito. El comportamiento es el mismo sin el (`arranque_definido`
+        # resuelve la ausencia a "ninguno" cuando no hay readback), pero dejar
+        # dos formas del mismo archivo segun por donde se creo la familia se
+        # paga cada vez que alguien compara dos tracking.json.
+        nuevo[i] = {"pv_key": "", "rango": 0.0, "habilitado": False,
+                    "arranque": {"fuente": "ninguno", "tag": ""}}
     _save_tracking(nuevo)
     return {"agregadas": agregadas, "quitadas": quitadas}
 
@@ -946,7 +966,117 @@ def restaurar_ultimo_backup() -> tuple[dict, str | None]:
     return restaurar_backup(info["backup_dir"])
 
 
+def _aplicar_tracking(bloque, modo: str) -> dict:
+    """Aplica el bloque de tracking PASANDO POR SU VALIDADOR.
+
+    El resto de los modulos de diccionario se escriben crudos y ahi el peor
+    caso es una regla que no evalua. En tracking el peor caso es otro: un
+    `pv_key` que en esta planta no existe deja la familia RETENIDA para
+    siempre —el motor es fail-closed y no empuja un SP cuyo readback no puede
+    verificar—, o sea que el SE deja de escribir ese setpoint. Y un
+    `arranque.tag` de la otra planta hace que la familia no se siembre nunca,
+    que es todavia mas callado.
+
+    `PUT /api/tracking` ya rechazaba las dos cosas; el import las escribia
+    igual. Ahora comparten validador.
+
+    Se valida lo que TRAE EL PAQUETE, no el resultado del merge: si en disco
+    ya habia familias huerfanas de antes, no es este import quien tiene que
+    fallar por ellas.
+    """
+    from web.api.config import (_normalizar_tracking_payload, _load_tracking,
+                                _save_tracking)
+
+    if not isinstance(bloque, dict):
+        return {"error": "el bloque importado no es un objeto."}
+
+    norm, error = _normalizar_tracking_payload(bloque)
+    if error is not None:
+        return {"error": (error + " El paquete parece de otra planta: "
+                          "desmarca Tracking PV-SP e importa el resto, o corregi "
+                          "el bloque antes de aplicarlo.")}
+
+    if modo == "reemplazar":
+        _save_tracking(norm)
+        return {"ok": True, "reemplazado": True, "familias": sorted(norm)}
+
+    # `copias` no tiene sentido aca y no se inventa una: una familia ES el
+    # identificador de un SP de esta planta, asi que `velocidad_sp_2` no
+    # seria una copia de nada — seria una huerfana recien fabricada. Se trata
+    # como `agregar` y se dice en el resultado.
+    actual = _load_tracking()
+    agregadas = [f for f in norm if f not in actual]
+    nuevo = dict(actual)
+    for familia in agregadas:
+        nuevo[familia] = norm[familia]
+    _save_tracking(nuevo)
+    out = {"ok": True, "agregadas": agregadas,
+           "omitidas": sorted(f for f in norm if f in actual)}
+    if modo == "copias":
+        out["nota"] = ("En tracking, 'copias' se aplica como 'agregar': una "
+                       "familia es el identificador de un SP, no admite copias.")
+    return out
+
+
+def _aplicar_motor(bloque, modo: str) -> dict:
+    """piso_s y auto_aplicar. `copias` no tiene sentido para dos ajustes: se
+    trata como reemplazar. `agregar` solo completa lo que el archivo no tenga."""
+    from web.state import guardar_motor_cfg, guardar_auto_aplicar
+    if not isinstance(bloque, dict):
+        return {"error": "el bloque motor no es un objeto"}
+    import web.state as _st
+    actual = _leer_json(_st.MOTOR_JSON, {})
+    actual = actual if isinstance(actual, dict) else {}
+    aplicados = []
+    for k in ("piso_s", "auto_aplicar"):
+        if k not in bloque:
+            continue
+        if modo == "agregar" and k in actual:
+            continue
+        if k == "piso_s":
+            try:
+                guardar_motor_cfg(float(bloque[k]))
+            except (TypeError, ValueError):
+                return {"error": "piso_s no es numerico"}
+        else:
+            guardar_auto_aplicar(bool(bloque[k]))
+        aplicados.append(k)
+    # El piso se lee en el proximo start(); si el motor corre se aplica en
+    # vivo, igual que desde la pagina.
+    if "piso_s" in aplicados and _motor_corriendo():
+        try:
+            _se_engine.set_piso(float(bloque["piso_s"]), persistir=False)
+        except Exception:                                  # noqa: BLE001
+            pass
+    return {"ok": True, "aplicados": aplicados}
+
+
+def _aplicar_reglas(bloque, modo: str) -> dict:
+    """Como cualquier lista por id, mas el ORDEN.
+
+    A igual prioridad el motor evalua en el orden del archivo (lo que la pagina
+    de reglas ordena con las flechas). Al reemplazar, las reglas del paquete
+    quedan en el orden relativo del paquete; las que no vienen en el paquete no
+    se mueven de su lugar.
+    """
+    res = _aplicar_lista_por_id(REGLAS_JSON, bloque, "id", modo)
+    if res.get("error") or modo != "reemplazar" or not isinstance(bloque, list):
+        return res
+    orden_pkg = [str(r.get("id")) for r in bloque if isinstance(r, dict) and r.get("id")]
+    en_pkg = set(orden_pkg)
+    existentes = _leer_json(REGLAS_JSON, [])
+    por_id = {str(r.get("id")): r for r in existentes if isinstance(r, dict)}
+    cola = iter([por_id[i] for i in orden_pkg if i in por_id])
+    nuevo = [next(cola) if str(r.get("id")) in en_pkg else r for r in existentes]
+    if nuevo != existentes:
+        escribir_json_atomico(REGLAS_JSON, nuevo)
+        res["reordenadas"] = True
+    return res
+
+
 def _aplicar_modulo(clave: str, bloque, modo: str) -> dict | None:
+    if clave == "tracking":
+        return _aplicar_tracking(bloque, modo)
     if clave == "kepserver":
         return _aplicar_kepserver(bloque, modo)
     if clave == "contrato":
@@ -954,11 +1084,13 @@ def _aplicar_modulo(clave: str, bloque, modo: str) -> dict | None:
     if clave == "variables":
         return _aplicar_variables(bloque, modo)
     if clave == "reglas":
-        return _aplicar_lista_por_id(REGLAS_JSON, bloque, "id", modo)
+        return _aplicar_reglas(bloque, modo)
+    if clave == "motor":
+        return _aplicar_motor(bloque, modo)
     if clave == "waits":
         return _aplicar_lista_por_id(WAITS_JSON_PATH, bloque, "wait_id", modo)
     rutas = {
-        "tracking": (TRACKING_JSON, {}),
+        # `tracking` NO esta aca: tiene su propio camino, con validacion.
         "filtros": (FILTROS_JSON, {}),
         "fuzzy": (FUZZY_JSON, {}),
         "pendientes": (PENDIENTES_JSON, {}),
@@ -1063,7 +1195,14 @@ def api_export():
     selected = body.get("selected") or {}
     if not any(_normalizar_selected(selected).values()):
         return jsonify({"ok": False, "error": "Marca al menos un bloque para exportar."}), 400
-    return jsonify({"ok": True, "package": build_export_package(selected)})
+    # Sin ordenar claves: `jsonify` las pone en orden alfabetico, y el paquete
+    # perdia el orden de las filas del fuzzy y de las pendientes (que el
+    # operador elige con las flechas). Las listas (reglas) ya viajaban en orden.
+    from flask import current_app
+    return current_app.response_class(
+        json.dumps({"ok": True, "package": build_export_package(selected)},
+                   ensure_ascii=False, default=str) + "\n",
+        mimetype="application/json")
 
 
 def _preview_limites(data: dict, sel: dict) -> dict:
@@ -1097,6 +1236,65 @@ def _preview_limites(data: dict, sel: dict) -> dict:
                 if tag and tag not in nombres:
                     colgados.append({"modulo": clave, "variable": str(var),
                                      "bound": str(bound), "tag": tag})
+    return {"huerfanos": colgados}
+
+
+def _preview_tracking(data: dict, sel: dict) -> dict:
+    """Referencias del tracking que quedarian colgadas despues de importar.
+
+    Mismo espiritu que `_preview_limites`, y por el mismo motivo: un paquete
+    traido de otra planta nombra los tags y las PV de ESA planta, y enterarse
+    despues de aplicar es tarde. La diferencia es que aca no queda un binding
+    en rojo esperando a que alguien lo mire: el motor RETIENE la familia
+    (readback ilegible) o no la siembra nunca (tag de arranque ausente), o sea
+    que el SE deja de escribir ese setpoint.
+
+    Lo que va a existir son las familias, PV y tags de aca mas los que traiga
+    el propio paquete: el import de tags fusiona, y el de contrato reemplaza.
+    """
+    if not sel.get("tracking") or not isinstance(data.get("tracking"), dict):
+        return {"huerfanos": []}
+
+    from web.api.config import (salidas_sp_disponibles, entradas_fuzzificables,
+                                tags_referencia_disponibles)
+
+    familias = {s["identificador"] for s in salidas_sp_disponibles()}
+    pvs = {i["identificador"] for i in entradas_fuzzificables()}
+    tags = {t["tag"] for t in tags_referencia_disponibles()}
+
+    # Los tags que trae el paquete tambien van a estar despues de importar.
+    if sel.get("tags"):
+        kep, ent = _bloques_tags_desde_paquete(sel, data)
+        for bloque in (kep, ent):
+            for t in (bloque or {}).get("tags", []):
+                if isinstance(t, dict) and t.get("name"):
+                    tags.add(str(t["name"]))
+    # Y el contrato del paquete redefine las familias de SP.
+    contrato = data.get("contrato") if sel.get("contrato") else None
+    if isinstance(contrato, dict) and isinstance(contrato.get("setpoints"), (list, dict)):
+        familias |= {str(x) for x in contrato["setpoints"]}
+
+    colgados = []
+    for familia, spec in data["tracking"].items():
+        if not isinstance(spec, dict):
+            continue
+        if familias and str(familia) not in familias:
+            colgados.append({"familia": str(familia), "campo": "familia",
+                             "ref": str(familia),
+                             "efecto": "el motor la ignora (queda huerfana en la pagina)"})
+        pv_key = str(spec.get("pv_key") or "").strip()
+        if pv_key and pvs and pv_key not in pvs:
+            colgados.append({"familia": str(familia), "campo": "pv_key", "ref": pv_key,
+                             "efecto": ("sin readback legible el motor RETIENE esa "
+                                        "familia: deja de escribir ese SP")})
+        arr = spec.get("arranque")
+        if isinstance(arr, dict) and str(arr.get("fuente") or "") == "tag":
+            tag = str(arr.get("tag") or "").strip()
+            if tag and tags and tag not in tags:
+                colgados.append({"familia": str(familia), "campo": "arranque.tag",
+                                 "ref": tag,
+                                 "efecto": ("la familia no se siembra: el SP no "
+                                            "arranca cuando el DCS entrega el lazo")})
     return {"huerfanos": colgados}
 
 
@@ -1136,6 +1334,9 @@ def api_preview():
             conflictos["variables"] = _preview_variables(bloque, existente)
             n = len(bloque.get("definiciones") or []) + len((bloque.get("crudas") or {}))
             resumen[clave] = f"{n} entrada(s)"
+        elif clave == "motor" and isinstance(bloque, dict):
+            resumen[clave] = ("piso " + str(bloque.get("piso_s", "?")) + " s, auto-aplicar "
+                              + ("si" if bloque.get("auto_aplicar", True) else "no"))
         elif clave == "kepserver" and isinstance(bloque, dict):
             conflictos["kepserver"] = _preview_kepserver(bloque)
             resumen[clave] = "config OPC-UA"
@@ -1164,6 +1365,10 @@ def api_preview():
     lim = _preview_limites(data, sel_ui)
     if lim["huerfanos"]:
         conflictos["limites"] = lim
+
+    trk = _preview_tracking(data, sel_ui)
+    if trk["huerfanos"]:
+        conflictos["tracking_refs"] = trk
 
     resumen = {k: v for k, v in resumen.items() if v}
 

@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Traza del Pipeline — SE Espesador</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+header{position:sticky;top:0;z-index:10;background:#1e293b;border-bottom:1px solid #334155;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.05rem;font-weight:700}
+header .sub{font-size:.78rem;color:#94a3b8}
+a.back{color:#38bdf8;text-decoration:none;font-size:.82rem}
+a.back:hover{text-decoration:underline}
+.btn-hist{display:inline-block;background:#1d4ed8;color:#fff;text-decoration:none;
+  border-radius:6px;padding:6px 12px;font-size:.78rem;font-weight:600}
+.btn-hist:hover{background:#2563eb}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid #475569;background:#0f172a;color:#94a3b8}
+.pill.on{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.12);color:#22c55e}
+.pill.off{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.12);color:#ef4444}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+main{padding:22px;max-width:1400px;margin:0 auto}
+.stage{background:#1e293b;border:1px solid #334155;border-radius:10px;margin-bottom:14px;overflow:hidden}
+.stage>summary{cursor:pointer;padding:12px 18px;font-weight:700;font-size:.9rem;display:flex;align-items:center;gap:10px;list-style:none}
+.stage>summary::-webkit-details-marker{display:none}
+.stage>summary::before{content:'▸';color:#64748b;font-size:.9rem;transition:transform .15s}
+.stage[open]>summary::before{transform:rotate(90deg)}
+.stage .num{margin-left:auto;font-size:.72rem;font-weight:600;color:#64748b;background:#0f172a;border:1px solid #334155;border-radius:999px;padding:2px 10px}
+.stage .body{padding:0 18px 16px}
+.stage.bad{border-color:#ef4444}
+.stage.warn{border-color:#f59e0b}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;color:#94a3b8;font-weight:600;padding:7px 9px;border-bottom:1px solid #334155;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+td{padding:6px 9px;border-bottom:1px solid #1e293b;vertical-align:top}
+tr:last-child td{border-bottom:none}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;background:#0f172a;padding:1px 6px;border-radius:4px}
+.mono{font-family:ui-monospace,Consolas,monospace}
+.ok{color:#22c55e}.bad{color:#ef4444}.warn{color:#f59e0b}.mut{color:#64748b}
+.badge{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.03em}
+.b-ok{background:rgba(34,197,94,.15);color:#22c55e}
+.b-bad{background:rgba(239,68,68,.15);color:#ef4444}
+.b-warn{background:rgba(245,158,11,.15);color:#f59e0b}
+.b-mut{background:rgba(100,116,139,.18);color:#94a3b8}
+.b-pv{background:rgba(168,85,247,.15);color:#a855f7}
+.b-cruda{background:rgba(8,145,178,.18);color:#22d3ee}
+.b-lim{background:rgba(99,102,241,.18);color:#818cf8}
+.b-sp{background:rgba(34,197,94,.15);color:#22c55e}
+.bar{display:inline-block;height:7px;border-radius:3px;background:#38bdf8;vertical-align:middle;margin-right:6px}
+.empty{color:#64748b;padding:14px 0;font-size:.82rem}
+.banner{border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:.85rem;border:2px solid}
+.banner.bad{border-color:#ef4444;background:rgba(239,68,68,.08)}
+.banner.warn{border-color:#f59e0b;background:rgba(245,158,11,.08)}
+.banner h3{margin:0 0 5px;font-size:.95rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.kv{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px}
+.kv .k{font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.kv .v{font-size:1rem;font-weight:700;font-family:ui-monospace,Consolas,monospace;margin-top:3px}
+/* Celda de aceleracion. Es una celda y no una fila de tabla porque los tres
+   numeros (acel, umbral y la razon entre los dos) se leen juntos o no se leen:
+   es lo que se mira para calibrar el umbral. */
+.acel-cell{background:#0f172a;border:1px solid #334155;border-left-width:3px;border-radius:8px;padding:10px 12px}
+.acel-cell.st-ACELERANDO{border-left-color:#ef4444}
+.acel-cell.st-DESACELERANDO{border-left-color:#22c55e}
+.acel-cell.st-ESTABLE{border-left-color:#475569}
+/* Velocidad constante: sin etiqueta dinamica, la franja la pone el signo. */
+.acel-cell.st-ACELERACION_NULA{border-left-color:#475569}
+.acel-cell .an{font-family:ui-monospace,Consolas,monospace;font-size:.8rem;color:#e2e8f0;font-weight:600;word-break:break-all}
+.acel-cell .asrc{font-size:.68rem;color:#64748b;margin:1px 0 7px}
+.acel-cell .arow{display:flex;justify-content:space-between;gap:8px;font-size:.72rem;color:#94a3b8;padding:1px 0}
+.acel-cell .arow b{font-family:ui-monospace,Consolas,monospace;color:#e2e8f0;font-weight:700}
+.acel-bar{height:5px;background:#1e293b;border-radius:3px;margin-top:7px;position:relative}
+.acel-bar i{display:block;height:100%;border-radius:3px}
+/* La marca del 1x es la parte util: es DONDE la aceleracion deja de ser nula. */
+.acel-bar u{position:absolute;top:-2px;left:33.33%;width:2px;height:9px;background:#94a3b8;opacity:.85;border-radius:1px}
+select,button{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 11px;font-size:.8rem;cursor:pointer}
+button:hover{border-color:#38bdf8}
+.flow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px}
+.flow .step{flex:1;min-width:88px;text-align:center;padding:8px 5px;border-radius:7px;border:1px solid #334155;background:#1e293b;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+.flow .step.done{border-color:#22c55e;color:#22c55e}
+.flow .step.stop{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.1)}
+.flow .step.skip{opacity:.35}
+</style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Traza del Pipeline</h1>
+    <div class="sub" id="sub">Cargando...</div>
+  </div>
+  <span class="pill" id="run-pill"><span class="dot"></span><span id="run-txt">—</span></span>
+  <div style="margin-left:auto;display:flex;gap:9px;align-items:center">
+    <select id="auto">
+      <option value="2000">Auto-refresco 2 s</option>
+      <option value="5000" selected>Auto-refresco 5 s</option>
+      <option value="0">Manual</option>
+    </select>
+    <button onclick="cargar()">Actualizar</button>
+    <a class="back" href="/espesador">&larr; Volver</a>
+  </div>
+</header>
+
+<main>
+  <div id="flow" class="flow"></div>
+  <div id="banner"></div>
+  <div id="stages"></div>
+</main>
+
+<script>
+let _timer = null;
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function num(v, d) {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  return isNaN(n) ? esc(v) : n.toFixed(d === undefined ? 2 : d);
+}
+
+// ---------- Etapas del pipeline, en orden ----------
+const ETAPAS = [
+  {key: 'lectura',    label: 'Lectura'},
+  {key: 'filtro',     label: 'Filtro'},
+  {key: 'derivadas',  label: 'Calculadas'},
+  {key: 'fuzzy',      label: 'Fuzzy'},
+  {key: 'permisivos', label: 'Permisivos'},
+  {key: 'reglas',     label: 'Reglas'},
+  {key: 'defuzzy',    label: 'Defuzzy'},
+  {key: 'escritura',  label: 'Escritura'},
+  {key: 'escrituras_hist', label: 'Historial esc.'},
+];
+
+function renderFlow(tz) {
+  const cortado = tz.abortado_en;
+  let corte = cortado ? ETAPAS.findIndex(e => e.key === cortado) : -1;
+  document.getElementById('flow').innerHTML = ETAPAS.map(function(e, i) {
+    let cls = 'step done';
+    if (corte >= 0) {
+      if (i === corte) cls = 'step stop';
+      else if (i > corte) cls = 'step skip';
+    }
+    return '<div class="' + cls + '">' + e.label + '</div>';
+  }).join('');
+}
+
+function renderBanner(tz) {
+  const box = document.getElementById('banner');
+  let html = '';
+
+  // Solo se destaca lo que falta Y alguna etapa posterior usa. Un rol del
+  // contrato que nadie consume es instrumentacion pendiente, no una falla:
+  // ponerlo en rojo entrenaba al operador a ignorar el cartel.
+  const cob = tz.cobertura || {};
+  const uso = cob.faltantes_en_uso || {};
+  const pend = Object.keys(uso).filter(k => (uso[k] || []).length);
+  if (pend.length) {
+    html += '<div class="banner warn"><h3 class="warn">Faltan tags que el pipeline usa</h3>'
+      + pend.map(k => '<div><b>' + k.toUpperCase() + '</b>: '
+          + uso[k].map(r => '<code>' + esc(r) + '</code>').join(' ') + '</div>').join('')
+      + '<div class="mut" style="margin-top:6px">El SE corre igual, pero estas variables no '
+      + 'entran al fuzzy. Asignalos en la pagina de Tags KEPserver.</div></div>';
+  }
+  // Tracking: el proceso todavia no alcanzo el setpoint. Es transitorio y se
+  // libera solo, asi que se muestra aparte de los inhibidos por configuracion.
+  const trk = tz.tracking || [];
+  if (trk.length) {
+    html += '<div class="banner warn"><h3 class="warn">Tracking: esperando al proceso ('
+      + trk.length + ')</h3>'
+      + trk.map(d => '<div><code>' + esc(d.sp) + '</code> — ' + esc(d.motivo) + '</div>').join('')
+      + '<div class="mut" style="margin-top:6px">Esa familia <b>no se empuja mas</b> hasta que '
+      + 'el DCS se ponga al dia: la accion se descarta (no se acumula) y su wait no se '
+      + 'reinicia. Se libera solo.</div></div>';
+  }
+  const inh = (tz.escritura || {}).inhibidos || [];
+  // Resync: el operador movio un SP en el HMI; el SE lo adopto para no
+  // revertirlo. Es informativo, no un problema — pero conviene que se vea.
+  const rs = tz.resync_sp || [];
+  if (rs.length) {
+    html += '<div class="banner"><h3>Intervencion manual del operador ('
+      + rs.length + ')</h3>'
+      + rs.map(e => '<div><code>' + esc(e.sp) + '</code>: '
+          + e.antes + ' &rarr; <b>' + e.dcs + '</b> (delta ' + e.delta + ')</div>').join('')
+      + '<div class="mut" style="margin-top:6px">El SE detecto que el SP fue movido '
+      + 'desde el DCS y lo <b>adopto como propio</b>. Sin esto, el proximo write-on-change '
+      + 'lo revertia al valor que el SE tenia guardado.</div></div>';
+  }
+  // Handshake DCS: si el ultimo chequeo dio no-ok, es la causa raiz de que
+  // TODOS los SP figuren inhibidos. Es un cartel propio porque se libera solo
+  // (basta con que el DCS suba Enable_FBK) y no es una falla de configuracion.
+  const hs = tz.handshake || null;
+  if (hs && hs.enabled && hs.ultimo && hs.ultimo.ok === false) {
+    html += '<div class="banner warn"><h3 class="warn">DCS no autoriza la escritura</h3>'
+      + '<div><code>' + esc(hs.fbk_tag) + '</code> — ' + esc(hs.ultimo.motivo || '') + '</div>'
+      + '<div class="mut" style="margin-top:6px">El SE calcula y grafica normalmente, pero '
+      + '<b>no manda setpoints al DCS</b> y el objetivo interno no acumula pasos. Sube desde '
+      + 'el DCS <code>' + esc(hs.fbk_tag)
+      + '</code> a <b>True</b> para liberar. El pulso <code>Exp_HB</code> sigue vivo.</div></div>';
+  }
+  if (inh.length) {
+    html += '<div class="banner warn"><h3 class="warn">Setpoints inhibidos ('
+      + inh.length + ')</h3>'
+      + inh.map(d => '<div><code>' + esc(d.sp) + '</code> — ' + esc(d.motivo) + '</div>').join('')
+      + '<div class="mut" style="margin-top:6px">Se ven en el paso 8 (planta + interno), pero '
+      + '<b>no se escriben al DCS</b> y el interno no acumula pasos mientras dure el bloqueo.</div></div>';
+  }
+  if (tz.abortado_en) {
+    html += '<div class="banner bad"><h3 class="bad">Tick abortado en: ' + esc(tz.abortado_en) + '</h3>'
+      + '<div>' + esc(tz.motivo_aborto || '') + '</div>'
+      + '<div class="mut" style="margin-top:6px">El pipeline no llego a evaluar reglas ni a escribir setpoints.</div></div>';
+  }
+  box.innerHTML = html;
+}
+
+// Seleccion de regla (persistente: la pagina se repinta cada pocos segundos y
+// una seleccion en variable suelta se perderia en cada refresco).
+let _reglaSel = localStorage.getItem('traza_regla_sel') || '';
+let _grab = {activos: [], buffers: {}, max: 500, max_activos: 5};
+
+function seleccionarRegla(id) {
+  _reglaSel = String(id || '');
+  localStorage.setItem('traza_regla_sel', _reglaSel);
+  cargar();
+}
+
+async function toggleGrabacion() {
+  if (!_reglaSel) return alert('Elegi una regla en la tabla primero.');
+  const grabando = _grab.activos.includes(_reglaSel);
+  const accion = grabando ? 'stop' : 'start';
+  try {
+    const r = await fetch('/api/se/grabador/' + encodeURIComponent(_reglaSel) + '/' + accion,
+                          {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) {
+      alert(d.error || 'No se pudo iniciar la grabacion.');
+      _grab = await (await fetch('/api/se/grabador')).json();
+      cargar();
+      return;
+    }
+    _grab = d;
+  } catch (e) { alert('Error: ' + e.message); }
+  cargar();
+}
+
+function verHistorial() {
+  if (!_reglaSel) return alert('Elegi una regla en la tabla primero.');
+  // Ventana propia por regla: se pueden mirar varias abriendo varias pestanas.
+  window.open('/espesador/historial?regla=' + encodeURIComponent(_reglaSel), '_blank');
+}
+
+function barraReglas(reglas) {
+  const hay = (reglas || []).length > 0;
+  const grabando = _reglaSel && _grab.activos.includes(_reglaSel);
+  const n = _grab.buffers[_reglaSel] || 0;
+  const maxAct = _grab.max_activos || 5;
+  const nAct = (_grab.activos || []).length;
+  const alLimite = nAct >= maxAct && !grabando;
+  const sel = _reglaSel
+    ? '<code>' + esc(_reglaSel) + '</code>'
+    : '<span class="mut">ninguna regla seleccionada</span>';
+  const estado = !_reglaSel ? ''
+    : (grabando
+        ? '<span class="badge b-bad" style="margin-left:8px">&#9679; GRABANDO</span>'
+          + '<span class="mut" style="margin-left:6px">' + n + '/' + _grab.max + ' eventos</span>'
+        : (n ? '<span class="mut" style="margin-left:8px">' + n + ' eventos grabados</span>' : ''));
+  const avisoActivos = nAct > 0
+    ? '<div class="mut" style="font-size:.72rem;margin-bottom:6px">Grabando '
+      + nAct + '/' + maxAct + ': '
+      + _grab.activos.map(function(id) { return '<code>' + esc(id) + '</code>'; }).join(', ')
+      + (nAct >= maxAct
+          ? ' &mdash; <span class="warn">limite alcanzado: detene una para grabar otra</span>'
+          : '')
+      + '</div>'
+    : '<div class="mut" style="font-size:.72rem;margin-bottom:6px">Podes grabar hasta '
+      + maxAct + ' reglas a la vez (elige cada una en la tabla y pulsa Grabar).</div>';
+  return avisoActivos
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'
+    + '<span class="mut" style="font-size:.78rem">Regla:</span>' + sel + estado
+    + '<span style="flex:1"></span>'
+    + '<button onclick="toggleGrabacion()"' + (hay && !alLimite ? '' : ' disabled')
+    + (grabando ? ' style="border-color:#ef4444;color:#ef4444"' : '') + '>'
+    + (grabando ? '&#9632; Detener grabacion' : '&#9679; Grabar historial') + '</button>'
+    + '<button onclick="verHistorial()"' + (hay ? '' : ' disabled') + '>Ver historial &#8599;</button>'
+    + '</div>';
+}
+
+function stage(id, titulo, contenido, n, cls) {
+  const abierto = localStorage.getItem('traza_open_' + id) !== '0';
+  return '<details class="stage ' + (cls || '') + '" ' + (abierto ? 'open' : '')
+    + ' ontoggle="localStorage.setItem(\'traza_open_' + id + '\', this.open?\'1\':\'0\')">'
+    + '<summary>' + titulo + (n !== undefined ? '<span class="num">' + n + '</span>' : '') + '</summary>'
+    + '<div class="body">' + contenido + '</div></details>';
+}
+
+function tablaLectura(filas) {
+  if (!filas.length) return '<div class="empty">Sin tags mapeados. Asigna roles en la pagina de Tags.</div>';
+  return '<table><thead><tr><th>Tag</th><th>Cat</th><th>Rol</th><th>Valor</th>'
+    + '<th>Quality</th><th>StatusCode</th><th>Sin cambiar</th><th>Estado</th></tr></thead><tbody>'
+    + filas.map(function(f) {
+        // La severidad OPC-UA colorea; el nombre exacto va aparte porque es lo
+        // que manda al instrumentista al lugar correcto.
+        const qc = f.quality === 'Good' ? 'ok' : (f.quality === 'Bad' ? 'bad' : 'warn');
+        const est = Number(f.estancado_s || 0);
+        return '<tr><td class="mono">' + esc(f.tag) + '</td>'
+          + '<td><span class="badge b-' + esc(f.categoria) + '">' + esc(f.categoria) + '</span></td>'
+          + '<td class="mono">' + esc(f.rol) + '</td>'
+          + '<td class="mono">' + num(f.valor, 3) + '</td>'
+          + '<td class="' + qc + '">' + esc(f.quality) + '</td>'
+          // Cuando el StatusCode es solo "Good" no aporta nada sobre la columna
+          // de al lado; la columna existe para el caso en que difieren.
+          + '<td class="mono mut" title="' + esc(f.source_ts || '') + '">'
+          + esc((f.status_code && f.status_code !== f.quality) ? f.status_code : '\u2014') + '</td>'
+          // Solo se destaca en las PV. Un tag LIM vale 90.0 para siempre y eso
+          // es correcto: pintarlo de ambar seria entrenar a ignorar la columna.
+          + '<td class="mono ' + (est >= 60 && f.categoria === 'pv' ? 'warn' : 'mut') + '">'
+          + (est > 0 ? num(est, 0) + ' s' : '\u2014') + '</td>'
+          // Tres estados, no dos: un tag retenido se uso (como "ok") pero con
+          // un valor viejo (como "fallo"). Mostrarlo como cualquiera de los dos
+          // esconde justo lo que hay que saber.
+          + '<td>' + (f.retenido
+                ? '<span class="badge b-warn" title="La calidad de esta lectura es '
+                  + esc(f.quality) + '. Se decidio con el ultimo valor bueno, de hace '
+                  + num(f.retenido_edad_s, 1) + ' s.">retenido '
+                  + num(f.retenido_edad_s, 1) + ' s</span>'
+                : (f.ok ? '<span class="badge b-ok">ok</span>'
+                        : '<span class="badge b-bad">fallo</span>')) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+}
+
+function avisoEstancadas(filas) {
+  if (!filas || !filas.length) return '';
+  return '<div class="banner warn">'
+    + '<h3>Valor sin cambiar &mdash; posible scan congelado</h3>'
+    + 'Estas PV <b>se siguen usando</b>: el detector no puede distinguir un scan '
+    + 'congelado de un proceso genuinamente quieto, asi que avisa y no inhibe. '
+    + 'Contrastar contra el HMI antes de tocar nada.<br>'
+    + filas.map(function(e) {
+        return '<span class="mono">' + esc(e.rol) + '</span> &rarr; '
+          + num(e.estancado_s, 0) + ' s en ' + num(e.valor, 3);
+      }).join(' &middot; ')
+    + '</div>';
+}
+
+function avisoRetenidos(filas) {
+  if (!filas || !filas.length) return '';
+  return '<div class="banner warn">'
+    + '<h3>Usando el ultimo valor bueno</h3>'
+    + 'La calidad de estos tags se cayo y el SE <b>sigue decidiendo</b> con su '
+    + 'ultima lectura buena, para que un parpadeo del KEPserver no saque al '
+    + 'experto de servicio. Si la calidad no vuelve antes de que se agote la '
+    + 'retencion, la variable sale del pipeline y las reglas que la nombran '
+    + 'quedan <b>no evaluables</b>.<br>'
+    + filas.map(function(r) {
+        return '<span class="mono">' + esc(r.rol) + '</span> &rarr; '
+          + num(r.valor, 3) + ' de hace ' + num(r.edad_s, 1) + ' s ('
+          + esc(r.status_code || r.quality) + ')';
+      }).join(' &middot; ')
+    + '</div>';
+}
+
+function tablaFiltro(filas) {
+  if (!filas.length) return '<div class="empty">Sin datos.</div>';
+  return '<table><thead><tr><th>Rol</th><th>Crudo</th><th>Filtrado (Exp-Q)</th><th>Diferencia</th></tr></thead><tbody>'
+    + filas.map(function(f) {
+        const d = Number(f.filtrado) - Number(f.crudo);
+        return '<tr><td class="mono">' + esc(f.rol) + '</td>'
+          + '<td class="mono">' + num(f.crudo, 3) + '</td>'
+          + '<td class="mono">' + num(f.filtrado, 3) + '</td>'
+          + '<td class="mono ' + (Math.abs(d) > 1e-9 ? 'warn' : 'mut') + '">'
+          + (d >= 0 ? '+' : '') + num(d, 3) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+}
+
+function tablaFuzzy(filas, limites) {
+  if (!filas.length) return '<div class="empty">El pipeline no llego a fuzzificar.</div>';
+  return '<table><thead><tr><th>Variable</th><th>Valor</th><th>lmin</th><th>lmax</th><th>Dominio</th><th>Pertenencias</th></tr></thead><tbody>'
+    + filas.map(function(f) {
+        const perts = Object.keys(f.pert || {}).map(function(k) {
+          const w = Math.round(Number(f.pert[k]) * 46);
+          return '<div><span class="bar" style="width:' + w + 'px"></span>'
+            + '<code>' + esc(k) + '</code> <span class="mono mut">' + num(f.pert[k], 3) + '</span></div>';
+        }).join('') || '<span class="mut">—</span>';
+        return '<tr><td class="mono">' + esc(f.var)
+          + (f.es_pendiente ? ' <span class="badge b-mut">pend</span>' : '')
+          + (f.es_aceleracion ? ' <span class="badge b-mut">acel</span>' : '') + '</td>'
+          + '<td class="mono">' + num(f.valor, 3) + '</td>'
+          // Ni una pendiente ni una aceleracion tienen lmin/lmax: no se
+          // normalizan contra una escala. Lo que importa es sobre que variable
+          // se miden, en cuanto tiempo, y cuanto dan.
+          + (f.es_pendiente
+              ? '<td class="mono mut" colspan="2" style="font-size:.72rem">'
+                + esc(f.fuente || '?') + ' / ' + num(f.ventana_s, 0) + ' s'
+                + ' &rarr; <b>' + num(f.slope_per_min, 3) + '</b> u/min'
+                // Ratificacion: cuando la aceleracion DESMIENTE la tendencia,
+                // lo fuzzificado es 0 y lo medido es otra cosa. Sin verlos
+                // separados, el operador ve una pendiente nula y no tiene
+                // forma de saber que el SE si midio movimiento y decidio no
+                // afirmarlo.
+                + (f.ratificacion
+                    ? (f.ratificacion === 'ratificada'
+                        ? ' <span class="badge b-ok" title="La aceleracion confirma la tendencia">ratificada</span>'
+                        : ' <span class="badge b-warn" title="' + esc(f.ratificacion) + '">desmentida</span>'
+                          + ' <span class="mut">(medida ' + num(f.slope_medido, 3) + ')</span>')
+                    : (f.ratifica_con
+                        ? ' <span class="mut">(ratifica con ' + esc(f.ratifica_con) + ')</span>'
+                        : ''))
+                + '</td>'
+              : f.es_aceleracion
+              ? '<td class="mono mut" colspan="2" style="font-size:.72rem">'
+                + esc(f.fuente || '?') + ' / ' + num(f.ventana_s, 1) + ' s'
+                + ' &rarr; rate <b>' + num(f.rate, 4) + '</b> u/s'
+                + ' · acel <b>' + num(f.aceleracion, 4) + '</b> u/s&sup2;</td>'
+              : '<td class="mono mut">' + num(f.lmin, 2) + '</td>'
+                + '<td class="mono mut">' + num(f.lmax, 2) + '</td>')
+          // Una aceleracion sin etiqueta dinamica (velocidad constante) tiene
+          // `dom` vacio. Pintar una badge vacia se leeria como un dato que
+          // falta; el signo, que si viene, dice lo unico que se puede afirmar.
+          + '<td>' + (f.dom
+              ? '<span class="badge b-warn">' + esc(f.dom) + '</span>'
+              : (f.signo
+                  ? '<span class="badge b-mut" title="La aceleracion esta en banda '
+                    + 'muerta y el rate no: velocidad constante. No hay etiqueta '
+                    + 'dinamica.">sin dinamica</span>'
+                  : '<span class="mut">—</span>'))
+            + (f.es_aceleracion && f.signo
+                ? ' <span class="badge b-mut" title="' + esc(f.signo) + '">'
+                  + esc(SIGNO_CORTO[f.signo] || f.signo) + '</span>'
+                : '')
+            + '</td>'
+          + '<td>' + perts + '</td></tr>';
+      }).join('') + '</tbody></table>';
+}
+
+// Las aceleraciones van en CELDAS y no en una fila mas de la tabla de fuzzy.
+// El motivo es la calibracion: `umbral_estable` se elige mirando cuanto salta
+// |2a| con el proceso en regimen, y para eso hay que ver el numero, el umbral
+// y la RAZON entre los dos AL MISMO TIEMPO. Repartidos en columnas de una
+// tabla ancha, con la variable perdida entre las PV, eso no se lee.
+// Abreviatura de la etiqueta de signo. El nombre completo
+// (ACELERACION_POSITIVA) es el que se escribe en las reglas y va siempre en el
+// `title`; en una badge al lado del nombre de la variable no entra.
+const SIGNO_CORTO = {ACELERACION_POSITIVA: '2a > 0',
+                     ACELERACION_NEGATIVA: '2a < 0',
+                     ACELERACION_NULA:     '2a ~ 0'};
+
+function celdasAceleraciones(filas) {
+  if (!filas.length) return '';
+  return '<div class="mut" style="font-size:.73rem;margin:2px 0 8px">'
+    + '<b>Aceleraciones</b> — ajuste cuadratico sobre la ventana. Cada una publica '
+    + 'una etiqueta <b>dinamica</b> y una de <b>signo</b>. La barra es '
+    + '<code>|2a| / banda</code>: llena al 100% justo cuando la aceleracion deja de ser '
+    + 'nula. Si salta de un tick a otro con el proceso quieto, la banda esta baja.</div>'
+    + '<div class="grid">' + filas.map(function(f) {
+        const u = Number(f.umbral_estable) || 0;
+        const margen = u > 0 ? Math.abs(Number(f.aceleracion)) / u : null;
+        // La barra se satura a 3x: mas alla el numero exacto no cambia
+        // ninguna decision y la barra dejaria de distinguir el rango util.
+        const pct = margen === null ? 0 : Math.min(100, (margen / 3) * 100);
+        const col = f.estado === 'ACELERANDO' ? '#ef4444'
+                  : (f.estado === 'DESACELERANDO' ? '#22c55e' : '#475569');
+        const cls = f.estado === 'ACELERANDO' ? 'b-bad'
+                  : (f.estado === 'DESACELERANDO' ? 'b-ok' : 'b-mut');
+        // Sin etiqueta dinamica la franja de la celda la pone el signo: la
+        // clase `st-` vacia dejaba la celda con el color del tick anterior.
+        return '<div class="acel-cell st-' + esc(f.estado || f.signo || '') + '">'
+          + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:start">'
+          + '<span class="an">' + esc(f.var) + '</span>'
+          + '<span>'
+          + (f.estado
+              ? '<span class="badge ' + cls + '">' + esc(f.estado) + '</span>'
+              : '<span class="badge b-mut" title="La aceleracion esta en banda muerta '
+                + 'y el rate no: la variable se mueve a velocidad constante. No esta '
+                + 'acelerando, ni frenando, ni ESTABLE.">sin dinamica</span>')
+          + (f.signo
+              ? ' <span class="badge b-mut" title="' + esc(f.signo) + '">'
+                + esc(SIGNO_CORTO[f.signo] || f.signo) + '</span>'
+              : '')
+          + '</span></div>'
+          + '<div class="asrc">' + esc(f.fuente || '?') + ' &middot; ventana '
+          + num(f.ventana_s, 1) + ' s &middot; ' + esc(String(f.n_puntos)) + ' puntos</div>'
+          + '<div class="arow"><span>rate</span><b>' + num(f.rate, 4) + ' u/s</b></div>'
+          + '<div class="arow"><span>aceleracion</span><b>' + num(f.aceleracion, 4)
+          + ' u/s&sup2;</b></div>'
+          // El nombre COMPLETO de la etiqueta de signo, no la abreviatura: es
+          // lo que hay que escribir en la regla.
+          + '<div class="arow"><span>signo</span><b>' + esc(f.signo || '—')
+          + '</b></div>'
+          + '<div class="arow"><span>banda muerta 2a</span><b>' + num(f.umbral_estable, 4)
+          + '</b></div>'
+          + '<div class="arow"><span>margen |2a|/banda</span><b style="color:' + col + '">'
+          + (margen === null ? '\u2014' : num(margen, 2) + '\u00d7') + '</b></div>'
+          + '<div class="acel-bar" title="'
+          + (margen === null ? 'sin umbral'
+             : 'margen ' + num(margen, 2) + 'x \u00b7 la marca es la banda muerta (1x); la barra se llena en 3x')
+          + '"><i style="width:' + pct.toFixed(1) + '%;background:' + col + '"></i>'
+          + '<u></u></div>'
+          + '</div>';
+      }).join('') + '</div>';
+}
+
+function tablaReglas(reglas) {
+  if (!reglas.length) return '<div class="empty">El pipeline no llego a evaluar reglas.</div>';
+  const orden = {disparo: 0, descartada: 1, no_evaluable: 2, no_evaluada: 3};
+  const cls = {disparo: 'b-ok', descartada: 'b-mut', no_evaluable: 'b-bad', no_evaluada: 'b-mut'};
+  const rs = reglas.slice().sort(function(a, b) {
+    return (orden[a.estado] - orden[b.estado]) || (b.priority - a.priority);
+  });
+  return barraReglas(rs)
+    + '<table><thead><tr><th style="width:26px"></th><th>Regla</th><th>Bloque</th><th>Prio</th><th>Estado</th><th>Motivo</th><th>Belief</th><th>Falta</th></tr></thead><tbody>'
+    + rs.map(function(r) {
+        const sel = String(r.id) === _reglaSel;
+        const rec = _grab.activos.includes(String(r.id));
+        const pick = "seleccionarRegla('" + esc(r.id) + "')";
+        return '<tr onclick="' + pick + '" style="cursor:pointer'
+          + (sel ? ';background:rgba(56,189,248,.10)' : '') + '">'
+          + '<td><input type="radio" name="regla-sel" ' + (sel ? 'checked' : '')
+          + ' onclick="event.stopPropagation();' + pick + '"></td>'
+          + '<td class="mono">' + esc(r.id)
+          + (rec ? ' <span class="badge b-bad" style="font-size:.6rem">REC</span>' : '') + '</td>'
+          + '<td class="mut">' + esc(r.bloque) + '</td>'
+          + '<td class="mono mut">' + num(r.priority, 0) + '</td>'
+          + '<td><span class="badge ' + (cls[r.estado] || 'b-mut') + '">' + esc(r.estado) + '</span></td>'
+          + '<td>' + esc(r.motivo) + (r.wait_bloqueante ? ' <code>' + esc(r.wait_bloqueante) + '</code>' : '') + '</td>'
+          + '<td class="mono">' + (r.belief !== undefined ? num(r.belief, 3) : '—') + '</td>'
+          + '<td class="bad mono" style="font-size:.72rem">'
+          + (r.variables_faltantes || []).map(esc).join(', ') + '</td></tr>';
+      }).join('') + '</tbody></table>';
+}
+
+function tablaDefuzzy(sps) {
+  if (!sps.length) return '<div class="empty">Sin setpoints.</div>';
+  return '<div class="grid">' + sps.map(function(s) {
+      const interno = s.interno || {};
+      const iAntes = interno.antes !== undefined ? interno.antes : s.antes;
+      const iDespues = interno.despues !== undefined ? interno.despues : s.despues;
+      const iDelta = interno.delta !== undefined ? interno.delta : s.delta;
+      const cambioInterno = Math.abs(Number(iDelta)) > 1e-9;
+      const plantaOk = s.planta_ok !== false;
+      const plantaTxt = (s.planta !== null && s.planta !== undefined)
+        ? num(s.planta, 2) : '\u2014';
+      const escritoTxt = (s.escrito !== null && s.escrito !== undefined)
+        ? num(s.escrito, 2) : '\u2014';
+      const tope = s.en_limite === 'max' ? 'superior' : (s.en_limite === 'min' ? 'inferior' : '');
+      const avisoTope = tope
+        ? '<div class="bad" style="font-size:.68rem;margin-top:4px">En el limite ' + tope
+          + ': el defuzzy ya no puede moverlo. Las acciones siguen disparando sin efecto.</div>'
+        : '';
+      const avisoInhib = s.inhibido
+        ? '<div class="warn" style="font-size:.68rem;margin-top:4px">Inhibido: '
+          + esc(s.inhibido_motivo || 'no se escribe al DCS') + '</div>'
+        : '';
+      const avisoPlanta = !plantaOk
+        ? '<div class="warn" style="font-size:.66rem">Tag ' + esc(s.planta_quality || 'no legible')
+          + ' — sin lectura utilizable</div>'
+        : '';
+      return '<div class="kv"><div class="k">' + esc(s.sp) + '</div>'
+        + '<div class="mut" style="font-size:.66rem;margin-top:2px">Planta (tag)</div>'
+        + '<div class="v ' + (plantaOk ? 'ok' : 'warn') + '">' + plantaTxt + '</div>'
+        + avisoPlanta
+        + '<div class="mut" style="font-size:.66rem;margin-top:6px">Interno SE (defuzzy)</div>'
+        + '<div style="font-size:.72rem" class="' + (cambioInterno ? 'warn' : 'mut') + '">'
+        + num(iAntes, 2) + ' &rarr; ' + num(iDespues, 2)
+        + ' (' + (Number(iDelta) >= 0 ? '+' : '') + num(iDelta, 3) + ')</div>'
+        + '<div class="mut" style="font-size:.66rem;margin-top:4px">Escrito DCS: '
+        + '<span class="mono">' + escritoTxt + '</span></div>'
+        + avisoInhib + avisoTope
+        + '<div class="mut" style="font-size:.68rem;margin-top:3px">limites '
+        + num((s.limites || [])[0], 0) + ' — ' + num((s.limites || [])[1], 0) + '</div>'
+        + '<div class="mut mono" style="font-size:.66rem;margin-top:3px">'
+        + esc(s.tag || 'sin tag') + '</div></div>';
+    }).join('') + '</div>';
+}
+
+// Ultimos disparos: sobrevive al anillo de trazas. Contesta la pregunta
+// "esta funcionando?" cuando la regla dispara cada 10 min y el tick dura 0.1 s.
+function _efectoSpCelda(sps, tipo) {
+  return Object.keys(sps).map(function(k) {
+    const det = sps[k] || {};
+    const e = det[tipo] || det;
+    if (!e || e.antes === undefined) {
+      return '<span class="mut">' + esc(k) + ' \u2014</span>';
+    }
+    const movio = e.delta !== null && e.delta !== undefined
+      && Math.abs(Number(e.delta)) > 1e-9;
+    return '<span class="' + (movio ? 'ok' : 'mut') + '">' + esc(k) + ' '
+      + num(e.antes, 2) + ' &rarr; ' + num(e.despues, 2)
+      + (e.delta !== null && e.delta !== undefined
+          ? ' (' + (Number(e.delta) >= 0 ? '+' : '') + num(e.delta, 3) + ')'
+          : '') + '</span>';
+  }).join('<br>') || '\u2014';
+}
+
+function tablaDisparos(disparos) {
+  if (!disparos.length) {
+    return '<div class="empty">Ninguna regla disparo desde que arranco el motor. '
+         + 'Si esperabas que si, mira el motivo en el paso 6.</div>';
+  }
+  const ahora = Date.now() / 1000;
+  const rs = disparos.slice().reverse();
+  return '<table><thead><tr><th>HACE</th><th>DESDE</th><th>HASTA</th><th>VECES</th>'
+    + '<th>REGLA</th><th>ACCIONES</th>'
+    + '<th>BELIEF</th><th>PLANTA (tag)</th><th>INTERNO SE</th></tr></thead><tbody>'
+    + rs.map(function(d) {
+        // Los disparos repetidos vienen agrupados del backend: `hace` se mide
+        // desde el ULTIMO, que es el que contesta "esto sigue pasando ahora?".
+        const veces = Number(d.repeticiones || 1);
+        const tsUlt = Number(d.ts_wall_ultimo || d.ts_wall || 0);
+        const hace = Math.max(0, ahora - tsUlt);
+        const hora = d.ts_wall ? new Date(d.ts_wall * 1000).toLocaleTimeString() : '\u2014';
+        const horaUlt = (veces > 1 && d.ts_wall_ultimo)
+          ? new Date(d.ts_wall_ultimo * 1000).toLocaleTimeString() : '\u2014';
+        const sps = d.setpoints || {};
+        const efectoPlanta = _efectoSpCelda(sps, 'planta');
+        const efectoInterno = _efectoSpCelda(sps, 'interno');
+        const sinEfecto = d.movio_planta === false
+          || (d.movio_planta === undefined && d.movio_sp === false);
+        const nulo = sinEfecto
+          ? ' <span class="badge b-warn" style="font-size:.6rem" title="'
+            + esc(d.motivo_sin_efecto || 'La planta no recibio cambio en el DCS')
+            + '">SIN EFECTO</span>'
+            + (d.motivo_sin_efecto
+               ? '<div class="mut" style="font-size:.66rem;margin-top:2px">'
+                 + esc(d.motivo_sin_efecto) + '</div>'
+               : '')
+          : '';
+        // El error de aplicacion existia en el dato y no se mostraba: un
+        // disparo que revienta al aplicarse se leia igual que uno sin efecto.
+        const err = (d.ok === false && d.error)
+          ? '<div class="bad" style="font-size:.7rem">no se pudo aplicar: '
+            + esc(d.error) + '</div>'
+          : '';
+        return '<tr><td class="mono">' + (hace < 90 ? Math.round(hace) + ' s'
+                                                    : Math.round(hace / 60) + ' min') + '</td>'
+          + '<td class="mono">' + esc(hora) + '</td>'
+          + '<td class="mono mut">' + esc(horaUlt) + '</td>'
+          + '<td class="mono">' + (veces > 1
+              ? '<b class="warn">&times;' + veces + '</b>' : '1') + '</td>'
+          + '<td class="mono">' + esc(d.regla_id || '?') + nulo + err + '</td>'
+          + '<td class="mono" style="color:#fb923c">' + (d.acciones || []).map(esc).join(', ') + '</td>'
+          + '<td class="mono">' + num(d.belief, 3) + '</td>'
+          + '<td class="mono" style="font-size:.72rem">' + efectoPlanta + '</td>'
+          + '<td class="mono" style="font-size:.72rem;color:#94a3b8">' + efectoInterno + '</td></tr>';
+      }).join('') + '</tbody></table>';
+}
+
+let historialEscrituras = [];
+
+// Generacion del motor: avanza en cada arranque. La traza se repinta sola en
+// cada refresco, asi que ya "toma la version nueva" por construccion; lo que
+// hace falta es DECIRLO. Un tick recien nacido tras aplicar cambios se lee
+// igual que un tick cualquiera, y el operador no puede distinguir "esta regla
+// no dispara" de "el motor acaba de arrancar y las ventanas estan vacias".
+let _generacionSE = null;
+let _avisoReinicioHasta = 0;
+
+// Una fila por escritura efectiva al DCS, la mas nueva arriba. Se muestran
+// tambien las RECHAZADAS: "el experto quiso mover el SP y el DCS no lo acepto"
+// es el evento que hay que poder reconstruir despues.
+// Solo las ULTIMAS 7 aca: esta seccion es un vistazo dentro de una pagina que
+// ya es larga. El registro completo vive en su propia pagina.
+const ESCRITURAS_EN_TRAZA = 7;
+
+function tablaEscrituras(filas) {
+  const boton = '<div style="margin-top:10px">'
+    + '<a class="btn-hist" href="/espesador/escrituras" target="_blank" rel="noopener">'
+    + 'Ver historial completo (ultimas 100) &rarr;</a></div>';
+  if (!filas || !filas.length) {
+    return '<div class="empty">Todavia no se escribio ningun setpoint al DCS '
+         + 'desde que arranco el motor.</div>' + boton;
+  }
+  const total = filas.length;
+  const visibles = filas.slice(0, ESCRITURAS_EN_TRAZA);
+  let h = '<table><thead><tr><th>Hora</th><th>Hace</th><th>Setpoint</th>'
+        + '<th>Tag</th><th>Valor</th><th>Cambio</th><th></th></tr></thead><tbody>';
+  const ahora = Date.now() / 1000;
+  for (const f of visibles) {
+    const hora = f.ts_wall
+      ? new Date(f.ts_wall * 1000).toLocaleTimeString() : '&mdash;';
+    const hace = f.ts_wall ? Math.max(0, Math.round(ahora - f.ts_wall)) + ' s' : '&mdash;';
+    const cambio = (f.anterior === null || f.anterior === undefined)
+      ? '<span class="mut">primera escritura</span>'
+      : num(f.anterior, 2) + ' &rarr; ' + num(f.valor, 2)
+        + ' <span class="' + (f.delta >= 0 ? 'ok' : 'warn') + '">('
+        + (f.delta >= 0 ? '+' : '') + num(f.delta, 3) + ')</span>';
+    h += '<tr class="' + (f.ok ? '' : 'bad') + '">'
+       + '<td>' + hora + '</td><td class="mut">' + hace + '</td>'
+       + '<td><code>' + esc(f.sp || '') + '</code></td>'
+       + '<td><code>' + esc(f.tag) + '</code></td>'
+       + '<td><b>' + num(f.valor, 2) + '</b></td>'
+       + '<td>' + cambio + '</td>'
+       + '<td>' + (f.ok ? '<span class="ok">escrito</span>'
+                        : '<span class="bad">RECHAZADO: ' + esc(f.error || '') + '</span>')
+       + '</td></tr>';
+  }
+  h += '</tbody></table>';
+  if (total > visibles.length) {
+    h += '<div class="mut" style="font-size:.76rem;margin-top:6px">Mostrando las '
+       + visibles.length + ' mas recientes de ' + total + ' en memoria.</div>';
+  }
+  return h + boton;
+}
+
+function render(tz, disparos) {
+  renderFlow(tz);
+  renderBanner(tz);
+
+  const lect = tz.lectura || [];
+  const fallos = lect.filter(f => !f.ok).length;
+  const reglas = tz.reglas || [];
+  const disp = reglas.filter(r => r.estado === 'disparo').length;
+  const noEval = reglas.filter(r => r.estado === 'no_evaluable').length;
+  const waits = tz.waits_activos || [];
+
+  let html = '';
+
+  const estancadas = tz.estancadas || [];
+  const retenidos = tz.retenidos || [];
+  html += stage('lectura', '1 · Lectura de tags (OPC-UA)',
+    avisoRetenidos(retenidos) + avisoEstancadas(estancadas) + tablaLectura(lect),
+    lect.length + ' tags' + (fallos ? ' · ' + fallos + ' con falla' : '')
+      + (retenidos.length ? ' · ' + retenidos.length + ' retenido(s)' : '')
+      + (estancadas.length ? ' · ' + estancadas.length + ' sin cambiar' : ''),
+    fallos ? 'bad' : ((retenidos.length || estancadas.length) ? 'warn' : ''));
+
+  html += stage('filtro', '2 · Filtro Exp-Q',
+    tablaFiltro(tz.filtro || []), (tz.filtro || []).length + ' PV');
+
+  const der = tz.derivadas || {};
+  const derKeys = Object.keys(der);
+  const derOmit = tz.derivadas_omitidas || [];
+  // Hasta el 2026-08-21 este paso mostraba los _lmin/_lmax y los setpoints:
+  // datos que ya venian del DCS, no derivadas de nada. Ahora son las
+  // variables que el SE calcula de verdad, tick a tick.
+  const avisoDer = derOmit.length
+    ? '<div class="warn" style="font-size:.76rem;margin-bottom:8px">No calculadas en este tick: '
+      + derOmit.map(x => '<code>' + esc(x) + '</code>').join(' ')
+      + '<div class="mut" style="margin-top:3px">Les falta una fuente (una PV con calidad '
+      + 'mala, por ejemplo) o el resultado no es un numero. Las reglas que las nombran '
+      + 'quedan <b>no evaluables</b>.</div></div>'
+    : '';
+  html += stage('derivadas', '3 · Variables calculadas',
+    avisoDer + (derKeys.length
+      ? '<div class="grid">' + derKeys.map(k => '<div class="kv"><div class="k">' + esc(k)
+          + '</div><div class="v">' + num(der[k], 3) + '</div></div>').join('') + '</div>'
+      : '<div class="empty">Sin variables calculadas definidas. Se crean en la pagina '
+        + 'de Variables y se pueden fuzzificar y nombrar en reglas como cualquier PV.</div>'),
+    derKeys.length,
+    derOmit.length ? 'warn' : '');
+
+  // Variables que no se pudieron fuzzificar en este tick. Antes esto abortaba
+  // el pipeline completo; ahora la variable queda fuera y hay que poder verlo,
+  // porque explica por que una regla que la nombra no dispara.
+  // Las pendientes con ventana incompleta se listan aca tambien: no es un
+  // defecto de configuracion, es que el motor todavia no tiene historia.
+  const omitidas = (tz.fuzzy_omitidas || [])
+    .concat(tz.pendientes_omitidas || [])
+    .concat(tz.aceleraciones_omitidas || []);
+  const avisoOmitidas = omitidas.length
+    ? '<div class="warn" style="font-size:.76rem;margin-bottom:8px">'
+      + 'Fuera del fuzzy en este tick: '
+      + omitidas.map(x => '<code>' + esc(x) + '</code>').join(' ')
+      + '<div class="mut" style="margin-top:3px">No se fuzzifican sin dato, sin sus '
+      + 'limites o —en una pendiente o una aceleracion— sin la ventana de tiempo '
+      + 'cubierta: no se inventa la escala ni se afirma una tendencia que no se puede '
+      + 'sostener. Las reglas que las nombran quedan <b>no evaluables</b> (paso 6).</div></div>'
+    : '';
+  const acels = tz.aceleraciones || [];
+  html += stage('fuzzy', '4 · Fuzzificacion, pendientes y aceleraciones',
+    avisoOmitidas + celdasAceleraciones(acels) + tablaFuzzy(tz.fuzzy || []),
+    (tz.fuzzy || []).length + ' variables'
+      + (acels.length ? ' · ' + acels.length + ' acel' : '')
+      + (omitidas.length ? ' · ' + omitidas.length + ' omitidas' : ''),
+    omitidas.length ? 'warn' : '');
+
+  const perm = tz.permisivos || {};
+  const permKeys = Object.keys(perm);
+  html += stage('permisivos', '5 · Permisivos',
+    permKeys.length
+      ? '<table><thead><tr><th>Permisivo</th><th>Estado</th></tr></thead><tbody>'
+        + permKeys.map(k => '<tr><td class="mono">' + esc(k) + '</td><td><span class="badge b-mut">'
+            + esc(perm[k]) + '</span></td></tr>').join('') + '</tbody></table>'
+      : '<div class="empty">Sin permisivos evaluados.</div>',
+    permKeys.length);
+
+  html += stage('reglas', '6 · Motor de reglas',
+    tablaReglas(reglas),
+    reglas.length + ' evaluadas · ' + disp + ' disparadas'
+      + (noEval ? ' · ' + noEval + ' no evaluables' : ''),
+    noEval ? 'warn' : '');
+
+  // Disparos que no movieron ningun setpoint: su wait NO se reinicia. Es la
+  // otra mitad del aviso de "saturado" del paso 8, vista desde el timer.
+  const sinEfecto = (tz.disparadas || []).filter(d => d.movio_sp === false);
+  const avisoSinEfecto = sinEfecto.length
+    ? '<div class="warn" style="font-size:.76rem;margin-bottom:8px">'
+      + 'Disparo sin efecto (el wait no se reinicia): '
+      + sinEfecto.map(d => '<code>' + esc(d.regla_id) + '</code>'
+          + ' — ' + esc(d.error || d.motivo_sin_efecto
+                        || 'el setpoint no se movio (motivo no informado)'))
+          .join('<br>')
+      + '<div class="mut" style="margin-top:3px">La regla puede volver a intentar en el '
+      + 'proximo tick en vez de quedar callada por una accion que no ocurrio.</div></div>'
+    : '';
+
+  html += stage('waits', '7 · Waits activos',
+    avisoSinEfecto + (waits.length
+      ? '<table><thead><tr><th>Wait</th><th>Variable</th><th>Regla</th><th>Restante</th></tr></thead><tbody>'
+        + waits.map(w => '<tr><td class="mono">' + esc(w.wait_id) + '</td>'
+            + '<td class="mono mut">' + esc(w.variable_controlada) + '</td>'
+            + '<td class="mono mut">' + esc(w.regla_id) + '</td>'
+            + '<td class="warn mono">' + num(w.restante_s, 1) + ' s de ' + num(w.duracion_s, 0) + ' s</td></tr>').join('')
+        + '</tbody></table>'
+      : '<div class="empty">Ningun wait activo: todas las reglas pueden disparar.</div>'),
+    waits.length,
+    sinEfecto.length ? 'warn' : '');
+
+  // 7b solo existe si hubo disparos. Una etapa que dice "ninguna regla
+  // disparo" ocupa el mismo lugar que el historial real y se lee como un
+  // fallo; el motivo de cada regla ya esta en el paso 6.
+  if ((disparos || []).length) {
+    html += stage('disparos', '7b · Ultimos disparos (historial)',
+      tablaDisparos(disparos), disparos.length);
+  }
+
+  html += stage('defuzzy', '8 · Defuzzy y setpoints',
+    tablaDefuzzy(tz.defuzzy || []), (tz.defuzzy || []).length);
+
+  // Write-on-change: en ciclo libre lo normal es NO escribir. Un tick sin
+  // escrituras es sano, no un fallo; hay que distinguirlo de un error.
+  const wr = tz.escritura || {};
+  const err = wr.error;
+  const escritos = wr.escritos || [];
+  const quietos = wr.sin_cambio || [];
+  let wrHtml;
+  if (err) {
+    wrHtml = '<div class="bad">Error: ' + esc(err) + '</div>';
+  } else if (tz.abortado_en) {
+    wrHtml = '<div class="empty">No se llego a escribir.</div>';
+  } else if (escritos.length) {
+    wrHtml = '<div class="ok">Escritos al DCS: <code>' + escritos.map(esc).join('</code>, <code>')
+           + '</code></div>'
+           + (quietos.length ? '<div class="empty">Sin cambio (no se reescriben): '
+                + quietos.length + '</div>' : '');
+  } else {
+    wrHtml = '<div class="empty">Ningun setpoint cambio: no se escribio nada al DCS ('
+           + quietos.length + ' sin cambio).</div>';
+  }
+  // Siembra al recibir el lazo del DCS: explica por que el SP salto al valor
+  // del proceso justo despues de que el ENABLE paso a concedido.
+  const semilla = tz.semilla_sp || [];
+  if (semilla.length) {
+    wrHtml += '<div class="ok" style="font-size:.76rem;margin-top:8px">'
+           + 'SP sembrado al recibir el lazo del DCS (ENABLE): '
+           + semilla.map(x => '<code>' + esc(x.sp) + '</code> = ' + num(x.despues, 3)
+               + ' (desde <code>' + esc(x.origen || '?') + '</code>'
+               + (x.fuente === 'tag' ? ', SP de referencia del DCS' : ', PV de readback') + ')'
+               + (x.recortado_a_limite ? ' — recortado a los limites del SP' : '')).join('<br>')
+           + '</div>';
+  }
+  // Pegado a la planta: el SE no tiene el lazo y su objetivo interno esta
+  // siguiendo al SP de planta. Es lo que hace que la entrega sea bumpless sin
+  // depender de acertarle al instante del flanco. Va como aviso neutro y no
+  // como alerta: es el estado normal mientras el lazo esta afuera.
+  const pegados = tz.setpoints_pegados || [];
+  if (pegados.length) {
+    wrHtml += '<div class="mut" style="font-size:.76rem;margin-top:8px;'
+           + 'border-left:3px solid #38bdf8;padding-left:8px">'
+           + '<b style="color:#38bdf8">SP pegado a la planta</b> (el SE no tiene el lazo): '
+           + pegados.map(x => '<code>' + esc(x.sp) + '</code> '
+               + num(x.antes, 3) + ' &rarr; <b>' + num(x.despues, 3) + '</b>'
+               + ' desde <code>' + esc(x.origen || '?') + '</code>').join('<br>')
+           + '<div style="margin-top:3px">Mientras manda otro, el objetivo interno sigue al '
+           + 'valor real del equipo en vez de quedarse en el ultimo que escribio el SE. '
+           + 'Cuando el DCS conceda el permiso, esto deja de correr y el defuzzy arranca '
+           + 'desde ahi — eso es soltar.</div></div>';
+  }
+  const semillaPend = tz.semilla_pendiente || [];
+  if (semillaPend.length) {
+    wrHtml += '<div class="warn" style="font-size:.76rem;margin-top:8px">'
+           + 'Siembra pendiente tras el ENABLE del DCS: '
+           + semillaPend.map(x => '<code>' + esc(x.sp) + '</code> &larr; <code>'
+               + esc(x.origen || '?') + '</code>').join('<br>')
+           + '<div class="mut" style="margin-top:3px">Hasta que esa referencia se lea, la '
+           + 'familia se calcula pero no se escribe: al retomar el lazo el SP tiene que '
+           + 'salir en el valor con el que se venia operando.</div></div>';
+  }
+  // Espejo: con el lazo afuera el SE escribe en su tag el SP del DCS. Es la
+  // unica escritura que sale con el permiso denegado y por eso se muestra
+  // aparte, no mezclada con los escritos normales.
+  const espejo = wr.espejo || [];
+  if (espejo.length) {
+    wrHtml += '<div class="mut" style="font-size:.76rem;margin-top:8px;'
+           + 'border-left:3px solid #a855f7;padding-left:8px">'
+           + '<b style="color:#a855f7">Espejo del SP del DCS</b> (el SE no tiene el lazo): '
+           + espejo.map(x => '<code>' + esc(x.sp) + '</code> &larr; ' + num(x.valor, 3)
+               + ' desde <code>' + esc(x.origen || '?') + '</code>'
+               + (x.ok ? '' : ' <span class="bad">rechazado: ' + esc(x.error || '?') + '</span>')).join('<br>')
+           + '<div style="margin-top:3px">Se escribe el valor del <b>propio DCS</b>, nunca uno '
+           + 'calculado por las reglas, para que la senal que el DCS ve tampoco salte en la '
+           + 'transferencia. Como mucho una vez por segundo por familia. No entra al historial '
+           + 'de escrituras: es un eco, no una orden.</div></div>';
+  }
+  const inhib = wr.inhibidos || [];
+  if (inhib.length) {
+    wrHtml += '<div class="warn" style="font-size:.76rem;margin-top:8px">Inhibidos (calculados, '
+           + 'no escritos): '
+           + inhib.map(d => '<code>' + esc(d.sp) + '</code> — ' + esc(d.motivo)).join('<br>')
+           + '</div>';
+  }
+  // Rate limit: el objetivo es correcto, lo que se limita es la velocidad. Se
+  // muestra aparte de los inhibidos porque no es un problema — lo que falta se
+  // entrega en los ticks siguientes sin que nadie intervenga.
+  const rampas = wr.rampas || [];
+  if (rampas.length) {
+    wrHtml += '<div class="warn" style="font-size:.76rem;margin-top:8px">'
+           + '<b>En rampa</b> (limite de velocidad del contrato): '
+           + rampas.map(r => '<code>' + esc(r.tag) + '</code> &rarr; ' + num(r.escrito, 3)
+               + ' de ' + num(r.objetivo, 3) + ' (faltan ' + num(r.falta, 3)
+               + ' a ' + num(r.rate, 3) + ' u/s)').join('<br>')
+           + '<div class="mut" style="margin-top:3px">El objetivo NO se descarta: se entrega '
+           + 'en los proximos ticks. El wait de la regla no se revierte, porque el setpoint '
+           + 'interno si se movio.</div></div>';
+  }
+  html += stage('escritura', '9 · Escritura al KEPserver', wrHtml,
+    escritos.length || undefined, err ? 'bad' : '');
+
+  // 9b - Auditoria de lo unico que sale del SE hacia la planta. La etapa 9
+  // muestra ESTE tick, y con write-on-change casi siempre esta vacia; esto
+  // sobrevive y responde "que le mando el experto al DCS".
+  html += stage('escrituras_hist', '9b · Historial de escrituras al DCS',
+    tablaEscrituras(historialEscrituras), historialEscrituras.length || undefined);
+
+  document.getElementById('stages').innerHTML = html;
+}
+
+async function cargar() {
+  try {
+    const r = await fetch('/api/se/trace?n=1');
+    try {
+      _grab = await (await fetch('/api/se/grabador')).json();
+    } catch (e) { /* el grabador no es critico para ver la traza */ }
+    const d = await r.json();
+    const pill = document.getElementById('run-pill');
+    const txt = document.getElementById('run-txt');
+    pill.className = 'pill ' + (d.running ? 'on' : 'off');
+    txt.textContent = d.running ? 'SE CORRIENDO' : 'SE DETENIDO';
+
+    if (d.generacion !== undefined && d.generacion !== null) {
+      if (_generacionSE === null) {
+        _generacionSE = d.generacion;
+      } else if (d.generacion !== _generacionSE) {
+        _generacionSE = d.generacion;
+        // Lo que quedo en pantalla es del motor anterior. El historial de
+        // escrituras se conserva si el reinicio fue en caliente (el motor lo
+        // transplanta), asi que no se borra aca: se repuebla con lo que el
+        // servidor devuelva en este mismo refresco.
+        _avisoReinicioHasta = Date.now() + 20000;
+      }
+    }
+
+    const tz = (d.trazas || [])[0];
+    if (!tz) {
+      document.getElementById('sub').textContent = 'Sin ticks registrados todavia.';
+      document.getElementById('banner').innerHTML =
+        '<div class="banner warn"><h3 class="warn">Sin datos</h3>'
+        + '<div>El motor no ha ejecutado ningun tick. Arrancalo desde la pagina de Tags KEPserver '
+        + 'para ver la traza del pipeline.</div></div>';
+      document.getElementById('stages').innerHTML = '';
+      document.getElementById('flow').innerHTML = '';
+      return;
+    }
+    const hora = new Date(tz.ts_wall * 1000).toLocaleTimeString();
+    document.getElementById('sub').textContent =
+      'Tick ' + tz.tick + ' · t_s ' + tz.t_s + ' · ' + hora
+      + ' · ' + d.disponibles + ' ticks en buffer'
+      + (Date.now() < _avisoReinicioHasta
+          ? ' · ⚡ el SE se reinicio recién (config aplicada)' : '');
+    historialEscrituras = d.historial_escrituras || [];
+    render(tz, d.ultimos_disparos || []);
+  } catch (e) {
+    document.getElementById('sub').textContent = 'Error: ' + e.message;
+  }
+}
+
+function reprogramar() {
+  if (_timer) { clearInterval(_timer); _timer = null; }
+  const ms = parseInt(document.getElementById('auto').value, 10);
+  if (ms > 0) _timer = setInterval(cargar, ms);
+}
+document.getElementById('auto').addEventListener('change', reprogramar);
+
+cargar();
+reprogramar();
+</script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'traza',
+  pageLabel: 'Traza del pipeline',
+  restartOnSave: false,
+});
+</script>
+</body>
+</html>

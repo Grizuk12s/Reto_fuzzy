@@ -1,0 +1,64 @@
+<!-- Menu lateral comun del SE (editor, PostgreSQL, Export / Import, Motor).
+     No es Jinja: menu_lateral.py lo pega en la marca SE_SIDEBAR de cada
+     pagina. __SB_BASE__ queda vacio en el editor (secciones por #hash) y
+     como "/espesador" en las demas paginas. -->
+<aside class="sidebar" id="main-sidebar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" title="Contraer / Expandir">&#9776;</button>
+  <a href="/" class="brand" style="text-decoration:none;display:block" title="ReTO Digital -- inicio"><img class="hb-logo" src="/static/hudbay-logo.png" alt="Hudbay"><img class="hb-logo-min" src="/static/favicon.png" alt="Hudbay"></a>
+  <div style="padding:0 8px">
+    <!-- Las paginas con este menu muestran TODOS los SAG (o, PostgreSQL,
+         son del SAG 1): no hay selector de SAG. data-se-sag="oculto" le dice
+         al script del router que no pinte selector, franja ni pastilla. -->
+    <span data-se-sag="oculto" hidden></span>
+  </div>
+  <span class="section-label">Sistema</span>
+  <a href="__SB_BASE__#licencia" data-sec="licencia"><span class="step-num s9">L</span><span class="link-label">Licenciamiento</span></a>
+  <a href="/gestion" class="external" data-sb="/gestion" data-se-solo-router style="display:none"><span class="link-label">Gestion de SAG &rarr;</span><span class="badge-short" style="font-size:.65rem">GS</span></a>
+  <hr class="sep">
+  <a href="__SB_BASE__#contrato" data-sec="contrato"><span class="step-num s9">C</span><span class="link-label">Contrato de Variables</span></a>
+  <hr class="sep">
+  <span class="section-label">Pipeline SE</span>
+  <a href="/espesador/entrada" class="external" data-sb="/espesador/entrada"><span class="step-num s1">1</span><span class="link-label">Entrada de Datos &rarr;</span></a>
+  <a href="__SB_BASE__#variables"  data-sec="variables"><span class="step-num s2">2</span><span class="link-label">Variables calc.</span></a>
+  <a href="__SB_BASE__#tracking"   data-sec="tracking"><span class="step-num s3">3</span><span class="link-label">Tracking PV-SP</span></a>
+  <a href="__SB_BASE__#filtros"    data-sec="filtros"><span class="step-num s4">4</span><span class="link-label">Filtros Exp-Q</span></a>
+  <a href="__SB_BASE__#fuzzy"      data-sec="fuzzy"><span class="step-num s5">5</span><span class="link-label">Fuzzificacion</span></a>
+  <a href="__SB_BASE__#aceleracion" data-sec="aceleracion"><span class="step-num s5">5a</span><span class="link-label">Aceleracion</span></a>
+  <a href="__SB_BASE__#estados"    data-sec="estados"><span class="step-num s5">5b</span><span class="link-label">Estados</span></a>
+  <a href="__SB_BASE__#waits"      data-sec="waits"><span class="step-num s5">5c</span><span class="link-label">Waits</span></a>
+  <a href="__SB_BASE__#permisivos" data-sec="permisivos"><span class="step-num s6">6</span><span class="link-label">Permisivos</span></a>
+  <a href="__SB_BASE__#reglas"     data-sec="reglas"><span class="step-num s7">7</span><span class="link-label">Motor de Reglas</span></a>
+  <a href="__SB_BASE__#defuzzy"    data-sec="defuzzy"><span class="step-num s8">8</span><span class="link-label">Defuzzificacion</span></a>
+  <hr class="sep">
+  <span class="section-label">Conexion</span>
+  <a href="__SB_BASE__#tags" data-sec="tags"><span class="link-label">Tags KEPserver</span><span class="badge-short" style="font-size:.65rem">Kep</span></a>
+  <a href="/motor" class="external" data-sb="/motor" data-se-solo-router style="display:none"><span class="link-label">Motor &rarr;</span><span class="badge-short" style="font-size:.65rem">Mo</span></a>
+  <a href="/espesador/postgres" class="external" data-sb="/espesador/postgres"><span class="link-label">PostgreSQL &rarr;</span><span class="badge-short" style="font-size:.65rem">PG</span></a>
+  <a href="/espesador/export-import" class="external" data-sb="/espesador/export-import"><span class="link-label">Export / Import &rarr;</span><span class="badge-short" style="font-size:.65rem">EI</span></a>
+  <hr class="sep">
+  <span class="section-label">Visualizacion</span>
+  <a href="/espesador/graficos" class="external" data-sb="/espesador/graficos"><span class="link-label">Explorador de Series &rarr;</span><span class="badge-short" style="font-size:.65rem">ES</span></a>
+  <a href="/espesador/traza" class="external" data-sb="/espesador/traza"><span class="link-label">Traza del Pipeline &rarr;</span><span class="badge-short" style="font-size:.65rem">TZ</span></a>
+  <a href="/" class="hb-sig" title="ReTO Digital -- inicio"><img src="/static/reto-digital-dark.png" alt="ReTO Digital"></a>
+</aside>
+<script>
+// Contraer / expandir el menu (el estado se recuerda en la pestana).
+function toggleSidebar() {
+  var sb = document.getElementById('main-sidebar');
+  sb.classList.toggle('collapsed');
+  // El body refleja el estado: la barra de Ultimas Ejecuciones se apoya en el.
+  document.body.classList.toggle('sb-collapsed', sb.classList.contains('collapsed'));
+  try { sessionStorage.setItem('_sidebarCollapsed', sb.classList.contains('collapsed') ? '1' : ''); } catch (e) {}
+}
+(function () {
+  var sb = document.getElementById('main-sidebar');
+  var plegado = false;
+  try { plegado = sessionStorage.getItem('_sidebarCollapsed') === '1'; } catch (e) {}
+  if (plegado) { sb.classList.add('collapsed'); document.body.classList.add('sb-collapsed'); }
+  // Pagina suelta: marca su enlace. (En el editor lo hace el router de secciones.)
+  var aqui = location.pathname.replace(/\/+$/, '');
+  sb.querySelectorAll('a[data-sb]').forEach(function (a) {
+    if (a.getAttribute('data-sb') === aqui) a.classList.add('active');
+  });
+})();
+</script>

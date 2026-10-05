@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "max_sags": 4,
+  "sags": [
+    {
+      "id": "sag1",
+      "nombre": "SAG 1",
+      "color": "#14b8a6",
+      "puerto": 5101
+    },
+    {
+      "id": "sag2",
+      "nombre": "SAG 2",
+      "color": "#a78bfa",
+      "puerto": 5102
+    }
+  ]
+}

@@ -11,6 +11,31 @@ Explorador de Series operativo — endpoints nuevos, decisiones y verificación)
 **Última función nueva:** `CAMBIOS_ACELERACION.md` (aceleración por ajuste cuadrático:
 mapa del cambio, las fases y qué queda por calibrar; incluye la actualización del
 2026-09-14 que agregó el signo y endureció ESTABLE)
+**Licencia (2026-10-01):** `CAMBIOS_LICENCIA_2026-10-01.md` (nueva licencia de
+prototipo hasta el **2026-10-31**: tope del código movido, licencia local re-activada y
+firmada, copia para planta en `Claude outputs/` pendiente de instalar en la VM)
+**Cambio anterior (2026-09-24):** `CAMBIOS_AUTO_APLICAR.md` (el reinicio en caliente al
+guardar lo dispara el SERVIDOR, no la pestaña del panel; traza con columnas ocultables;
+tooltip del Explorador con anotaciones por instante; orden de reglas de igual prioridad;
+orden manual de filas fuzzy/pendiente, botones homogeneos y Vaciar en paginas 2-8)
+**Cambio anterior (2026-09-22):** `CAMBIOS_FASE6_IMPORT_TRACKING.md` (el import de
+tracking PV-SP pasa por el mismo validador que la página y el preview avisa de las
+referencias colgadas). **Versión de despliegue: 0.45** (contenedor `se-espesador-A0-45`) — ver `DESPLIEGUE.txt`
+**Fase 5 (2026-09-22):** `CAMBIOS_FASE5_RATIFICACION.md` (Fase 5 de
+afinación: una pendiente puede ratificarse con una aceleración de ventana corta;
+si el `rate` la desmiente, se fuzzifica como pendiente nula)
+**Fase 3 (2026-09-22):** `CAMBIOS_FASE3_ESTADOS_OR.md` (Fase 3 de afinación:
+un estado puede declarar alternativas con grupos OR, así «(Alto y no bajando) o
+(OK y subiendo)» es UN estado con nombre y no dos copiados en cada regla)
+**Fase 2 (2026-09-22):** `CAMBIOS_FASE2_PENDIENTE_SEGUNDOS.md` (Fase 2 de
+afinación: la ventana de pendiente se declara en segundos y se comprueba la
+relación 2x-4x contra el filtro de su variable fuente)
+**Fase 1 (2026-09-22):** `CAMBIOS_FASE1_RITMO.md` (Fase 1 de afinación:
+`piso_s` configurable desde la interfaz y persistido en `motor.json`, métricas
+reales del lazo a la vista, auto-reinicio en caliente encendido por defecto)
+**Cambio anterior (2026-09-17):** `CAMBIOS_REINICIO_CALIENTE.md` (aplicar configuración
+sin soltar el lazo ni vaciar las ventanas, franja celeste de reinicio en el Explorador
+y refresco de las otras pestañas)
 
 ---
 
@@ -1715,9 +1740,20 @@ lo aceptaron" es justamente el evento que hay que poder reconstruir después.
 ### Licencia vencida: qué se corta y qué sigue (2026-09-16)
 
 La licencia es de prototipo (código fijo, firma HMAC + checkpoint de reloj) y tiene
-**tope duro `LICENCIA_FECHA_MAXIMA = 2026-10-12`** en `web/api/config.py`: vale hasta
-ese día inclusive y deja de valer el 13. Después del tope tampoco se puede activar otra
-desde la página. **El tope está bien así; no moverlo sin pedido explícito.**
+**tope duro `LICENCIA_FECHA_MAXIMA = 2026-10-31`** en `web/api/config.py` (duplicado en
+`_LICENCIA_FECHA_MAXIMA_ISO` de `web/state.py`): vale hasta ese día inclusive y deja de
+valer el 1-nov. Después del tope tampoco se puede activar otra desde la página.
+**El tope está bien así; no moverlo sin pedido explícito.**
+
+> 2026-10-01 (pedido de Cesar): el tope pasó de 2026-10-12 a **2026-10-31**. Una licencia
+> ya activada conserva su `expires_at` firmado (la de planta dice 12-oct): para llegar al
+> 31 hay que **re-activar** desde Licenciamiento (código prototipo, cualquier duración; se
+> recorta al tope). Test: `test_activar_recorta_al_tope_del_31_de_octubre`. Respaldo en
+> `_backup_rediseno_20260922/antes_tope_licencia_20261001/`.
+> Ese mismo día se re-activó la local (vence 2026-10-31, `duration_seconds` = 31 días:
+> la activación calcula `(vence − hoy).days` = 30 y el contador de uso la vencía el 31 a
+> media tarde). Copia para planta en `Claude outputs/licencia_hasta_2026-10-31.json`.
+> `_license_check` no mira el tope: ese archivo sirve también con el código 0.45.
 
 Sin licencia válida (vencida, manipulada, ausente o JSON ilegible):
 
@@ -1753,7 +1789,139 @@ rechazado se reintenta en la próxima revisión.
 
 Cobertura en `tests/test_licencia.py` (licencia real firmada en un temporal, con el
 `_license_check` de producción; incluye el borde 12/13-oct con el formato del archivo de
-planta).
+planta y la activación recortada al tope del 31-oct).
+
+### Aplicar cambios no puede costar el lazo ni las ventanas (2026-09-17)
+
+**El auto-reinicio pasó a ser un reinicio EN CALIENTE: no suelta `ENABLE_EXT` y
+conserva los buffers cuya configuración no cambió.** Guardar una regla costaba dos
+cosas que no tenían nada que ver con la regla:
+
+- **El SP se pegaba al del DCS.** `stop()` suelta el control externo, el DCS retira el
+  FBK y la familia queda *sin lazo*: el bumpless hace exactamente lo que debe, pero el
+  operador ve el SP saltar al valor del DCS por un cambio que no tocaba el lazo.
+- **El SE quedaba mudo hasta rellenar las ventanas.** `_init_state()` vacía pendientes,
+  aceleraciones, calculadas y filtro, y **una pendiente no se produce hasta cubrir su
+  ventana**. Con `pend_hopper_nvl_pv_a_5min` en 2 min, guardar dejaba a la planta sin
+  experto **120 s**, con las dos reglas en `no_evaluable`. Es el "no activa nada por
+  22 segundos" que reportó planta.
+
+#### Qué se conserva y qué no
+
+`SEEngine.reiniciar(caliente=True)` toma una foto (`_snapshot_caliente`), corre
+`_init_state()` —que recarga **todo** lo que el operador acaba de guardar— y devuelve lo
+que no cambió (`_restaurar_caliente`).
+
+| Se conserva | Por qué |
+|---|---|
+| `_t0` / `_t_s` / `_tick` | Todo lo fechado (buffers, waits, retención, rate limit) vive en esa escala. Con el reloj en cero esas marcas quedan **en el futuro** y se leen como edad negativa, o sea dentro de la ventana para siempre |
+| Buffers de pendientes, aceleraciones y calculadas | Es el punto entero del cambio |
+| Buckets del filtro Exp-Q | Ídem |
+| `_setpoints` (clipeado a los límites **vigentes**) | El SE puede venir a mitad de una rampa; adoptar el tag del DCS perdería el objetivo que las reglas ya decidieron |
+| `_sp_escritos` / `_sp_rate_t` | Van por **TAG**, no por familia. Sin ellos el write-on-change se cree en su primer tick y reescribe todos los SP — el salto que esto existe para evitar |
+| `_hist` (waits), `_last_action_time` | Un wait espera al **proceso**; que alguien guarde una regla no significa que el proceso respondió |
+| Historial de disparos y de escrituras | Es la auditoría: un guardado no puede borrarla |
+| `ENABLE_EXT` / `_control_pedido` / `_handshake_permiso_prev` | Lo de arriba |
+
+**Un buffer solo se transplanta si la configuración de ESA variable es idéntica**
+(`variable` + `ventana_s` para pendientes y aceleraciones; `q` + `ventana_s` para el
+filtro; la definición completa para una calculada). Si cambió, el buffer viejo describe
+otra pregunta —las muestras están decimadas con otro paso y la cobertura medida sería
+falsa—, así que arranca vacío **y se avisa**. Mismo criterio de siempre: sin historia no
+se afirma nada.
+
+#### Serializar el ciclo de vida del motor
+
+`start()`, `stop()` y `reiniciar()` corren ahora bajo un `RLock` de instancia
+(`_ciclo_vida_lock`). **No es paranoia: el defecto se reprodujo.** gunicorn corre con
+`threads = 4`, así que dos requests se atienden en paralelo de verdad, y con el debounce
+en 1 s basta tener **dos pestañas del panel** abiertas para que las dos manden su
+reinicio casi a la vez. Entre que `_parar_hilo` pone `_running=False` y `start()` lo
+vuelve a poner en True hay una ventana en la que el segundo pasa el chequeo y se lanza un
+**segundo hilo** — dos motores escribiendo los mismos SP al DCS, que es justo lo que
+`stop()` se cuida de no permitir. En el camino también reventaba con `AttributeError`,
+porque `_thread` quedaba en `None` a mitad del `join`.
+
+El agujero era preexistente (el stop+start del navegador lo tenía igual), pero el
+debounce corto lo volvió alcanzable. `_parar_hilo` además fotografía `self._thread` antes
+del `join` en vez de leerlo dos veces. Regresión fijada en
+`test_reinicios_simultaneos_no_dejan_dos_motores`.
+
+#### El fail-safe, porque la excepción es real
+
+No soltar `ENABLE_EXT` significa que, si el rearranque falla, el DCS se quedaría
+creyendo que hay un experto vivo. Por eso **los tres caminos de error lo sueltan
+explícitamente**: el hilo que no responde al `join`, la excepción en `start()` y el
+`start()` que devuelve `ok=False`. Y el tramo de corte queda **abierto**, así el
+Explorador lo sigue pintando en vez de dar por cerrado algo que no terminó.
+
+#### Registro de cortes: lo que ven las OTRAS pestañas
+
+El auto-reinicio lo dispara la página principal, en el navegador. El Explorador y la
+Traza corren en pestañas distintas y no tenían forma de enterarse: veían una línea plana
+y no podían distinguir *el proceso está quieto* de *el SE estuvo abajo*.
+
+`web/state.py` lleva un anillo de cortes a nivel de **módulo** (`_reinicios`, 50
+entradas) con `inicio_ms` / `fin_ms` / `motivo` / `caliente`, más un contador de
+**generación** que avanza en cada `start()`. Vive a nivel de módulo porque tiene que
+sobrevivir exactamente a lo que registra; se pierde sólo al reiniciar Flask, igual que
+`_tag_history`.
+
+- `GET /api/se/reinicios?from_ms&to_ms` — los tramos, recortados a la ventana.
+- `generacion` en `/api/se/status` y en `/api/se/trace`.
+- Un corte con `fin_ms: null` significa **el motor sigue abajo**: la franja llega al
+  borde derecho. Abrir un corte nuevo cierra el anterior, o quedarían dos abiertos y el
+  gráfico pintaría desde el primero hasta el borde para siempre.
+
+**Explorador:** franja celeste vertical, mismo mecanismo que las rojas del handshake,
+con botón propio para ocultarlas. Tiene **ancho mínimo de 3 px** a propósito: un reinicio
+en caliente dura ~5 ms y a 30 min de ventana eso es menos de un píxel — una franja exacta
+e invisible no informa nada, y acá el dato es *cuándo*, no *cuánto*.
+
+**Refresco en sitio, no `location.reload()`.** Al cambiar la generación, el Explorador
+relee catálogo, escalas y preferencias, y la Traza avisa en su subtítulo. Recargar la
+página borraría el zoom, las series elegidas y la ventana que el operador estaba mirando
+— justo lo que estaba usando para diagnosticar el cambio que acaba de hacer.
+
+#### Un endpoint, no stop+start desde el navegador
+
+`POST /api/se/restart` (`{caliente: true}`) hace todo del lado del servidor. Entre un
+`stop` y un `start` disparados por el navegador hay un viaje de red: con dos pestañas
+abiertas se podían solapar rondas distintas. Y el estado que el reinicio conserva sólo
+existe dentro del proceso: no se puede transportar por HTTP.
+
+#### `aceleraciones.json` no estaba en el versionado, y tags.json tampoco
+
+El auto-reinicio sondea `/api/config/version`, una huella de los JSON que el motor lee.
+**`aceleraciones.json` nunca estuvo en esa lista**: guardar una aceleración no aplicaba
+nada, aunque la página dijera "se aplica al reiniciar el motor". Ya está.
+
+`tags.json` seguía afuera con razón —el generador y el heartbeat lo reescriben solos, así
+que la huella cambiaría sola y el SE se reiniciaría en un lazo infinito—, pero el motor
+**sí** lee de ahí el mapeo tag↔rol y el handshake. Ahora se versiona el **subconjunto**
+que el motor consume (`_huella_tags()`), ignorando `generator`, `heartbeat` y los colores
+del gráfico, que son visualización.
+
+> **Al agregar una configuración nueva que el motor lea en `_init_state()`**, agregala a
+> `_ARCHIVOS_VERSIONADOS`. Si no, su botón Guardar no aplica nada y la pantalla igual
+> dice que sí.
+
+#### La UI
+
+El debounce bajó de **3 s a 1 s** y el sondeo de 1,5 s a 0,8 s — el sondeo tiene que ser
+más corto que el debounce, o el límite real de reacción lo fija el sondeo y bajar el
+debounce no cambia nada. El disparador sigue siendo el **guardado** (mtime en disco), no
+la edición: tipear en un formulario no reinicia nada, y un guardado desde otra pestaña
+sí. Los avisos del transplante ("pendiente nueva", "filtro resintonizado") se muestran al
+operador: explican por qué esa variable tarda en volver, en vez de parecer que el SE no
+arrancó.
+
+#### Cómo verificarlo
+
+`_verif_reinicio_caliente.py` en la raíz corre el motor contra la config de planta con un
+KEPserver falso y compara frío vs caliente sobre el mismo escenario. Cobertura en
+`tests/test_reinicio_caliente.py` (11 tests). Medido: el corte dura **~5 ms** y el
+contador de ticks **no se reinicia**.
 
 ### Configuración sobre código
 
@@ -1973,6 +2141,10 @@ AG-004, TK-004, PIC-2391).
   produce un error: produce un experto que controla mal en silencio.
 - **Cambios aditivos en el núcleo.**
 - **Correr los tests** después de cada cambio: `python -m pytest tests/ -q`.
+ Al 2026-09-17 (reinicio en caliente): **351 pasan, 2 fallan, 7 skip** sin `opcua`
+ (`--ignore=tests/test_kepserver.py`), con los 12 de `tests/test_reinicio_caliente.py`
+ incluidos. Verificado contra una copia limpia: la misma corrida **sin** los cambios da
+ 339/2/7, o sea los 2 que fallan son los de siempre y no hay regresion.
  Al 2026-09-16 (0.41, licencia + soltar ENABLE_EXT): **366 pasan, 2 fallan, 3 skip**
  (con `opcua` instalado). Los 2 que fallan son los mismos de abajo.
  Al 2026-09-09 (tras el espejo del SP): **331 pasan, 2 fallan, 7 skip**.

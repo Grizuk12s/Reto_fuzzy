@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba/Demo -- Diagrama</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#101a20;--card:#152128;--card2:#1b2a32;--line:#23323b;--txt:#e8eef1;--txt2:#a2b1b9;--txt3:#7a8b94;
+  --acc:#4fb3d9;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--slurry:#0b8fae;
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh}
+nav{background:#0a1216;border-bottom:1px solid #152128;padding:12px 24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+nav a{color:var(--txt2);text-decoration:none;font-size:.85rem;padding:6px 12px;border-radius:6px;transition:.15s}
+nav a:hover{background:#152128;color:var(--txt)}
+nav a.active{background:#152128;color:var(--acc);font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:24px}
+h1{color:var(--acc);margin-bottom:6px;font-size:1.5rem}
+.subtitle{color:var(--txt2);font-size:.95rem;margin-bottom:18px}
+
+/* Barra de estado */
+.statusbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-size:.78rem;font-weight:600;background:var(--card);border:1px solid var(--line);color:var(--txt2)}
+.chip .dot{width:9px;height:9px;border-radius:50%;background:#51636c}
+.chip.run{color:var(--ok);border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.08)}
+.chip.run .dot{background:var(--ok);animation:pulso 1s infinite}
+.chip.stop{color:var(--warn);border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.07)}
+.chip.stop .dot{background:var(--warn)}
+.chip.err{color:var(--bad);border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.08)}
+.chip.err .dot{background:var(--bad)}
+.chip.ok .dot{background:var(--ok)}
+@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(34,197,94,.7)}100%{box-shadow:0 0 0 9px rgba(34,197,94,0)}}
+
+/* Layout */
+.layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);gap:20px;align-items:start}
+@media(max-width:1050px){.layout{grid-template-columns:1fr}}
+.scene{background:radial-gradient(ellipse at 40% 20%,#1a2b34 0%,#12202a 55%,#0e171d 100%);border:1px solid var(--line);border-radius:14px;padding:10px;position:relative}
+.scene svg{width:100%;height:auto;display:block}
+.scene.parado svg{filter:saturate(.45) brightness(.85)}
+.scene .aviso{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:none;padding:6px 14px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.04em;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.5);color:var(--warn)}
+.scene.parado .aviso{display:block}
+
+/* Tarjetas */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+.panel h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:var(--txt3);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.row{display:grid;grid-template-columns:1fr auto 88px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .lbl{font-size:.82rem;color:var(--txt2)}
+.row .lbl small{display:block;color:var(--txt3);font-size:.68rem;margin-top:1px}
+.row .val{font-size:1.2rem;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.row .val .u{font-size:.72rem;font-weight:600;color:var(--txt3);margin-left:3px}
+.row .val.nodata{color:#51636c}
+.spark{width:88px;height:26px}
+.spark polyline{fill:none;stroke:var(--acc);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.state{padding:3px 10px;border-radius:999px;font-size:.7rem;font-weight:800;letter-spacing:.05em}
+.state.normal{background:rgba(34,197,94,.14);color:var(--ok)}
+.state.bajo{background:rgba(245,158,11,.16);color:var(--warn)}
+.state.alto{background:rgba(239,68,68,.16);color:var(--bad)}
+.state.nodata{background:#1b2a32;color:var(--txt3)}
+.bar{position:relative;height:14px;border-radius:8px;background:#0e171d;border:1px solid var(--line);margin:6px 0 2px}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--slurry);transition:width .4s,background .3s}
+.bar .mk{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--txt)}
+.bar .mk.min{background:var(--warn)}.bar .mk.max{background:var(--bad)}
+.barlbl{display:flex;justify-content:space-between;font-size:.66rem;color:var(--txt3)}
+.est-edit{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.est-edit label{display:flex;flex-direction:column;gap:4px;font-size:.66rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em}
+.est-edit input{width:96px;background:#0e171d;border:1px solid var(--line);border-radius:6px;color:var(--txt);padding:7px 8px;font-size:.9rem;font-variant-numeric:tabular-nums}
+.est-edit input:focus{outline:none;border-color:var(--acc)}
+.btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:8px 12px;font-size:.78rem;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#04141c}
+.btn.pri:hover{filter:brightness(1.1);color:#04141c}
+.est-msg{font-size:.74rem;min-height:1.1em;margin-top:8px;color:var(--txt3)}
+.est-msg.err{color:var(--bad)}.est-msg.ok{color:var(--ok)}
+.nota{color:var(--txt3);font-size:.74rem;line-height:1.6;margin-top:4px}
+
+/* SVG */
+.t-lbl{fill:#8fa2ac;font-size:11px;letter-spacing:.06em;font-weight:600}
+.t-val{fill:#fff;font-weight:800;font-variant-numeric:tabular-nums}
+.t-shadow{paint-order:stroke;stroke:rgba(5,12,16,.85);stroke-width:4px;stroke-linejoin:round}
+.pill rect{fill:#0f1a20;stroke:#2a3d47;stroke-width:1.2}
+.pill .k{fill:#8fa2ac;font-size:10px;font-weight:700;letter-spacing:.06em}
+.pill .v{fill:#fff;font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+.pill .u{fill:#8fa2ac;font-size:10px;font-weight:600}
+</style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/hudbay.css">
+</head>
+<body>
+<nav>
+  <a href="/" class="hb-nav-brand" title="Reto Digital"><img src="/static/hudbay-logo.png" alt="Hudbay" class="hb-navlogo"></a>
+  <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);letter-spacing:.3px;margin-right:8px">PRUEBA DEMO</span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada">Entrada de Datos</a>
+  <a href="/espesador/graficos">Explorador de Series</a>
+  <a href="/espesador/diagrama" class="active">Diagrama</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
+  <a href="/espesador/export-import">Export / Import</a>
+</nav>
+
+<div class="container">
+<h1>Diagrama</h1>
+<p class="subtitle">Hopper y bomba PU-009 con las variables de los Tags. Se refresca cada 1 segundo mientras el motor del SE esta encendido.</p>
+
+<div class="statusbar">
+  <span class="chip stop" id="chipMotor"><span class="dot"></span><span id="txtMotor">Motor detenido</span></span>
+  <span class="chip" id="chipAct"><span class="dot"></span><span id="txtAct">Esperando datos...</span></span>
+  <span class="chip" id="chipTick" style="display:none"><span id="txtTick"></span></span>
+  <span class="chip" id="chipLazo" style="display:none"><span class="dot"></span><span id="txtLazo"></span></span>
+</div>
+
+<div class="layout">
+
+  <!-- ====================== ESCENA 3D ====================== -->
+  <div>
+  <div class="scene" id="scene">
+    <div class="aviso">MOTOR DETENIDO &mdash; ULTIMOS VALORES CONOCIDOS</div>
+    <svg id="svg" viewBox="0 0 820 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama 3D del Hopper y la bomba PU-009">
+      <defs>
+        <linearGradient id="gSteel" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#2a3b45"/><stop offset=".35" stop-color="#5d7686"/><stop offset=".55" stop-color="#7f99a9"/><stop offset="1" stop-color="#26363f"/>
+        </linearGradient>
+        <linearGradient id="gSteelV" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#6f8898"/><stop offset=".5" stop-color="#4a6070"/><stop offset="1" stop-color="#2a3b45"/>
+        </linearGradient>
+        <linearGradient id="gInner" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#0a1318"/><stop offset=".5" stop-color="#16262f"/><stop offset="1" stop-color="#0a1318"/>
+        </linearGradient>
+        <linearGradient id="gGlass" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#9fd8ee" stop-opacity=".30"/>
+          <stop offset=".12" stop-color="#cdeefa" stop-opacity=".14"/>
+          <stop offset=".30" stop-color="#ffffff" stop-opacity=".02"/>
+          <stop offset=".78" stop-color="#ffffff" stop-opacity=".03"/>
+          <stop offset=".92" stop-color="#9fd8ee" stop-opacity=".12"/>
+          <stop offset="1" stop-color="#9fd8ee" stop-opacity=".34"/>
+        </linearGradient>
+        <linearGradient id="gFluid" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="var(--fl,#0b8fae)" stop-opacity=".72"/>
+          <stop offset=".4" stop-color="var(--fl,#0b8fae)" stop-opacity=".95"/>
+          <stop offset="1" stop-color="var(--fl,#0b8fae)" stop-opacity=".62"/>
+        </linearGradient>
+        <linearGradient id="gFluidShade" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/>
+        </linearGradient>
+        <radialGradient id="gSurf" cx=".5" cy=".4" r=".7">
+          <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity=".12"/>
+        </radialGradient>
+        <radialGradient id="gPump" cx=".4" cy=".35" r=".8">
+          <stop offset="0" stop-color="#8fa9b8"/><stop offset=".6" stop-color="#4b6272"/><stop offset="1" stop-color="#26363f"/>
+        </radialGradient>
+        <linearGradient id="gMotor" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#2e7fa0"/><stop offset=".5" stop-color="#1e5f7c"/><stop offset="1" stop-color="#124058"/>
+        </linearGradient>
+        <linearGradient id="gPipe" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#6d8696"/><stop offset=".5" stop-color="#40586a"/><stop offset="1" stop-color="#22323c"/>
+        </linearGradient>
+        <linearGradient id="gPipeH" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#2a3b45"/><stop offset=".5" stop-color="#6d8696"/><stop offset="1" stop-color="#2a3b45"/>
+        </linearGradient>
+        <radialGradient id="gBub" cx=".35" cy=".3" r=".8">
+          <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".45" stop-color="#dff6ff" stop-opacity=".35"/><stop offset="1" stop-color="#9fdcf2" stop-opacity=".22"/>
+        </radialGradient>
+        <radialGradient id="gFloor" cx=".5" cy=".5" r=".5">
+          <stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset="1" stop-color="#000" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+
+      <!-- Piso y sombra -->
+      <ellipse cx="410" cy="640" rx="400" ry="26" fill="url(#gFloor)"/>
+      <line x1="10" y1="628" x2="810" y2="628" stroke="#2a3d47" stroke-width="1.5" stroke-dasharray="2 6"/>
+
+      <!-- Patas (se generan por JS) -->
+      <g id="legs"></g>
+
+      <!-- Tuberia de alimentacion -->
+      <g id="feedPipe"></g>
+
+      <!-- Interior (fondo) del hopper -->
+      <path id="pInner" fill="url(#gInner)"/>
+      <!-- Fluido -->
+      <g id="fluidG">
+        <path id="pFluid" fill="url(#gFluid)"/>
+        <path id="pFluidShade" fill="url(#gFluidShade)"/>
+        <ellipse id="eSurf" fill="var(--fl,#0b8fae)"/>
+        <ellipse id="eSurfHi" fill="url(#gSurf)"/>
+        <ellipse id="eRipple" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="1.2"/>
+      </g>
+      <!-- Chorro de alimentacion -->
+      <line id="stream" stroke="var(--fl,#0b8fae)" stroke-width="7" stroke-linecap="round" stroke-dasharray="9 7" opacity=".9"/>
+
+      <!-- Vidrio frontal -->
+      <path id="pGlass" fill="url(#gGlass)" stroke="#a9c9d8" stroke-opacity=".75" stroke-width="2"/>
+      <ellipse id="eRim" fill="none" stroke="#c4dbe6" stroke-width="3"/>
+      <ellipse id="eMouth" fill="none" stroke="#0b141a" stroke-opacity=".55" stroke-width="1"/>
+
+      <!-- Burbujas: espuma sobre el tanque (95-100 %) y derrame por fuera (>100 %) -->
+      <g id="bubbles" pointer-events="none"></g>
+      <g id="spillBadge" style="display:none" transform="translate(470,52)">
+        <rect width="104" height="26" rx="13" fill="#3a0f0c" stroke="#ef4444" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="5" fill="#ef4444"><animate attributeName="opacity" values="1;.25;1" dur="0.9s" repeatCount="indefinite"/></circle>
+        <text x="60" y="18" text-anchor="middle" fill="#ff8a7a" font-size="12" font-weight="800" letter-spacing=".08em">DERRAME</text>
+      </g>
+      <!-- Escala de nivel -->
+      <g id="scale"></g>
+      <!-- Anillos de limites -->
+      <g id="rings"></g>
+
+      <!-- Lectura central -->
+      <text id="tCap" x="310" y="238" text-anchor="middle" class="t-lbl t-shadow" style="fill:#d6e6ee">LLENADO</text>
+      <text id="tCapV" x="310" y="274" text-anchor="middle" class="t-val t-shadow" style="font-size:36px">--</text>
+      <text id="tCapS" x="310" y="296" text-anchor="middle" class="t-lbl t-shadow" style="fill:#d6e6ee">de la capacidad</text>
+
+      <!-- Puntero de nivel -->
+      <g id="pointer">
+        <line id="ptrLine" stroke="#fff" stroke-opacity=".55" stroke-dasharray="3 4"/>
+        <g id="ptrBox">
+          <path d="M0 0 L12 -11 L74 -11 L74 11 L12 11 Z" fill="#4fb3d9" stroke="#0b141a" stroke-width="1"/>
+          <text id="ptrTxt" x="46" y="5" text-anchor="middle" fill="#04141c" font-size="14" font-weight="800">--</text>
+        </g>
+      </g>
+
+      <ellipse id="ringAvg" fill="none" stroke="#7fe3ff" stroke-width="1.8" stroke-dasharray="2 5" stroke-linecap="round" style="display:none"/>
+      <text id="txtAvg" class="t-shadow" fill="#7fe3ff" font-size="11" font-weight="800" style="display:none">PROM</text>
+      <!-- Etiquetas de limites (derecha) -->
+      <g id="limLabels"></g>
+
+      <!-- Tuberia de descarga, bomba y motor -->
+      <g id="pipes"></g>
+      <g id="pumpG"></g>
+
+      <!-- Rotulos -->
+      <text x="14" y="26" class="t-lbl">ALIMENTACION</text>
+      <text id="lblHopper" x="310" y="652" text-anchor="middle" class="t-lbl" style="font-size:12px">HOPPER</text>
+      <text x="498" y="524" text-anchor="middle" class="t-lbl">BOMBA PU-009</text>
+      <text x="720" y="388" text-anchor="middle" class="t-lbl">DESCARGA</text>
+
+      <!-- Variables en el diagrama -->
+      <g id="pills" class="pill" transform="translate(432,640)"></g>
+    </svg>
+  </div>
+    <div class="panel" id="panelEst" style="margin-top:16px">
+      <h2><span>Estadistica del nivel</span><span class="state nodata" id="stEst">SIN CALCULO</span></h2>
+      <div class="row"><div class="lbl">Promedio de nivel<small id="estInfo">primer calculo al cumplirse el periodo</small></div><div class="val nodata" id="vProm">--</div><span></span></div>
+      <div class="row"><div class="lbl">Desviacion estandar<small>muestral (n &minus; 1)</small></div><div class="val nodata" id="vDesv">--</div><span></span></div>
+      <div class="row"><div class="lbl">Promedio en vivo<small id="estVivoInfo">ventana deslizante</small></div><div class="val nodata" id="vPromVivo">--</div><span></span></div>
+      <div class="row"><div class="lbl">Desv. estandar en vivo<small>misma ventana</small></div><div class="val nodata" id="vDesvVivo">--</div><span></span></div>
+      <div class="est-edit">
+        <label>Rango (min)<input id="inVentana" type="number" min="1" step="1" value="30"></label>
+        <label>Calcular cada (min)<input id="inRecalculo" type="number" min="1" step="1" value="30"></label>
+        <button class="btn pri" id="btnEstGuardar" type="button">Guardar</button>
+        <button class="btn" id="btnEstAhora" type="button">Calcular ahora</button>
+      </div>
+      <div class="est-msg" id="estMsg"></div>
+      <p class="nota" id="estNota">El rango es la ventana de tiempo sobre la que se calcula (maximo --).</p>
+    </div>
+  </div>
+
+  <!-- ====================== PANELES ====================== -->
+  <div>
+    <div class="panel">
+      <h2><span>Hopper &mdash; Nivel</span><span class="state nodata" id="stNivel">SIN DATO</span></h2>
+      <div class="row"><div class="lbl">Nivel PV<small id="sNivel">hopper_nvl_pv_a</small></div><div class="val" id="vNivel">--</div><svg class="spark" id="spNivel" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points=""/></svg></div>
+      <div class="bar"><div class="fill" id="barNivel" style="width:0"></div><div class="mk min" id="mkMin"></div><div class="mk max" id="mkMax"></div></div>
+      <div class="barlbl"><span>0 %</span><span id="barCap">Llenado --</span><span>100 %</span></div>
+      <div class="row"><div class="lbl">Limite MAX<small>alarma alta</small></div><div class="val" id="vMax">--</div><span></span></div>
+      <div class="row"><div class="lbl">Limite MIN<small>alarma baja</small></div><div class="val" id="vMin">--</div><span></span></div>
+      <div class="row"><div class="lbl">Capacidad libre<small>100 &minus; nivel</small></div><div class="val" id="vLibre">--</div><span></span></div>
+      <div class="row"><div class="lbl">Margen a MAX<small>MAX &minus; nivel</small></div><div class="val" id="vMgMax">--</div><span></span></div>
+      <div class="row"><div class="lbl">Margen a MIN<small>nivel &minus; MIN</small></div><div class="val" id="vMgMin">--</div><span></span></div>
+    </div>
+
+    <div class="panel">
+      <h2><span>Bomba PU-009</span><span class="state nodata" id="stVel">SIN DATO</span></h2>
+      <div class="row"><div class="lbl">Velocidad PV<small>velocidad real</small></div><div class="val" id="vVel">--</div><svg class="spark" id="spVel" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points=""/></svg></div>
+      <div class="row"><div class="lbl">SP del DCS<small>referencia de arranque</small></div><div class="val" id="vSpDcs">--</div><svg class="spark" id="spSpDcs" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points=""/></svg></div>
+      <div class="row"><div class="lbl">SP salida del SE<small>lo que el SE escribe</small></div><div class="val" id="vSpSe">--</div><svg class="spark" id="spSpSe" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points=""/></svg></div>
+      <div class="row"><div class="lbl">Limites de velocidad<small>MIN / MAX</small></div><div class="val" id="vVelLim">--</div><span></span></div>
+      <div class="row"><div class="lbl">Corriente<small>motor</small></div><div class="val" id="vCor">--</div><svg class="spark" id="spCor" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points=""/></svg></div>
+      <div class="bar"><div class="fill" id="barCor" style="width:0;background:#a855f7"></div></div>
+      <div class="barlbl"><span>0 A</span><span id="barCorMax"></span><span id="barCorEnd"></span></div>
+    </div>
+    <p class="nota">Las curvas muestran los ultimos 60 s. Los valores salen de los Tags con rol del contrato (nivel, limites, velocidad, SP y corriente); cada variable cambia al reasignar el rol en la pagina de Entrada de Datos.</p>
+  </div>
+</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  /* ---------------- Geometria del hopper (una sola fuente de verdad) ---------------- */
+  const CX = 310, TOP = 100, R = 140, K = 0.26, CYL_END = 320, OUT_Y = 480, OUT_R = 30;
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = id => document.getElementById(id);
+  const el = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const yOf  = p => OUT_Y - (Math.max(0, Math.min(100, p)) / 100) * (OUT_Y - TOP);
+  const rOf  = y => y <= CYL_END ? R : R - (R - OUT_R) * (y - CYL_END) / (OUT_Y - CYL_END);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const f1 = new Intl.NumberFormat('es-CL', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  const fmt = v => (v === null || v === undefined || isNaN(v)) ? '--' : f1.format(v);
+
+  /* silueta completa del cuerpo (cilindro + cono) */
+  const bodyPath = (withTop) =>
+    `M${CX - R},${TOP} L${CX - R},${CYL_END} L${CX - OUT_R},${OUT_Y} ` +
+    `A${OUT_R},${OUT_R * K} 0 0 0 ${CX + OUT_R},${OUT_Y} L${CX + R},${CYL_END} L${CX + R},${TOP}` +
+    (withTop ? ` A${R},${R * K} 0 0 0 ${CX - R},${TOP} Z` : ' Z');
+
+  function buildStatic() {
+    $('pInner').setAttribute('d', bodyPath(true));
+    $('pGlass').setAttribute('d', bodyPath(true));
+    for (const id of ['eRim', 'eMouth']) {
+      $(id).setAttribute('cx', CX); $(id).setAttribute('cy', TOP);
+      $(id).setAttribute('rx', R);  $(id).setAttribute('ry', R * K);
+    }
+    // Patas
+    const legs = $('legs');
+    for (const dx of [-0.82, 0.82, 0]) {
+      const x = CX + dx * R;
+      const yTop = dx === 0 ? 400 : 330;
+      el('rect', {x: x - 7, y: yTop, width: 14, height: 628 - yTop, fill: 'url(#gPipeH)', stroke: '#17242c', 'stroke-width': 1}, legs);
+    }
+    el('rect', {x: CX - R - 12, y: 620, width: 2 * R + 24, height: 9, rx: 3, fill: 'url(#gSteelV)'}, legs);
+    // Anillo de refuerzo del cono
+    el('ellipse', {cx: CX, cy: CYL_END, rx: R, ry: R * K, fill: 'none', stroke: '#9fb8c6', 'stroke-opacity': .35, 'stroke-width': 1.5}, legs);
+
+    // Escala izquierda
+    const sc = $('scale'), xs = CX - R - 50;
+    el('line', {x1: xs, y1: TOP, x2: xs, y2: OUT_Y, stroke: '#52707f', 'stroke-width': 2}, sc);
+    for (let p = 0; p <= 100; p += 10) {
+      const y = yOf(p), major = p % 50 === 0;
+      el('line', {x1: xs - (major ? 9 : 5), y1: y, x2: xs, y2: y, stroke: '#7e97a5', 'stroke-width': major ? 2 : 1.2}, sc);
+      const t = el('text', {x: xs - 13, y: y + 4, 'text-anchor': 'end', class: 't-lbl', style: 'font-size:10px'}, sc);
+      t.textContent = p;
+    }
+    const u = el('text', {x: xs - 13, y: TOP - 18, 'text-anchor': 'end', class: 't-lbl'}, sc); u.textContent = '%';
+
+    // Tuberia de alimentacion: horizontal + codo + boquilla
+    const fp = $('feedPipe');
+    el('rect', {x: 10, y: 34, width: CX - 10, height: 20, rx: 3, fill: 'url(#gPipe)', stroke: '#17242c'}, fp);
+    el('rect', {x: CX - 10, y: 34, width: 20, height: 40, rx: 3, fill: 'url(#gPipeH)', stroke: '#17242c'}, fp);
+    el('rect', {x: CX - 14, y: 70, width: 28, height: 8, rx: 2, fill: '#5a7384', stroke: '#17242c'}, fp);
+    const flow = el('line', {id: 'feedFlow', x1: 14, y1: 44, x2: CX, y2: 44, stroke: 'var(--fl,#0b8fae)', 'stroke-width': 6,
+                             'stroke-dasharray': '14 12', 'stroke-linecap': 'round', opacity: .85}, fp);
+    // flecha de sentido
+    el('path', {d: 'M92 44 l-9 -7 v14 z', fill: '#e8eef1', opacity: .0}, fp);
+
+    // Tuberias de descarga
+    const pipes = $('pipes');
+    const PX = 600, PY = 560;
+    // salida del cono -> bajada -> horizontal a la bomba
+    el('rect', {x: CX - 11, y: OUT_Y + 4, width: 22, height: PY - OUT_Y - 4 + 11, fill: 'url(#gPipeH)', stroke: '#17242c'}, pipes);
+    el('rect', {x: CX - 11, y: PY - 11, width: PX - 46 - CX + 11, height: 22, fill: 'url(#gPipe)', stroke: '#17242c'}, pipes);
+    el('rect', {x: CX - 17, y: OUT_Y - 2, width: 34, height: 9, rx: 3, fill: '#5a7384', stroke: '#17242c'}, pipes);
+    // valvula (compuerta) en la bajada
+    el('rect', {x: CX - 20, y: 506, width: 40, height: 18, rx: 4, fill: '#7a2a24', stroke: '#17242c'}, pipes);
+    el('rect', {x: CX - 3, y: 494, width: 6, height: 12, fill: '#aab9c2'}, pipes);
+    el('circle', {cx: CX, cy: 492, r: 9, fill: '#c43b2e', stroke: '#17242c'}, pipes);
+    // descarga: sube desde la bomba y sale a la derecha
+    el('rect', {x: PX - 11, y: 414, width: 22, height: PY - 46 - 414, fill: 'url(#gPipeH)', stroke: '#17242c'}, pipes);
+    el('rect', {x: PX - 11, y: 404, width: 800 - PX + 11, height: 22, fill: 'url(#gPipe)', stroke: '#17242c'}, pipes);
+    // flujos animados
+    for (const [id, a] of [
+      ['flowA', {x1: CX, y1: OUT_Y + 8, x2: CX, y2: PY}],
+      ['flowB', {x1: CX, y1: PY, x2: PX - 46, y2: PY}],
+      ['flowC', {x1: PX, y1: PY - 46, x2: PX, y2: 415}],
+      ['flowD', {x1: PX, y1: 415, x2: 806, y2: 415}],
+    ]) el('line', Object.assign({id, stroke: 'var(--fl,#0b8fae)', 'stroke-width': 6, 'stroke-dasharray': '12 11', 'stroke-linecap': 'round', opacity: .85}, a), pipes);
+    // Flecha de sentido en la descarga
+    el('path', {d: 'M796 415 l-12 -9 v18 z', fill: '#e8eef1', opacity: .85}, pipes);
+
+    // Bomba (voluta) + motor
+    const g = $('pumpG');
+    el('rect', {x: PX + 40, y: PY - 40, width: 110, height: 80, rx: 8, fill: 'url(#gMotor)', stroke: '#0a2330', 'stroke-width': 1.5}, g);
+    for (let i = 0; i < 7; i++) el('rect', {x: PX + 62 + i * 12, y: PY - 40, width: 5, height: 80, fill: '#0a2330', opacity: .45}, g);
+    el('rect', {x: PX + 150, y: PY - 14, width: 12, height: 28, rx: 3, fill: '#aab9c2', stroke: '#17242c'}, g);
+    el('rect', {x: PX + 52, y: PY + 38, width: 90, height: 10, rx: 3, fill: '#22323c'}, g);
+    el('rect', {x: PX - 56, y: PY + 46, width: 220, height: 10, rx: 3, fill: '#22323c'}, g);
+    el('circle', {cx: PX, cy: PY, r: 48, fill: 'url(#gPump)', stroke: '#17242c', 'stroke-width': 2}, g);
+    el('circle', {cx: PX, cy: PY, r: 36, fill: '#0f1a20', stroke: '#5a7384', 'stroke-width': 2}, g);
+    const imp = el('g', {id: 'impeller', transform: `translate(${PX},${PY})`}, g);
+    for (let i = 0; i < 6; i++)
+      el('path', {d: 'M0 0 C 8 -6, 22 -10, 31 -4 C 22 -16, 8 -18, 0 -8 Z', fill: '#7fb0c8', stroke: '#1b3a4a', 'stroke-width': 1,
+                  transform: `rotate(${i * 60})`}, imp);
+    el('circle', {cx: PX, cy: PY, r: 7, fill: '#d9e4ea', stroke: '#17242c'}, g);
+    // Medidor de corriente sobre el motor
+    const mt = el('text', {x: PX + 95, y: PY - 6, 'text-anchor': 'middle', class: 't-lbl t-shadow', style: 'fill:#cfe6f0'}, g); mt.textContent = 'CORRIENTE';
+    const mv = el('text', {id: 'motorA', x: PX + 95, y: PY + 20, 'text-anchor': 'middle', class: 't-val t-shadow', style: 'font-size:22px'}, g); mv.textContent = '--';
+
+    // Anillos de limites + etiquetas
+    const rings = $('rings'), labs = $('limLabels');
+    for (const [id, col] of [['Max', '#ef4444'], ['Min', '#f59e0b']]) {
+      el('ellipse', {id: 'ring' + id, fill: 'none', stroke: col, 'stroke-width': 2.4, 'stroke-dasharray': '7 5'}, rings);
+      el('line',    {id: 'lead' + id, stroke: col, 'stroke-width': 1.4, 'stroke-dasharray': '3 4'}, labs);
+      el('rect',    {id: 'box' + id, width: 116, height: 24, rx: 6, fill: '#0f1a20', stroke: col, 'stroke-width': 1.6}, labs);
+      const t = el('text', {id: 'txt' + id, 'text-anchor': 'middle', fill: col, 'font-size': 13, 'font-weight': 800}, labs);
+      t.textContent = (id === 'Max' ? 'MAX --' : 'MIN --');
+    }
+
+    // Pastillas de variables bajo la bomba
+    const pills = $('pills');
+    const defs = [['pVel', 'VEL PV', '%'], ['pSpD', 'SP DCS', '%'], ['pSpS', 'SP SE', '%'], ['pCor', 'CORRIENTE', 'A']];
+    defs.forEach((d, i) => {
+      const gx = el('g', {transform: `translate(${i * 96},0)`}, pills);
+      el('rect', {x: 0, y: 0, width: 90, height: 50, rx: 9}, gx);
+      const k = el('text', {x: 45, y: 14, 'text-anchor': 'middle', class: 'k'}, gx); k.textContent = d[1];
+      const v = el('text', {id: d[0], x: 45, y: 36, 'text-anchor': 'middle', class: 'v'}, gx); v.textContent = '--';
+      const u = el('text', {id: d[0] + 'U', x: 84, y: 44, 'text-anchor': 'end', class: 'u'}, gx); u.textContent = d[2];
+    });
+  }
+
+  /* ---------------- Estado ---------------- */
+  const KEYS = ['nivel', 'nivel_min', 'nivel_max', 'vel_pv', 'vel_min', 'vel_max', 'vel_sp_dcs', 'vel_sp_se', 'corriente'];
+  const target = {}, shown = {}, ok = {};
+  for (const k of KEYS) { target[k] = null; shown[k] = null; ok[k] = false; }
+  const serie = {nivel: [], vel_pv: [], vel_sp_dcs: [], vel_sp_se: [], corriente: []};
+  const SERIE_N = 60;
+  let running = false, ultimaOk = 0, tick = null, lazo = null, errConn = false;
+  let ang = 0, dash = 0, tPrev = performance.now();
+  let corMaxEscala = 100;
+  let estProm = null;
+
+  /* ---------------- Burbujas ----------------
+     Espuma: 95-100 % del nivel, flotan sobre la superficie del tanque.
+     Derrame: con el nivel > 100 se desprenden burbujas por el borde y bajan por la
+     pared EXTERIOR: tardan CAIDA_S en llegar al 43 % del tanque y ahi se desvanecen
+     en FADE_S. Cada burbuja vive su propio ciclo: si el nivel vuelve a bajar, las que
+     ya salieron terminan de caer y desaparecer (no se cortan de golpe). */
+  const CAIDA_S = 7, FADE_S = 3, NIVEL_ESPUMA = 95, NIVEL_DERRAME = 100, PCT_FIN = 43;
+  const Y_FIN = yOf(PCT_FIN);
+  const burb = [];
+  const gB = $('bubbles');
+  let accEspuma = 0, accDerrame = 0;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+
+  function crearBurbuja(r) {
+    const g = el('g', {opacity: 0}, gB);
+    el('circle', {r, fill: 'url(#gBub)', stroke: '#e9f9ff', 'stroke-opacity': .85, 'stroke-width': 1.1}, g);
+    el('circle', {cx: -r * .35, cy: -r * .38, r: Math.max(.7, r * .26), fill: '#fff', opacity: .9}, g);
+    return g;
+  }
+
+  function actualizarBurbujas(dt, n, now) {
+    const vivo = running && n !== null;
+    // espuma sobre el tanque
+    if (vivo && n >= NIVEL_ESPUMA) {
+      const frac = clamp((n - NIVEL_ESPUMA) / (NIVEL_DERRAME - NIVEL_ESPUMA), 0, 1);
+      accEspuma += (1.5 + 8 * frac) * dt;
+      const yL = yOf(Math.min(n, 100)), rr = rOf(yL);
+      while (accEspuma >= 1 && burb.length < 450) {
+        accEspuma -= 1;
+        const r = rnd(1.8, 4.4);
+        burb.push({tipo: 'e', g: crearBurbuja(r), t0: now, vida: rnd(1.6, 2.8), x0: CX + rnd(-1, 1) * rr * .85,
+                   y0: yL + rnd(-1, 1) * rr * K * .6, sube: rnd(18, 38), fase: rnd(0, 6.28)});
+      }
+    } else accEspuma = 0;
+    // derrame por fuera del tanque (ambos lados)
+    if (vivo && n > NIVEL_DERRAME) {
+      const exceso = clamp((n - NIVEL_DERRAME) / 5, 0, 1);
+      accDerrame += (3 + 5 * exceso) * 2 * dt;
+      while (accDerrame >= 1 && burb.length < 450) {
+        accDerrame -= 1;
+        const lado = Math.random() < .5 ? -1 : 1, r = rnd(2.6, 6.4);
+        burb.push({tipo: 'd', g: crearBurbuja(r), t0: now, x0: CX + lado * (R + r + rnd(1, 9)),
+                   y0: TOP + rnd(-3, 5), yf: Y_FIN + rnd(-4, 4), fase: rnd(0, 6.28)});
+      }
+    } else accDerrame = 0;
+    $('spillBadge').style.display = (vivo && n > NIVEL_DERRAME) ? '' : 'none';
+
+    for (let i = burb.length - 1; i >= 0; i--) {
+      const b = burb[i], a = now - b.t0;
+      let x, y, o;
+      if (b.tipo === 'e') {
+        const p = a / b.vida;
+        if (p >= 1) { gB.removeChild(b.g); burb.splice(i, 1); continue; }
+        x = b.x0 + Math.sin(a * 3 + b.fase) * 3; y = b.y0 - b.sube * p;
+        o = Math.pow(Math.sin(Math.PI * p), .6) * .95;
+      } else {
+        if (a >= CAIDA_S + FADE_S) { gB.removeChild(b.g); burb.splice(i, 1); continue; }
+        const p = Math.min(a, CAIDA_S) / CAIDA_S;
+        x = b.x0 + Math.sin(a * 2.2 + b.fase) * 1.2; y = b.y0 + (b.yf - b.y0) * p;
+        o = a < .25 ? a / .25 : (a <= CAIDA_S ? 1 : 1 - (a - CAIDA_S) / FADE_S);
+      }
+      b.g.setAttribute('transform', 'translate(' + x.toFixed(1) + ',' + y.toFixed(1) + ')');
+      b.g.setAttribute('opacity', Math.max(0, o).toFixed(2));
+    }
+  }
+  window.__burbujas = () => burb.length;       // verificacion en pruebas
+
+  /* ---------------- Render por frame ---------------- */
+  function colorEstado(n, mn, mx) {
+    if (n === null) return '#51636c';
+    if (mx !== null && n > mx) return '#ef4444';
+    if (mn !== null && n < mn) return '#f59e0b';
+    return '#0b8fae';
+  }
+
+  function render(dt) {
+    // suavizado exponencial hacia el objetivo (cada variable)
+    const a = 1 - Math.exp(-dt / 0.35);
+    for (const k of KEYS) {
+      if (target[k] === null) { shown[k] = null; continue; }
+      shown[k] = shown[k] === null ? target[k] : shown[k] + (target[k] - shown[k]) * a;
+    }
+    const n = shown.nivel, mn = target.nivel_min, mx = target.nivel_max;
+    const col = colorEstado(target.nivel, mn, mx);
+    $('svg').style.setProperty('--fl', col);
+    document.documentElement.style.setProperty('--slurry', col);
+
+    // Fluido
+    const pF = $('pFluid'), pS = $('pFluidShade');
+    if (n === null || n <= 0.2) {
+      pF.setAttribute('d', ''); pS.setAttribute('d', '');
+      for (const id of ['eSurf', 'eSurfHi', 'eRipple']) $(id).setAttribute('rx', 0);
+      $('stream').setAttribute('y2', OUT_Y);
+    } else {
+      const yL = yOf(n), r = rOf(yL), ry = r * K;
+      const d = `M${CX - r},${yL}` + (yL < CYL_END ? ` L${CX - R},${CYL_END}` : '') +
+        ` L${CX - OUT_R},${OUT_Y} A${OUT_R},${OUT_R * K} 0 0 0 ${CX + OUT_R},${OUT_Y}` +
+        (yL < CYL_END ? ` L${CX + R},${CYL_END}` : '') + ` L${CX + r},${yL} A${r},${ry} 0 0 0 ${CX - r},${yL} Z`;
+      pF.setAttribute('d', d); pS.setAttribute('d', d);
+      for (const id of ['eSurf', 'eSurfHi']) { const e = $(id); e.setAttribute('cx', CX); e.setAttribute('cy', yL); e.setAttribute('rx', r); e.setAttribute('ry', ry); }
+      const e = $('eRipple'), w = 0.55 + 0.18 * Math.sin(performance.now() / 650);
+      e.setAttribute('cx', CX); e.setAttribute('cy', yL); e.setAttribute('rx', r * w); e.setAttribute('ry', ry * w);
+      e.setAttribute('stroke-opacity', running ? 0.5 : 0.2);
+      // chorro desde la boquilla hasta la superficie
+      const s = $('stream');
+      s.setAttribute('x1', CX); s.setAttribute('x2', CX); s.setAttribute('y1', 80); s.setAttribute('y2', yL);
+      s.setAttribute('opacity', running ? 0.9 : 0);
+    }
+
+    // Puntero y lectura central
+    const yp = n === null ? OUT_Y : yOf(n), xs = CX - R - 50;
+    $('ptrBox').setAttribute('transform', `translate(${xs - 88},${yp})`);
+    const pl = $('ptrLine');
+    pl.setAttribute('x1', xs); pl.setAttribute('x2', n === null ? xs : CX - rOf(yp)); pl.setAttribute('y1', yp); pl.setAttribute('y2', yp);
+    $('ptrTxt').textContent = n === null ? '--' : f1.format(n) + ' %';
+    $('tCapV').textContent = n === null ? '--' : f1.format(n) + ' %';
+
+    // Limites: anillos 3D + etiquetas
+    for (const [id, v] of [['Max', mx], ['Min', mn]]) {
+      const ring = $('ring' + id), lead = $('lead' + id), box = $('box' + id), txt = $('txt' + id);
+      if (v === null) { for (const e of [ring, lead, box, txt]) e.style.display = 'none'; continue; }
+      for (const e of [ring, lead, box, txt]) e.style.display = '';
+      const y = yOf(v), r = rOf(y);
+      ring.setAttribute('cx', CX); ring.setAttribute('cy', y); ring.setAttribute('rx', r); ring.setAttribute('ry', r * K);
+      const bx = CX + R + 34;
+      lead.setAttribute('x1', CX + r); lead.setAttribute('y1', y); lead.setAttribute('x2', bx); lead.setAttribute('y2', y);
+      box.setAttribute('x', bx); box.setAttribute('y', y - 12);
+      txt.setAttribute('x', bx + 58); txt.setAttribute('y', y + 5);
+      txt.textContent = (id === 'Max' ? 'MAX ' : 'MIN ') + f1.format(v) + ' %';
+    }
+
+    // Promedio de nivel (ventana en vivo): anillo punteado en el hopper
+    const ra = $('ringAvg'), ta = $('txtAvg');
+    if (estProm === null) { ra.style.display = 'none'; ta.style.display = 'none'; }
+    else {
+      const ya = yOf(estProm), rr = rOf(ya);
+      ra.style.display = ''; ta.style.display = '';
+      ra.setAttribute('cx', CX); ra.setAttribute('cy', ya); ra.setAttribute('rx', rr); ra.setAttribute('ry', rr * K);
+      ta.setAttribute('x', CX + rr + 6); ta.setAttribute('y', ya + 4);
+      ta.textContent = 'PROM ' + f1.format(estProm);
+    }
+
+    // Animacion de flujo y rodete (solo si el motor corre y hay velocidad)
+    const vel = shown.vel_pv;
+    const giro = running && vel !== null ? clamp(vel, 0, 120) / 100 : 0;
+    ang = (ang + giro * 760 * dt) % 360;
+    dash = (dash + giro * 70 * dt) % 1000;
+    $('impeller').setAttribute('transform', `translate(600,560) rotate(${ang})`);
+    for (const id of ['flowA', 'flowB', 'flowC', 'flowD', 'feedFlow']) {
+      const l = $(id);
+      l.setAttribute('stroke-dashoffset', -dash);
+      l.setAttribute('opacity', giro > 0 ? 0.85 : 0.18);
+    }
+
+    actualizarBurbujas(dt, n, performance.now() / 1000);
+
+    // Pastillas
+    const setP = (id, v, d = 1) => { $(id).textContent = v === null ? '--' : f1.format(v); };
+    setP('pVel', shown.vel_pv); setP('pSpD', shown.vel_sp_dcs); setP('pSpS', shown.vel_sp_se); setP('pCor', shown.corriente);
+    $('motorA').textContent = shown.corriente === null ? '--' : f1.format(shown.corriente) + ' A';
+
+    // Panel derecho (valores en vivo)
+    const setV = (id, v, u) => {
+      const e = $(id);
+      if (v === null) { e.innerHTML = '--'; e.classList.add('nodata'); }
+      else { e.innerHTML = f1.format(v) + '<span class="u">' + u + '</span>'; e.classList.remove('nodata'); }
+    };
+    setV('vNivel', n, '%'); setV('vMax', mx, '%'); setV('vMin', mn, '%');
+    setV('vLibre', n === null ? null : 100 - n, '%');
+    setV('vMgMax', n === null || mx === null ? null : mx - n, '%');
+    setV('vMgMin', n === null || mn === null ? null : n - mn, '%');
+    setV('vVel', shown.vel_pv, '%'); setV('vSpDcs', shown.vel_sp_dcs, '%'); setV('vSpSe', shown.vel_sp_se, '%');
+    setV('vCor', shown.corriente, 'A');
+    $('vVelLim').innerHTML = (target.vel_min === null && target.vel_max === null) ? '--' :
+      fmt(target.vel_min) + ' / ' + fmt(target.vel_max) + '<span class="u">%</span>';
+
+    $('barNivel').style.width = (n === null ? 0 : clamp(n, 0, 100)) + '%';
+    $('barNivel').style.background = col;
+    $('barCap').textContent = n === null ? 'Llenado --' : 'Llenado ' + f1.format(n) + ' %';
+    const mkMin = $('mkMin'), mkMax = $('mkMax');
+    mkMin.style.display = mn === null ? 'none' : ''; mkMin.style.left = clamp(mn || 0, 0, 100) + '%';
+    mkMax.style.display = mx === null ? 'none' : ''; mkMax.style.left = clamp(mx || 0, 0, 100) + '%';
+
+    const c = shown.corriente;
+    $('barCor').style.width = (c === null ? 0 : clamp(c / corMaxEscala * 100, 0, 100)) + '%';
+    $('barCorEnd').textContent = corMaxEscala + ' A';
+  }
+
+  function estadoChip(id, tgt, mn, mx, okFlag) {
+    const e = $(id);
+    let cls = 'nodata', txt = 'SIN DATO';
+    if (okFlag && tgt !== null) {
+      if (mx !== null && tgt > mx) { cls = 'alto'; txt = 'ALTO'; }
+      else if (mn !== null && tgt < mn) { cls = 'bajo'; txt = 'BAJO'; }
+      else { cls = 'normal'; txt = 'NORMAL'; }
+    }
+    e.className = 'state ' + cls; e.textContent = txt;
+  }
+
+  /* ---------------- Sparklines ---------------- */
+  function spark(id, arr) {
+    const pl = $(id).querySelector('polyline');
+    if (arr.length < 2) { pl.setAttribute('points', ''); return; }
+    let mn = Math.min(...arr), mx = Math.max(...arr);
+    if (mx - mn < 1e-9) { mn -= 1; mx += 1; }
+    const pts = arr.map((v, i) => (i / (SERIE_N - 1) * 100).toFixed(1) + ',' + (24 - (v - mn) / (mx - mn) * 22).toFixed(1));
+    pl.setAttribute('points', pts.join(' '));
+  }
+  function pushSerie(k, v) {
+    const s = serie[k];
+    if (v === null) { s.length = 0; return; }
+    s.push(v); if (s.length > SERIE_N) s.shift();
+  }
+
+  /* ---------------- Estadistica del nivel ---------------- */
+  const est = {ref: null, dirty: false};
+  const fmtMin = m => m >= 60 && m % 60 === 0 ? (m / 60) + ' h' : m > 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min';
+  const hora = ts => new Date(ts * 1000).toLocaleTimeString('es-CL');
+  const msgEst = (t, cls) => { const m = $('estMsg'); m.textContent = t || ''; m.className = 'est-msg ' + (cls || ''); };
+  function setValEst(id, v, u) {
+    const e = $(id);
+    if (v === null || v === undefined) { e.textContent = '--'; e.classList.add('nodata'); }
+    else { e.innerHTML = f1.format(v) + '<span class="u">' + u + '</span>'; e.classList.remove('nodata'); }
+  }
+
+  function aplicarEstadistica(d) {
+    if (!d) return;
+    const cfg = d.config, viv = d.en_vivo || {}, calc = d.calculo;
+    estProm = (viv.promedio === null || viv.promedio === undefined) ? null : viv.promedio;
+    est.ref = {proximo: d.proximo_ts, ahoraSrv: d.ahora, local: Date.now()};
+    setValEst('vProm', calc ? calc.promedio : null, '%');
+    setValEst('vDesv', calc ? calc.desv : null, '%');
+    setValEst('vPromVivo', viv.promedio, '%');
+    setValEst('vDesvVivo', viv.desv, '%');
+    $('estVivoInfo').textContent = 'ultimos ' + fmtMin(cfg.ventana_min) + ' \u00b7 ' + (viv.n || 0) + ' muestras';
+    const st = $('stEst');
+    if (calc) { st.className = 'state normal'; st.textContent = 'CALCULADO'; }
+    else { st.className = 'state nodata'; st.textContent = 'SIN CALCULO'; }
+    $('estNota').textContent = 'El rango es la ventana de tiempo sobre la que se calcula (de 1 a ' + cfg.ventana_max_min +
+      ' min). Solo se muestrea con el motor encendido, 1 muestra por segundo.';
+    // No pisar lo que el operador esta tipeando
+    const foco = document.activeElement;
+    if (!est.dirty && foco !== $('inVentana') && foco !== $('inRecalculo')) {
+      $('inVentana').value = cfg.ventana_min; $('inRecalculo').value = cfg.recalculo_min;
+    }
+    $('inVentana').max = cfg.ventana_max_min; $('inRecalculo').max = cfg.ventana_max_min;
+    est.calc = calc; est.cfg = cfg;
+    estInfoTexto();
+  }
+
+  function estInfoTexto() {
+    const inf = $('estInfo'), c = est.calc, cfg = est.cfg, r = est.ref;
+    if (!cfg) return;
+    let t = c ? 'calculado a las ' + hora(c.ts) + ' sobre ' + fmtMin(c.ventana_min) + ' (' + c.n + ' muestras)'
+              : 'primer calculo al cumplirse el periodo';
+    if (r && r.proximo) {
+      const falta = Math.max(0, Math.round(r.proximo - r.ahoraSrv - (Date.now() - r.local) / 1000));
+      t += ' \u00b7 proximo en ' + Math.floor(falta / 60) + ':' + String(falta % 60).padStart(2, '0');
+    } else if (!running) t += ' \u00b7 motor detenido';
+    inf.textContent = t;
+  }
+
+  async function guardarEst() {
+    const body = {ventana_min: Number($('inVentana').value), recalculo_min: Number($('inRecalculo').value)};
+    try {
+      const res = await fetch('/api/diagrama/estadistica', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const d = await res.json();
+      if (!res.ok || !d.ok) { msgEst(d.error || 'No se pudo guardar.', 'err'); return; }
+      est.dirty = false; aplicarEstadistica(d); msgEst('Guardado.', 'ok'); setTimeout(() => msgEst(''), 3000);
+    } catch (e) { msgEst('Sin conexion con el servidor.', 'err'); }
+  }
+  async function calcularAhora() {
+    try {
+      const res = await fetch('/api/diagrama/estadistica/calcular', {method: 'POST'});
+      const d = await res.json();
+      aplicarEstadistica(d);
+      if (!d.calculo || d.calculo.n === 0) msgEst('Sin muestras todavia: enciende el motor.', 'err');
+      else { msgEst('Calculado.', 'ok'); setTimeout(() => msgEst(''), 3000); }
+    } catch (e) { msgEst('Sin conexion con el servidor.', 'err'); }
+  }
+  $('btnEstGuardar').addEventListener('click', guardarEst);
+  $('btnEstAhora').addEventListener('click', calcularAhora);
+  for (const id of ['inVentana', 'inRecalculo']) $(id).addEventListener('input', () => { est.dirty = true; });
+
+  /* ---------------- Consulta cada 1 s ---------------- */
+  let inflight = false;
+  async function poll() {
+    if (inflight || document.hidden) return;
+    inflight = true;
+    try {
+      const res = await fetch('/api/diagrama/hopper', {cache: 'no-store'});
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      errConn = false; ultimaOk = Date.now();
+      running = !!d.running; tick = d.tick; lazo = d.lazo || null;
+      for (const k of KEYS) {
+        const v = d.variables ? d.variables[k] : null;
+        ok[k] = !!(v && v.ok);
+        target[k] = v && v.ok ? v.valor : null;
+        if (v && v.nombre && k === 'nivel') $('sNivel').textContent = v.nombre;
+      }
+      if (running) { for (const k in serie) pushSerie(k, target[k]); }
+      for (const [id, k] of [['spNivel', 'nivel'], ['spVel', 'vel_pv'], ['spSpDcs', 'vel_sp_dcs'], ['spSpSe', 'vel_sp_se'], ['spCor', 'corriente']]) spark(id, serie[k]);
+      // escala de corriente: 100 A o el siguiente multiplo de 20 sobre el valor
+      const cmax = Math.max(100, Math.ceil(((target.corriente || 0) * 1.25) / 20) * 20);
+      if (cmax !== corMaxEscala) corMaxEscala = cmax;
+      aplicarEstadistica(d.estadistica);
+      estadoChip('stNivel', target.nivel, target.nivel_min, target.nivel_max, ok.nivel);
+      estadoChip('stVel', target.vel_pv, target.vel_min, target.vel_max, ok.vel_pv);
+    } catch (e) { errConn = true; }
+    inflight = false;
+    chips();
+  }
+
+  function chips() {
+    const cm = $('chipMotor'), tm = $('txtMotor');
+    cm.className = 'chip ' + (running ? 'run' : 'stop');
+    tm.textContent = running ? 'Motor encendido' : 'Motor detenido';
+    $('scene').classList.toggle('parado', !running);
+
+    const ca = $('chipAct'), ta = $('txtAct');
+    const seg = ultimaOk ? Math.round((Date.now() - ultimaOk) / 1000) : null;
+    if (errConn) { ca.className = 'chip err'; ta.textContent = 'Sin conexion con el servidor'; }
+    else if (seg === null) { ca.className = 'chip'; ta.textContent = 'Esperando datos...'; }
+    else if (running && seg > 3) { ca.className = 'chip err'; ta.textContent = 'Sin refrescar hace ' + seg + ' s'; }
+    else {
+      ca.className = 'chip ' + (running ? 'ok' : '');
+      ta.textContent = (running ? 'En vivo · ' : 'Ultimos valores · ') + new Date(ultimaOk).toLocaleTimeString('es-CL');
+    }
+    const ct = $('chipTick');
+    if (running && tick !== null) { ct.style.display = ''; $('txtTick').textContent = 'Tick ' + tick; } else ct.style.display = 'none';
+
+    const cl = $('chipLazo');
+    if (lazo && lazo.habilitado) {
+      cl.style.display = '';
+      const u = lazo.ultimo;
+      if (running && u && u.ok) { cl.className = 'chip ok'; $('txtLazo').textContent = 'Lazo SE: permiso OK'; }
+      else if (running && u) { cl.className = 'chip stop'; $('txtLazo').textContent = 'Lazo SE: ' + (u.motivo || 'sin permiso'); }
+      else { cl.className = 'chip'; $('txtLazo').textContent = 'Lazo SE: sin evaluar'; }
+    } else cl.style.display = 'none';
+  }
+
+  /* ---------------- Arranque ---------------- */
+  buildStatic();
+  function frame(t) {
+    const dt = Math.min(0.1, (t - tPrev) / 1000); tPrev = t;
+    render(dt);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  poll();
+  setInterval(poll, 1000);          // refresco cada segundo
+  setInterval(() => { chips(); estInfoTexto(); }, 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+})();
+</script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'diagrama',
+  pageLabel: 'Diagrama',
+  restartOnSave: false,
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Motor · SAG</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#101a20;color:#e8eef1;min-height:100vh}
+nav{display:flex;align-items:center;gap:8px;padding:10px 20px;background:#0a1216;border-bottom:1px solid #152128;border-top:3px solid #ee3524;flex-wrap:wrap}
+nav img{height:17px;display:block}
+nav .nav-txt{font-size:.7rem;color:#7a8b94;text-transform:uppercase;letter-spacing:.06em;padding:0 14px 0 14px;border-left:1px solid #23323b;margin-left:6px}
+nav a.lnk{color:#a2b1b9;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem}
+nav a.lnk:hover{background:#152128;color:#e8eef1}
+nav a.lnk.active{background:#152128;color:#ee3524;font-weight:600}
+/* Formato homogeneo: arranca a la izquierda, mismo margen que el editor */
+.container{max-width:none;margin:0;padding:20px 20px 60px}
+.head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+.head h1{font-size:1.6rem;font-weight:700}
+.subtitle{color:#a2b1b9;font-size:.86rem;line-height:1.55;max-width:760px;margin-top:6px}
+.head .all{margin-left:auto;display:flex;gap:8px}
+.sag{background:#152128;border:1px solid #23323b;border-radius:14px;margin-bottom:18px;position:relative;overflow:hidden}
+.sag .bar{position:absolute;left:0;top:0;bottom:0;width:5px}
+.sag-top{display:flex;align-items:center;gap:12px;padding:16px 20px 12px 24px;flex-wrap:wrap}
+.sag-name{font-size:1.15rem;font-weight:700;display:flex;align-items:center;gap:9px}
+.sag-name .dot{width:12px;height:12px;border-radius:50%}
+.sag-top .btns{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:12px;font-size:.7rem;font-weight:700;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap}
+.pill .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ok{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.warn{background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.bad{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
+.off{background:rgba(122,139,148,.1);color:#a2b1b9;border:1px solid rgba(122,139,148,.25)}
+.info{background:rgba(79,179,217,.1);color:#4fb3d9;border:1px solid rgba(79,179,217,.3)}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;padding:0 20px 14px 24px}
+.m{background:#101a20;border:1px solid #23323b;border-radius:9px;padding:9px 12px}
+.m .k{font-size:.66rem;color:#7a8b94;text-transform:uppercase;letter-spacing:.04em}
+.m .v{font-size:1rem;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.ctrl{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:0 20px 14px 24px;font-size:.82rem;color:#a2b1b9}
+.ctrl label{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;border:1px solid #23323b;background:#101a20;cursor:pointer}
+.ctrl input[type=number]{width:78px}
+.err{margin:0 20px 12px 24px;font-size:.8rem;color:#fca5a5;line-height:1.45;display:none}
+.err.show{display:block}
+details.sub{border-top:1px solid #23323b}
+details.sub>summary{cursor:pointer;padding:11px 20px 11px 24px;font-weight:600;font-size:.88rem;display:flex;align-items:center;gap:10px;user-select:none;list-style:none}
+details.sub>summary::-webkit-details-marker{display:none}
+details.sub>summary::before{content:'\25B8';color:#7a8b94;transition:transform .15s}
+details.sub[open]>summary::before{transform:rotate(90deg)}
+details.sub>summary .pill{margin-left:auto}
+.body{padding:4px 20px 18px 24px}
+.help{font-size:.8rem;color:#a2b1b9;line-height:1.55;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px}
+.f{display:flex;flex-direction:column;gap:4px}
+.f label{font-size:.68rem;color:#a2b1b9;text-transform:uppercase;letter-spacing:.04em}
+input[type=text],input[type=number],select{padding:7px 10px;border-radius:7px;border:1px solid #23323b;background:#101a20;color:#e8eef1;font-size:.84rem;font-family:inherit;width:100%}
+input:focus,select:focus{outline:none;border-color:#4fb3d9}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{padding:7px 16px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-size:.83rem;font-weight:600;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-go{background:#22c55e;color:#06210f}
+.btn-go:hover:not(:disabled){background:#16a34a}
+.btn-stop{background:transparent;color:#fca5a5;border-color:#ef4444}
+.btn-stop:hover:not(:disabled){background:rgba(239,68,68,.12)}
+.btn-pri{background:#ee3524;color:#fff}
+.btn-pri:hover:not(:disabled){background:#c92a1b}
+.btn-ghost{background:transparent;color:#e8eef1;border-color:#35474f}
+.btn-ghost:hover:not(:disabled){border-color:#a2b1b9}
+.msg{font-size:.8rem;margin-top:8px;min-height:1em}
+.msg.e{color:#fca5a5}.msg.s{color:#86efac}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;color:#7a8b94;font-weight:600;font-size:.68rem;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid #23323b}
+td{padding:5px 8px;border-bottom:1px solid #1b2a32}
+td input[type=number]{width:90px;padding:4px 6px}
+.mono{font-family:'Cascadia Code','Fira Code',monospace;font-size:.74rem}
+.tag-test{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:8px;font-size:.62rem;font-weight:700;background:rgba(245,158,11,.14);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.empty{padding:30px;text-align:center;color:#7a8b94}
+@media (max-width:640px){.container{padding:20px 16px 40px}.sag-top .btns{margin-left:0;width:100%}}
+</style>
+<link rel="stylesheet" href="/static/sidebar.css">
+<link rel="stylesheet" href="/static/hudbay.css">
+<script src="/static/portada.js" defer></script>
+</head>
+<body class="con-sidebar">
+<!--SE_SIDEBAR-->
+<div class="se-pagina">
+<div class="container">
+  <div class="head">
+    <div>
+      <h1>Motor</h1>
+      <p class="subtitle">Cada SAG tiene su propio motor. Desde aqui se inicia y detiene cada uno, se ajusta el ritmo del lazo y se configura su comunicacion con el DCS: el handshake (permiso para escribir), el heartbeat (pulso de vida) y el generador de datos de prueba.</p>
+    </div>
+    <div class="all">
+      <button class="btn btn-go" id="btnTodosIniciar">Iniciar todos</button>
+      <button class="btn btn-stop" id="btnTodosDetener">Detener todos</button>
+    </div>
+  </div>
+  <div id="lista"><div class="empty">Cargando SAG...</div></div>
+</div>
+
+<script>
+const fetch0 = window.fetch.bind(window);
+let SAGS = [];
+const vistas = {};            // id -> {raiz, refs, status, hs, hb, gen}
+
+function el(tag, attrs, ...hijos) {
+  const e = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === false) return;
+    if (k === 'class') e.className = v;
+    else if (k === 'style') e.style.cssText = v;
+    else if (k.startsWith('on')) e[k] = v;
+    else e.setAttribute(k, v === true ? '' : v);
+  });
+  hijos.flat().forEach(h => { if (h !== null && h !== undefined && h !== '') e.append(h instanceof Node ? h : document.createTextNode(h)); });
+  return e;
+}
+function pill(cls, txt, dot, title) { return el('span', {class: 'pill ' + cls, title}, dot ? el('span', {class: 'd'}) : '', txt); }
+
+// Toda llamada va al SAG pedido, explicitamente (esta pagina no es de un SAG).
+async function api(sag, metodo, ruta, cuerpo) {
+  const h = {'X-SE-SAG': sag};
+  if (cuerpo !== undefined) h['Content-Type'] = 'application/json';
+  const r = await fetch0(ruta, {method: metodo, headers: h, cache: 'no-store',
+                               body: cuerpo !== undefined ? JSON.stringify(cuerpo) : undefined});
+  let d = null;
+  try { d = await r.json(); } catch (e) {}
+  if (!r.ok || (d && d.ok === false)) throw new Error((d && d.error) || ('Error ' + r.status));
+  return d;
+}
+function msg(node, texto, ok) { node.textContent = texto || ''; node.className = 'msg ' + (ok ? 's' : 'e'); }
+
+// ---------------------------------------------------------------- tarjeta
+function crearTarjeta(s) {
+  const R = {};
+  const id = s.id;
+  R.pProc = el('span'); R.pMotor = el('span');
+  R.btnIni = el('button', {class: 'btn btn-go', onclick: () => iniciar(id)}, 'Iniciar');
+  R.btnDet = el('button', {class: 'btn btn-stop', onclick: () => detener(id)}, 'Detener');
+  const metr = (k, t) => { R[k] = el('div', {class: 'v'}, '--'); return el('div', {class: 'm', title: t || ''}, el('div', {class: 'k'}, k.replace('_', ' ')), R[k]); };
+  R.auto = el('input', {type: 'checkbox', onchange: () => guardarAuto(id)});
+  R.piso = el('input', {type: 'number', min: '0', max: '60000', step: '10', onchange: () => guardarPiso(id)});
+  R.err = el('div', {class: 'err'});
+  R.ctrlMsg = el('span', {class: 'msg'});
+
+  // Handshake
+  R.hsPill = el('span');
+  R.hsEn = el('input', {type: 'checkbox'});
+  R.hsFbk = el('select'); R.hsExt = el('select');
+  R.hsEstado = el('div', {class: 'help', style: 'margin:10px 0 0'});
+  R.hsMsg = el('div', {class: 'msg'});
+  const hs = el('details', {class: 'sub', ontoggle: e => { if (e.target.open) cargarHs(id); }},
+    el('summary', {}, 'Handshake con el DCS (permiso para escribir)', R.hsPill),
+    el('div', {class: 'body'},
+      el('p', {class: 'help'}, 'El SE pide permiso escribiendo el tag EXT y el DCS responde en el tag FBK. Es fail-closed: mientras el FBK no diga que si (o no se pueda leer) no sale ningun setpoint. Cada SAG debe tener SUS propios tags EXT y FBK.'),
+      el('label', {style: 'display:flex;gap:8px;align-items:center;font-size:.85rem;margin-bottom:12px;cursor:pointer'}, R.hsEn, 'Exigir el permiso del DCS antes de escribir'),
+      el('div', {class: 'grid'},
+        el('div', {class: 'f'}, el('label', {}, 'Tag FBK (el DCS confirma)'), R.hsFbk),
+        el('div', {class: 'f'}, el('label', {}, 'Tag EXT (el SE pide)'), R.hsExt)),
+      el('div', {class: 'row'}, el('button', {class: 'btn btn-pri', onclick: () => guardarHs(id)}, 'Guardar handshake'),
+        el('span', {class: 'help', style: 'margin:0'}, 'Solo aparecen tags OTRO habilitados de este SAG.')),
+      R.hsEstado, R.hsMsg));
+
+  // Heartbeat
+  R.hbPill = el('span');
+  R.hbOut = el('select'); R.hbIn = el('select');
+  R.hbInt = el('input', {type: 'number', step: '0.1', min: '0.2', max: '60'});
+  R.hbTipo = el('select', {}, ['Boolean', 'Int', 'Float'].map(t => el('option', {value: t}, t)));
+  R.hbA = el('input', {type: 'number', step: '1'}); R.hbB = el('input', {type: 'number', step: '1'});
+  R.hbVivo = el('div', {class: 'metrics', style: 'padding:0;margin-top:12px'});
+  R.hbMsg = el('div', {class: 'msg'});
+  const hb = el('details', {class: 'sub', ontoggle: e => { if (e.target.open) cargarHb(id); }},
+    el('summary', {}, 'Heartbeat (pulso de vida)', R.hbPill),
+    el('div', {class: 'body'},
+      el('p', {class: 'help'}, 'Escribe un pulso que alterna Valor A / Valor B en el tag OUT cada N segundos y lee el eco en el tag IN. Si el pulso se detiene, el DCS detecta que el SE murio. Arranca y se detiene junto con el motor.'),
+      el('div', {class: 'grid'},
+        el('div', {class: 'f'}, el('label', {}, 'Tag OUT (escritura)'), R.hbOut),
+        el('div', {class: 'f'}, el('label', {}, 'Tag IN (eco, opcional)'), R.hbIn),
+        el('div', {class: 'f'}, el('label', {}, 'Cada (s)'), R.hbInt),
+        el('div', {class: 'f'}, el('label', {}, 'Tipo'), R.hbTipo),
+        el('div', {class: 'f'}, el('label', {}, 'Valor A'), R.hbA),
+        el('div', {class: 'f'}, el('label', {}, 'Valor B'), R.hbB)),
+      el('div', {class: 'row'},
+        el('button', {class: 'btn btn-pri', onclick: () => guardarHb(id)}, 'Guardar heartbeat'),
+        el('button', {class: 'btn btn-ghost', onclick: () => hbAccion(id, 'start')}, 'Iniciar pulso'),
+        el('button', {class: 'btn btn-ghost', onclick: () => hbAccion(id, 'stop')}, 'Detener pulso')),
+      R.hbVivo, R.hbMsg));
+
+  // Generador
+  R.genPill = el('span');
+  R.genInt = el('select', {}, [200, 500, 1000, 2000, 5000, 10000].map(v => el('option', {value: v}, v >= 1000 ? (v / 1000) + ' s' : v + ' ms')));
+  R.genN = el('input', {type: 'number', min: '10', max: '500', step: '1'});
+  R.genBody = el('tbody');
+  R.genMsg = el('div', {class: 'msg'});
+  const gen = el('details', {class: 'sub', ontoggle: e => { if (e.target.open) cargarGen(id, true); }},
+    el('summary', {}, 'Generador de datos', el('span', {class: 'tag-test'}, 'SOLO PRUEBAS'), R.genPill),
+    el('div', {class: 'body'},
+      el('p', {class: 'help'}, 'Escribe valores simulados en los tags marcados de este SAG. Con el DCS real conectado debe estar DETENIDO: pisaria las senales de planta. Los tags nuevos aparecen desmarcados.'),
+      el('div', {class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(150px,220px))'},
+        el('div', {class: 'f'}, el('label', {}, 'Intervalo'), R.genInt),
+        el('div', {class: 'f'}, el('label', {}, 'Ticks por ciclo'), R.genN)),
+      el('div', {style: 'max-height:340px;overflow:auto;margin-bottom:12px'},
+        el('table', {}, el('thead', {}, el('tr', {}, ['Sim.', 'Tag', 'Min', 'Max', 'Ruido', 'Valor'].map(h => el('th', {}, h)))), R.genBody)),
+      el('div', {class: 'row'},
+        el('button', {class: 'btn btn-pri', onclick: () => guardarGen(id)}, 'Guardar generador'),
+        el('button', {class: 'btn btn-ghost', onclick: () => genAccion(id, 'start')}, 'Iniciar generador'),
+        el('button', {class: 'btn btn-ghost', onclick: () => genAccion(id, 'stop')}, 'Detener generador')),
+      R.genMsg));
+
+  R.raiz = el('div', {class: 'sag', id: 'sag-' + id},
+    el('div', {class: 'bar', style: 'background:' + s.color}),
+    el('div', {class: 'sag-top'},
+      el('div', {class: 'sag-name'}, el('span', {class: 'dot', style: 'background:' + s.color}), s.nombre),
+      R.pProc, R.pMotor,
+      el('div', {class: 'btns'}, R.btnIni, R.btnDet,
+        el('a', {class: 'btn btn-ghost', href: '/gestion/seleccionar/' + encodeURIComponent(id) + '?volver=/espesador'}, 'Abrir SAG'))),
+    el('div', {class: 'metrics'}, metr('tick'), metr('ticks/s', 'Ticks por segundo que logra el motor'),
+      metr('periodo_ms', 'max(duracion del tick, piso)'), metr('tick_ms', 'Duracion del ultimo tick completo (OPC-UA + pipeline + escritura)'),
+      metr('dormido_ms', 'Cuanto durmio por el piso. En 0: el piso no limita.'), metr('escrituras', 'Setpoints escritos al DCS'),
+      metr('alertas', 'Alertas activas de este SAG. Se ven y resuelven en la barra de alertas de sus paginas.')),
+    el('div', {class: 'ctrl'},
+      el('label', {title: 'El servidor aplica cada Guardar en ~1 s, en caliente (sin soltar el lazo ni vaciar ventanas).'}, R.auto, 'Auto-aplicar cambios'),
+      el('label', {title: 'Periodo MINIMO entre ticks. Se aplica en vivo.'}, 'Piso del lazo', R.piso, 'ms'),
+      R.ctrlMsg),
+    R.err, hs, hb, gen);
+  return R;
+}
+
+// --------------------------------------------------------------- estado
+function pintarEstado(id) {
+  const v = vistas[id], R = v.refs, st = v.status, s = SAGS.find(x => x.id === id) || {};
+  R.pProc.replaceChildren(s.vivo ? pill('ok', 'En linea', true) : pill(s.ultimo_error ? 'bad' : 'warn', s.ultimo_error ? 'Caido' : 'Arrancando', true, s.ultimo_error || ''));
+  const corre = !!(st && st.running);
+  R.pMotor.replaceChildren(!st ? pill('off', 'Motor sin datos') : corre ? pill('ok', 'Motor corriendo', true) : pill('off', 'Motor detenido', true));
+  R.btnIni.disabled = !s.vivo || corre;
+  R.btnDet.disabled = !s.vivo || !corre;
+  const fmt = x => (x === undefined || x === null) ? '--' : x;
+  R['tick'].textContent = fmt(st && st.tick);
+  R['ticks/s'].textContent = fmt(st && st.ticks_por_s);
+  R['periodo_ms'].textContent = fmt(st && st.periodo_ms);
+  R['tick_ms'].textContent = fmt(st && st.dur_tick_ms);
+  R['dormido_ms'].textContent = fmt(st && st.dormido_ms);
+  R['escrituras'].textContent = fmt(st && st.sp_escrituras);
+  const al = v.alertas;
+  R['alertas'].textContent = al ? String(al.length) : '--';
+  R['alertas'].style.color = al && al.length ? '#f59e0b' : '';
+  R['alertas'].title = al && al.length ? al.slice(0, 6).map(a => '- ' + (a.title || a.titulo || a.message || a.msg || '')).join('\n') : '';
+  if (st && document.activeElement !== R.piso) R.piso.value = st.piso_ms;
+  const errores = [];
+  if (st && st.last_error) errores.push('Error: ' + st.last_error);
+  if (st && st.advertencias && st.advertencias.length) errores.push('Avisos al arrancar: ' + st.advertencias.join(' | '));
+  R.err.textContent = errores.join('  ·  ');
+  R.err.className = 'err' + (errores.length ? ' show' : '');
+  // Handshake: con el motor corriendo, lo que el motor tiene cargado (con la
+  // ultima lectura del FBK); detenido, lo que dice la configuracion guardada
+  // (el motor solo la carga al arrancar).
+  const h = corre ? (st && st.handshake) : v.hsCfg;
+  let hsp;
+  if (!h) hsp = pill('off', 'Sin datos');
+  else if (!h.enabled) hsp = pill('off', 'No exigido');
+  else if (!h.enable_fbk_tag) hsp = pill('warn', 'Sin tags: no escribe');
+  else if (!corre) hsp = pill('info', 'Exigido');
+  else hsp = (h.ultimo && h.ultimo.ok) ? pill('ok', 'Autorizado', true) : pill('bad', 'Denegado', true, (h.ultimo && h.ultimo.motivo) || '');
+  R.hsPill.replaceChildren(hsp);
+  // Heartbeat
+  const b = v.hb;
+  R.hbPill.replaceChildren(!b ? pill('off', 'Sin datos') : !(b.config || {}).tag_out ? pill('off', 'Sin configurar')
+    : b.running ? (b.last_write_ok === false ? pill('bad', 'Falla escritura', true, b.last_error || '') : pill('ok', 'Pulsando', true)) : pill('off', 'Detenido', true));
+  if (b) {
+    const eco = b.last_echo_ok === null || b.last_echo_ok === undefined ? 'sin eco' : (b.last_echo_ok ? 'OK' : 'NO');
+    R.hbVivo.replaceChildren(...[['Tick', b.tick], ['OUT', b.last_out], ['IN', b.last_in], ['Eco', eco], ['Ultimo', b.last_ts ? String(b.last_ts).slice(11, 19) : '--']]
+      .map(([k, x]) => el('div', {class: 'm'}, el('div', {class: 'k'}, k), el('div', {class: 'v'}, x === undefined || x === null ? '--' : String(x)))));
+  }
+  // Generador
+  const g = v.gen;
+  R.genPill.replaceChildren(!g ? pill('off', 'Sin datos') : g.running ? pill('warn', 'Escribiendo (' + g.habilitados + ' tags)', true) : pill('off', 'Detenido', true));
+  if (g && g.last_values) {
+    R.genBody.querySelectorAll('tr[data-tag]').forEach(tr => {
+      const val = g.last_values[tr.dataset.tag];
+      tr.lastChild.textContent = (val === undefined || val === null) ? '--' : (typeof val === 'number' ? val.toFixed(3) : String(val));
+    });
+  }
+}
+
+async function refrescar() {
+  let d;
+  try { d = await (await fetch0('/gestion/api/sags', {cache: 'no-store'})).json(); }
+  catch (e) { return; }
+  const ids = d.sags.map(s => s.id).join(',');
+  if (ids !== SAGS.map(s => s.id).join(',') || d.sags.some(s => { const o = SAGS.find(x => x.id === s.id); return !o || o.nombre !== s.nombre || o.color !== s.color; })) {
+    SAGS = d.sags;
+    const lista = document.getElementById('lista');
+    Object.keys(vistas).forEach(k => delete vistas[k]);
+    lista.replaceChildren(...SAGS.map(s => { const R = crearTarjeta(s); vistas[s.id] = {refs: R}; return R.raiz; }));
+    if (!SAGS.length) lista.replaceChildren(el('div', {class: 'empty'}, 'No hay SAG.'));
+    SAGS.forEach(s => cargarConfigBase(s.id));
+  } else {
+    SAGS = d.sags;
+  }
+  await Promise.all(SAGS.map(async s => {
+    const v = vistas[s.id];
+    if (!s.vivo) { v.status = null; pintarEstado(s.id); return; }
+    const [st, hb, hs, al] = await Promise.all([
+      api(s.id, 'GET', '/api/se/status').catch(() => null),
+      api(s.id, 'GET', '/api/tags/heartbeat').catch(() => null),
+      api(s.id, 'GET', '/api/tags/handshake').catch(() => null),
+      api(s.id, 'GET', '/api/alerts').catch(() => null)]);
+    v.status = st; v.hb = hb; v.hsCfg = hs; v.alertas = al ? (al.alerts || []) : null;
+    pintarEstado(s.id);
+  }));
+}
+
+async function cargarConfigBase(id) {
+  const v = vistas[id];
+  try { const a = await api(id, 'GET', '/api/se/auto-aplicar'); v.refs.auto.checked = !!(a.auto_aplicar ?? a.enabled ?? a.activo); } catch (e) {}
+  cargarGen(id, false);
+}
+
+// ---------------------------------------------------------------- motor
+async function iniciar(id) {
+  const R = vistas[id].refs;
+  R.btnIni.disabled = true;
+  try {
+    await api(id, 'POST', '/api/se/start', {});
+    // El pulso de vida arranca con el motor (igual que antes en la pagina de Tags).
+    const hb = vistas[id].hb;
+    if (hb && (hb.config || {}).tag_out) {
+      try { await api(id, 'POST', '/api/tags/heartbeat/start'); }
+      catch (e) { msg(R.ctrlMsg, 'Motor iniciado, pero el heartbeat no arranco: ' + e.message, false); }
+    }
+  } catch (e) { msg(R.ctrlMsg, 'No arranco: ' + e.message, false); }
+  refrescar();
+}
+async function detener(id) {
+  const R = vistas[id].refs;
+  R.btnDet.disabled = true;
+  try {
+    await api(id, 'POST', '/api/se/stop', {});
+    // Sin pulso, el DCS conmuta a Manual por watchdog: es lo seguro al detener.
+    await api(id, 'POST', '/api/tags/heartbeat/stop').catch(() => {});
+    msg(R.ctrlMsg, '', true);
+  } catch (e) { msg(R.ctrlMsg, 'Error al detener: ' + e.message, false); }
+  refrescar();
+}
+async function guardarAuto(id) {
+  const R = vistas[id].refs;
+  try { await api(id, 'PUT', '/api/se/auto-aplicar', {auto_aplicar: R.auto.checked, enabled: R.auto.checked}); msg(R.ctrlMsg, 'Auto-aplicar ' + (R.auto.checked ? 'encendido.' : 'apagado.'), true); }
+  catch (e) { R.auto.checked = !R.auto.checked; msg(R.ctrlMsg, e.message, false); }
+}
+async function guardarPiso(id) {
+  const R = vistas[id].refs;
+  const ms = parseInt(R.piso.value, 10);
+  if (!(ms >= 0)) { msg(R.ctrlMsg, 'Piso invalido.', false); return; }
+  try { await api(id, 'PUT', '/api/se/piso', {piso_ms: ms}); msg(R.ctrlMsg, 'Piso guardado: ' + ms + ' ms (en vivo).', true); }
+  catch (e) { msg(R.ctrlMsg, e.message, false); }
+}
+async function todos(accion) {
+  const vivos = SAGS.filter(s => s.vivo);
+  if (accion === 'stop' && !confirm('Detener el motor de ' + vivos.length + ' SAG?')) return;
+  for (const s of vivos) {
+    const st = vistas[s.id].status || {};
+    if (accion === 'start' && !st.running) await iniciar(s.id);
+    if (accion === 'stop' && st.running) await detener(s.id);
+  }
+}
+document.getElementById('btnTodosIniciar').onclick = () => todos('start');
+document.getElementById('btnTodosDetener').onclick = () => todos('stop');
+
+// --------------------------------------------------- tags OTRO del SAG
+async function tagsOtro(id) {
+  const d = await api(id, 'GET', '/api/tags');
+  return (d.tags || []).filter(t => String(t.categoria || '').toLowerCase() === 'otro' && t.enabled !== false);
+}
+function llenarSelect(sel, tags, actual, vacioTxt) {
+  sel.replaceChildren(el('option', {value: ''}, vacioTxt || '(sin asignar)'),
+    ...tags.map(t => el('option', {value: t.name}, t.name + (t.pseudonimo ? ' — ' + t.pseudonimo : ''))));
+  if (actual && !tags.some(t => t.name === actual)) sel.append(el('option', {value: actual}, actual + ' (no disponible)'));
+  sel.value = actual || '';
+}
+
+// ------------------------------------------------------------ handshake
+async function cargarHs(id) {
+  const R = vistas[id].refs;
+  try {
+    const [d, tags] = await Promise.all([api(id, 'GET', '/api/tags/handshake'), tagsOtro(id)]);
+    R.hsEn.checked = !!d.enabled;
+    llenarSelect(R.hsFbk, tags, d.enable_fbk_tag);
+    llenarSelect(R.hsExt, tags, d.enable_ext_tag);
+    R.hsEstado.textContent = !d.enabled ? 'El SE escribe sin pedir permiso al DCS.'
+      : !d.motor_corriendo ? 'Configurado. Con el motor detenido todavia no hay lectura del permiso.'
+      : (d.ultimo && d.ultimo.ok) ? 'El DCS autoriza el control externo: los setpoints se escriben.'
+      : 'El DCS no autoriza: ' + ((d.ultimo && d.ultimo.motivo) || 'sin lectura') + '. No se escribe ningun setpoint.';
+  } catch (e) { msg(R.hsMsg, e.message, false); }
+}
+async function guardarHs(id) {
+  const R = vistas[id].refs;
+  try {
+    await api(id, 'PUT', '/api/tags/handshake', {enabled: R.hsEn.checked, enable_fbk_tag: R.hsFbk.value, enable_ext_tag: R.hsExt.value});
+    msg(R.hsMsg, 'Handshake guardado. Se aplica en caliente si el auto-aplicar esta encendido.', true);
+    cargarHs(id);
+  } catch (e) { msg(R.hsMsg, e.message, false); }
+}
+
+// ------------------------------------------------------------ heartbeat
+async function cargarHb(id) {
+  const R = vistas[id].refs;
+  try {
+    const [d, tags] = await Promise.all([api(id, 'GET', '/api/tags/heartbeat'), tagsOtro(id)]);
+    const c = d.config || {};
+    llenarSelect(R.hbOut, tags, c.tag_out);
+    llenarSelect(R.hbIn, tags, c.tag_in, '(sin eco)');
+    R.hbInt.value = c.intervalo_s ?? 2;
+    R.hbTipo.value = c.data_type || 'Boolean';
+    R.hbA.value = c.value_a ?? 1; R.hbB.value = c.value_b ?? 0;
+    vistas[id].hb = d; pintarEstado(id);
+  } catch (e) { msg(R.hbMsg, e.message, false); }
+}
+async function guardarHb(id) {
+  const R = vistas[id].refs;
+  if (!R.hbOut.value) { msg(R.hbMsg, 'Elige el tag OUT (categoria OTRO).', false); return false; }
+  try {
+    await api(id, 'PUT', '/api/tags/heartbeat', {tag_out: R.hbOut.value, tag_in: R.hbIn.value,
+      intervalo_s: parseFloat(R.hbInt.value), value_a: parseFloat(R.hbA.value), value_b: parseFloat(R.hbB.value), data_type: R.hbTipo.value});
+    msg(R.hbMsg, 'Heartbeat guardado.', true); return true;
+  } catch (e) { msg(R.hbMsg, e.message, false); return false; }
+}
+async function hbAccion(id, accion) {
+  const R = vistas[id].refs;
+  if (accion === 'start' && !(await guardarHb(id))) return;
+  try { await api(id, 'POST', '/api/tags/heartbeat/' + accion); msg(R.hbMsg, accion === 'start' ? 'Pulso iniciado.' : 'Pulso detenido.', true); }
+  catch (e) { msg(R.hbMsg, e.message, false); }
+  refrescar();
+}
+
+// ------------------------------------------------------------ generador
+async function cargarGen(id, conTabla) {
+  const v = vistas[id], R = v.refs;
+  try {
+    const g = await api(id, 'GET', '/api/tags/generator');
+    v.gen = g;
+    if (conTabla) {
+      R.genInt.value = String(g.intervalo_ms);
+      if (![...R.genInt.options].some(o => o.value === String(g.intervalo_ms))) R.genInt.append(el('option', {value: g.intervalo_ms}, g.intervalo_ms + ' ms'));
+      R.genInt.value = String(g.intervalo_ms);
+      R.genN.value = g.n_ciclo;
+      const filas = Object.entries(g.ranges || {}).sort((a, b) => a[0].localeCompare(b[0])).map(([tag, c]) => {
+        const lim = String(c.categoria || '').toLowerCase() === 'lim';
+        const num = (k, val) => el('input', {type: 'number', step: 'any', value: val ?? 0, 'data-k': k});
+        return el('tr', {'data-tag': tag},
+          el('td', {}, el('input', {type: 'checkbox', 'data-k': 'enabled', checked: c.enabled !== false})),
+          el('td', {class: 'mono'}, tag, lim ? el('span', {class: 'help', style: 'margin-left:6px'}, '(limite: valor fijo)') : ''),
+          el('td', {}, num(lim ? 'fijo' : 'min', c.min)),
+          el('td', {}, lim ? '' : num('max', c.max)),
+          el('td', {}, lim ? '' : num('noise', c.noise)),
+          el('td', {class: 'mono'}, '--'));
+      });
+      R.genBody.replaceChildren(...(filas.length ? filas : [el('tr', {}, el('td', {colspan: '6', class: 'help'}, 'Este SAG no tiene tags para simular.'))]));
+    }
+    pintarEstado(id);
+  } catch (e) { if (conTabla) msg(R.genMsg, e.message, false); }
+}
+async function guardarGen(id) {
+  const R = vistas[id].refs;
+  const ranges = {};
+  R.genBody.querySelectorAll('tr[data-tag]').forEach(tr => {
+    const c = {};
+    tr.querySelectorAll('[data-k]').forEach(inp => {
+      const k = inp.dataset.k;
+      if (k === 'enabled') c.enabled = inp.checked;
+      else if (k === 'fijo') { const x = parseFloat(inp.value) || 0; c.min = x; c.max = x; c.noise = 0; }
+      else c[k] = parseFloat(inp.value) || 0;
+    });
+    ranges[tr.dataset.tag] = c;
+  });
+  try {
+    await api(id, 'PUT', '/api/tags/generator', {intervalo_ms: parseInt(R.genInt.value, 10), n_ciclo: parseInt(R.genN.value, 10) || 60, ranges});
+    msg(R.genMsg, 'Generador guardado.', true); return true;
+  } catch (e) { msg(R.genMsg, e.message, false); return false; }
+}
+async function genAccion(id, accion) {
+  const R = vistas[id].refs;
+  if (accion === 'start') {
+    if (!confirm('El generador ESCRIBE valores simulados en el KEPserver. Con el DCS real conectado pisaria las senales de planta.\n\nIniciar el generador de este SAG?')) return;
+    if (!(await guardarGen(id))) return;
+  }
+  try { await api(id, 'POST', '/api/tags/generator/' + accion); msg(R.genMsg, accion === 'start' ? 'Generador iniciado.' : 'Generador detenido.', true); }
+  catch (e) { msg(R.genMsg, e.message, false); }
+  cargarGen(id, false);
+}
+
+refrescar();
+setInterval(refrescar, 2500);
+setInterval(() => SAGS.forEach(s => { if (s.vivo) cargarGen(s.id, false); }), 5000);
+</script>
+</div><!-- /se-pagina -->
+</body>
+</html>

@@ -1,22 +1,63 @@
 {
   "entradas": [
     {
-      "backup_dir": "/app/config/espesador/.backup/import_20260825_215626",
-      "applied_at": "2026-08-25T21:56:26+00:00",
+      "backup_dir": "/sessions/rcw-012objd4dsz69zufkoxrka8r/mnt/SE-HUTBAY-ESPESADOR-4/config/espesador/.backup/import_20260922_151543",
+      "applied_at": "2026-09-22T15:15:43+00:00",
       "modulos": [
-        "tags",
-        "contrato",
-        "variables",
-        "filtros",
-        "fuzzy",
-        "pendientes",
-        "estados",
-        "tracking",
-        "permisivos",
-        "waits",
-        "reglas",
-        "defuzzy",
-        "kepserver"
+        "tracking"
+      ],
+      "modo": "copias",
+      "exported_at": "2026-09-22T00:00:00+00:00",
+      "archivos": [
+        "tracking.json"
+      ]
+    },
+    {
+      "backup_dir": "/sessions/rcw-012objd4dsz69zufkoxrka8r/mnt/SE-HUTBAY-ESPESADOR-4/config/espesador/.backup/import_20260922_151345",
+      "applied_at": "2026-09-22T15:13:45+00:00",
+      "modulos": [
+        "tracking"
+      ],
+      "modo": "copias",
+      "exported_at": "2026-09-22T00:00:00+00:00",
+      "archivos": [
+        "tracking.json"
+      ]
+    },
+    {
+      "backup_dir": "/sessions/rcw-012objd4dsz69zufkoxrka8r/mnt/SE-HUTBAY-ESPESADOR-4/config/espesador/.backup/import_20260922_151344",
+      "applied_at": "2026-09-22T15:13:44+00:00",
+      "modulos": [
+        "tracking"
+      ],
+      "modo": "reemplazar",
+      "exported_at": "2026-09-22T00:00:00+00:00",
+      "archivos": [
+        "tracking.json"
+      ]
+    },
+    {
+      "backup_dir": "/sessions/rcw-012objd4dsz69zufkoxrka8r/mnt/SE-HUTBAY-ESPESADOR-4/config/espesador/.backup/import_20260922_151335",
+      "applied_at": "2026-09-22T15:13:35+00:00",
+      "modulos": [
+        "tracking"
+      ],
+      "modo": "copias",
+      "exported_at": "2026-09-22T00:00:00+00:00",
+      "archivos": [
+        "tracking.json"
+      ]
+    },
+    {
+      "backup_dir": "/sessions/rcw-012objd4dsz69zufkoxrka8r/mnt/SE-HUTBAY-ESPESADOR-4/config/espesador/.backup/import_20260922_151231",
+      "applied_at": "2026-09-22T15:12:31+00:00",
+      "modulos": [
+        "tracking"
+      ],
+      "modo": "reemplazar",
+      "exported_at": "2026-09-22T15:12:31+00:00",
+      "archivos": [
+        "tracking.json"
       ]
     }
   ]

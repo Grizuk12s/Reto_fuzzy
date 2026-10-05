@@ -1,0 +1,33 @@
+{
+  "tags": [],
+  "next_id": 5,
+  "catalogs": {
+    "equipos": [],
+    "instrumentos": [],
+    "unidades_ing": []
+  },
+  "simulation_mode": false,
+  "generator": {
+    "intervalo_s": 0.5,
+    "n_ciclo": 5000,
+    "ranges": {}
+  },
+  "heartbeat": {
+    "enabled": false,
+    "tag_out": "",
+    "tag_in": "",
+    "intervalo_s": 0.2,
+    "value_a": 1,
+    "value_b": 0,
+    "data_type": "Boolean"
+  },
+  "handshake": {
+    "enabled": true,
+    "enable_fbk_tag": "",
+    "enable_ext_tag": ""
+  },
+  "grafico": {
+    "colores": {},
+    "limites": {}
+  }
+}

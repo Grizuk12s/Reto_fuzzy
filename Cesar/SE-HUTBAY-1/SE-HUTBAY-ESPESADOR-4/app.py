@@ -78,6 +78,20 @@ def _revisar_contrato_al_arrancar():
 _revisar_contrato_al_arrancar()
 
 
+# Vigilante de configuracion: con el motor corriendo, un Guardar en cualquier
+# pagina se aplica en caliente ~1 s despues, haya o no una pestana abierta.
+# No se lanza bajo pytest: los tests manejan motores propios y un hilo de fondo
+# sobre `_se_engine` los volveria no deterministas.
+import sys as _sys
+if "pytest" not in _sys.modules:
+    from web.state import _auto_aplicador
+    _auto_aplicador.iniciar()
+    # Muestreador del nivel del Hopper (promedio / desviacion estandar de la
+    # pagina Diagrama). Mismo motivo que arriba: no se lanza bajo pytest.
+    from web.state import _estadistica_nivel
+    _estadistica_nivel.iniciar()
+
+
 if __name__ == "__main__":
     import os
     host = os.environ.get("FLASK_HOST", "127.0.0.1")
@@ -89,7 +103,7 @@ if __name__ == "__main__":
     print(f"  http://{host}:{port}/espesador           (configuracion SE)")
     print(f"  http://{host}:{port}/espesador/entrada   (entrada de datos)")
     print(f"  http://{host}:{port}/espesador/graficos  (explorador de series)")
-    print(f"  http://{host}:{port}/espesador/diagrama  (diagrama de flujo)")
+    print(f"  http://{host}:{port}/espesador/diagrama  (diagrama del hopper)")
     print(f"  http://{host}:{port}/espesador/postgres  (conexion PostgreSQL)")
     print("=" * 60)
     app.run(debug=debug, host=host, port=port)

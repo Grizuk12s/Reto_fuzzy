@@ -1,0 +1,2270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAG -- Explorador de Series</title>
+
+<!-- Chart.js core -->
+<script src="/static/vendor/chart.umd.js"></script>
+<!-- Adapter de fechas para eje X tipo 'time' -->
+<script src="/static/vendor/date-fns.cdn.min.js"></script>
+<script src="/static/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
+<!-- Plugin de zoom/pan (rueda + drag) -->
+<script src="/static/vendor/chartjs-plugin-zoom.min.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#101a20;color:#e8eef1;padding:20px;min-height:100vh}
+h1{color:#a855f7;margin-bottom:4px;font-size:1.6rem}
+h2{color:#a2b1b9;font-size:.85rem;margin-bottom:16px;font-weight:400}
+
+nav{display:flex;gap:16px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+nav a{color:#a2b1b9;text-decoration:none;padding-bottom:2px}
+nav a.active{color:#a855f7;font-weight:600;border-bottom:2px solid #a855f7}
+
+button{cursor:pointer;border:none;border-radius:6px;padding:6px 12px;font-size:.78rem;font-weight:600;transition:.15s;background:#23323b;color:#e8eef1}
+button:hover{background:#35474f}
+button.primary{background:#ee3524;color:#fff}
+button.primary:hover{background:#c82a1b}
+button.danger{background:#ef4444;color:#fff}
+button.danger:hover{background:#dc2626}
+button.ghost{background:transparent;border:1px solid #23323b;color:#a2b1b9}
+button.ghost.active{background:rgba(168,85,247,.15);border-color:#a855f7;color:#a855f7}
+
+input[type=number]{background:#101a20;border:1px solid #23323b;color:#e8eef1;border-radius:6px;padding:4px 8px;font-size:.78rem;width:72px}
+input[type=number]:focus{outline:none;border-color:#a855f7}
+input[type=text]{background:#101a20;border:1px solid #23323b;color:#e8eef1;border-radius:6px;padding:6px 10px;font-size:.8rem;width:100%;max-width:280px}
+input[type=text]:focus{outline:none;border-color:#a855f7}
+select{background:#101a20;border:1px solid #23323b;color:#e8eef1;border-radius:6px;padding:4px 8px;font-size:.78rem}
+label{font-size:.78rem;color:#a2b1b9}
+
+/* ---- Panel base ---- */
+.panel{background:#152128;border-radius:10px;padding:14px 16px;margin-bottom:14px;border:1px solid #152128}
+.panel h3{font-size:.72rem;color:#a2b1b9;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;font-weight:700}
+
+/* ---- Selector de tags (chips) ---- */
+.tag-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow-y:auto;padding:8px;background:#101a20;border-radius:8px;border:1px solid #23323b}
+.chip{padding:4px 10px;border-radius:14px;font-size:.72rem;cursor:pointer;border:1px solid #35474f;color:#a2b1b9;user-select:none;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.chip:hover{border-color:#a855f7;color:#e8eef1}
+.chip.selected{color:#fff;font-weight:600}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:transparent;flex-shrink:0}
+.chip.selected .dot{background:currentColor}
+
+.tag-groups{display:flex;gap:4px}
+.tag-groups button{padding:4px 10px;font-size:.7rem}
+
+.selection-info{font-size:.72rem;color:#7a8b94;margin-top:6px}
+
+/* ---- Slider dual con input numérico ---- */
+.slider-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.slider-wrap{flex:1;min-width:260px;position:relative;display:flex;align-items:center;gap:12px}
+.slider-wrap input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:6px;background:#23323b;border-radius:3px;outline:none}
+.slider-wrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#a855f7;cursor:pointer;box-shadow:0 0 0 3px rgba(168,85,247,.2);transition:.15s}
+.slider-wrap input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 0 6px rgba(168,85,247,.25)}
+.slider-wrap input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:#a855f7;cursor:pointer}
+.slider-limits{font-size:.68rem;color:#7a8b94;min-width:44px;text-align:center}
+.slider-limits.right{text-align:right}
+
+.control-line{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.badge-live{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;font-size:.68rem;font-weight:700;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.badge-live .pulse{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 1.5s infinite}
+.badge-paused{background:rgba(122,139,148,.15);color:#a2b1b9;border-color:rgba(122,139,148,.3)}
+.badge-paused .pulse{background:#a2b1b9;animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ---- Chart card ---- */
+.chart-card{background:#152128;border-radius:10px;padding:14px 14px 8px 14px;position:relative;min-height:440px;
+  border:2px solid transparent;transition:border-color .15s,box-shadow .15s}
+/* Celda "tomada": el arrastre y el zoom de rueda solo actuan con el borde verde. */
+.chart-card.chart-activo{border-color:#4ade80;box-shadow:0 0 0 3px rgba(74,222,128,.18)}
+.chart-wrap{position:relative;height:420px;display:flex;gap:10px}
+/* Chart.js mide el padre del canvas: si ese padre incluye la barra Y lateral,
+   el area de trazado queda mas angosta que lo que cree el motor y el mouse se
+   desfasa ~40 px. El host ocupa solo la franja del grafico. */
+.chart-canvas-host{flex:1;min-width:0;position:relative;height:100%}
+.chart-canvas-host canvas{display:block}
+
+/* ---- Barra lateral vertical para pan del eje Y ---- */
+.y-controls-off{opacity:.35;pointer-events:none}
+.y-pan-col{display:flex;flex-direction:column;align-items:center;gap:6px;width:34px;padding:4px 0;background:#101a20;border-radius:8px;border:1px solid #23323b}
+.y-pan-col .lbl{font-size:.55rem;color:#7a8b94;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.y-pan-col input[type=range]{writing-mode:vertical-lr;direction:rtl;-webkit-appearance:slider-vertical;flex:1;width:20px;padding:0;background:transparent;cursor:ns-resize}
+.y-pan-col input[type=range]::-webkit-slider-runnable-track{width:6px;background:#23323b;border-radius:3px}
+.y-pan-col input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#a855f7;box-shadow:0 0 0 3px rgba(168,85,247,.2);cursor:pointer}
+.y-pan-col input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:#a855f7;cursor:pointer}
+.y-pan-btn{width:24px;height:24px;padding:0;border-radius:6px;background:#23323b;color:#e8eef1;font-size:.7rem;line-height:1;border:none;cursor:pointer;transition:.15s}
+.y-pan-btn:hover{background:#35474f;color:#a855f7}
+.y-pan-btn.reset{background:transparent;color:#a2b1b9}
+.y-pan-btn.reset:hover{background:rgba(168,85,247,.15);color:#a855f7}
+
+/* ---- Formato eje X ---- */
+.axis-x-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}
+
+/* ---- Resumen ---- */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.stat-card{background:#101a20;border-radius:8px;padding:10px 12px;border-left:3px solid #a855f7;font-size:.78rem}
+.stat-card .st-name{font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.stat-card .st-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.stat-card .st-row{display:flex;justify-content:space-between;color:#a2b1b9;font-size:.72rem;margin-top:2px}
+.stat-card .st-row b{color:#e8eef1;font-weight:600}
+
+.msg-empty{text-align:center;color:#7a8b94;padding:60px 20px;font-size:.85rem}
+
+/* ---- Controles embebidos en la celda del grafico ---- */
+.inline-ctrl-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:4px 2px}
+.inline-ctrl-title{font-size:.68rem;color:#a2b1b9;text-transform:uppercase;letter-spacing:.06em;font-weight:700;min-width:160px}
+.inline-sep{height:1px;background:#23323b;margin:8px 0;opacity:.6}
+
+/* ---- Panel de limites por serie (se abre desde la leyenda) ---- */
+.series-lim-panel{position:absolute;z-index:30;background:#101a20;border:1px solid #35474f;border-radius:8px;
+  padding:10px 12px;box-shadow:0 10px 28px rgba(0,0,0,.55);min-width:236px;font-size:.75rem}
+.series-lim-panel .slp-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:700;color:#e8eef1}
+.series-lim-panel .slp-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.series-lim-panel .slp-close{margin-left:auto;background:transparent;color:#7a8b94;padding:0 4px;font-size:.9rem}
+.series-lim-panel .slp-close:hover{background:transparent;color:#ef4444}
+.series-lim-panel .slp-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.series-lim-panel .slp-row label{min-width:30px}
+.series-lim-panel .slp-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.series-lim-panel .slp-btns button{padding:4px 8px;font-size:.7rem}
+.series-lim-panel input[type=color]{width:44px;height:26px;padding:0;border:1px solid #23323b;border-radius:6px;background:#101a20;cursor:pointer}
+.series-lim-panel .slp-sub{font-size:.66rem;color:#7a8b94;word-break:break-all;margin:-4px 0 8px}
+.series-lim-panel .slp-sec{font-size:.64rem;color:#a2b1b9;text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin:8px 0 4px}
+.series-lim-panel .slp-note{color:#7a8b94;font-size:.68rem;line-height:1.4;margin-top:6px}
+
+/* ---- Responsive ---- */
+@media(max-width:900px){
+  .slider-wrap{min-width:200px}
+  .chart-wrap{height:360px}
+}
+</style>
+<link rel="stylesheet" href="/static/activity-alerts.css">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/hudbay.css">
+<script src="/static/portada.js" defer></script>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="hb-nav-brand" title="Reto Digital"><img src="/static/hudbay-logo.png" alt="Hudbay" class="hb-navlogo"></a>
+  <!-- El explorador muestra los tags de TODOS los SAG (filtro en "Tags a
+       graficar"): sin selector de SAG arriba. Ver data-se-sag en router.py. -->
+  <span data-se-sag="oculto" hidden></span>
+  <a href="/espesador">Configuracion SE</a>
+  <a href="/espesador/entrada">Entrada de Datos</a>
+  <a href="/espesador/graficos" class="active">Explorador de Series</a>
+  <a href="/motor" data-se-solo-router style="display:none">Motor</a>
+  <a href="/espesador/postgres">PostgreSQL</a>
+  <a href="/espesador/export-import">Export / Import</a>
+</nav>
+
+<h1>Explorador de Series</h1>
+<h2>Trending temporal de los tags de la simulacion. Buffer en memoria: hasta 3 horas hacia atras.</h2>
+
+<!-- Panel 1: Selección de tags -->
+<div class="panel">
+  <h3>1. Tags a graficar</h3>
+  <div class="tag-toolbar">
+    <input type="text" id="tag-search" placeholder="Buscar tag o pseudonimo..." oninput="renderChips()">
+    <div class="tag-groups">
+      <button class="ghost active" data-grp="all" onclick="setGroup('all', this)">Todos</button>
+      <button class="ghost" data-grp="pv" onclick="setGroup('pv', this)">PV</button>
+      <button class="ghost" data-grp="sp" onclick="setGroup('sp', this)">SP</button>
+      <button class="ghost" data-grp="lim" onclick="setGroup('lim', this)">LIM</button>
+      <button class="ghost" data-grp="se" onclick="setGroup('se', this)"
+              title="Series del propio SE: el objetivo interno de cada setpoint. No son tags del KEPserver.">SE</button>
+    </div>
+    <!-- Varios SAG: elegir de que SAG se ven los tags (Fase 5). Se llena solo
+         si la pagina corre detras del router; si no, queda oculto. -->
+    <div class="tag-groups" id="sag-filtro" style="display:none"></div>
+    <button onclick="selectAllVisible()">Marcar visibles</button>
+    <button onclick="clearSelection()">Limpiar seleccion</button>
+  </div>
+  <div class="chips" id="tag-chips"></div>
+  <div class="selection-info">
+    <span id="sel-info">Sin tags seleccionados.</span>
+    <span id="cat-msg" style="margin-left:10px"></span>
+  </div>
+</div>
+
+<!-- Panel 2: Eje Y -->
+<div class="panel">
+  <h3>2. Eje Y</h3>
+  <div class="control-line">
+    <button class="ghost" id="btn-normalizar" onclick="toggleNormalizar()"
+            title="Cada serie se dibuja en su propia escala. Sirve para comparar FORMAS entre variables de unidades distintas; los valores del tooltip y del resumen siguen siendo los reales.">
+      Comparar formas (sin eje Y)
+    </button>
+    <label id="norm-base-wrap" style="display:none">Escala:
+      <select id="norm-base" onchange="onNormBase()">
+        <option value="limites">Limites del tag (banda de operacion)</option>
+        <option value="ventana">Min/max de la ventana visible</option>
+      </select>
+    </label>
+    <label id="norm-consts-wrap" style="display:none;align-items:center;gap:6px">
+      <input type="checkbox" id="norm-consts" onchange="redibujar()">
+      Mostrar constantes
+    </label>
+    <span id="norm-hint" style="font-size:.7rem;color:#7a8b94"></span>
+  </div>
+  <div class="control-line">
+    <button class="ghost active" id="btn-hs" onclick="toggleBandasHS()"
+            title="Permiso del DCS (tag FBK del handshake). Clic: muestra u oculta las franjas rojas de los tramos en que el SE NO estaba autorizado a escribir.">
+      DCS: --
+    </button>
+    <span id="hs-hint" style="font-size:.7rem;color:#7a8b94"></span>
+  </div>
+  <div class="control-line">
+    <button class="ghost active" id="btn-re" onclick="toggleBandasReinicio()"
+            title="Cortes del motor. Clic: muestra u oculta las franjas celestes de los tramos en que el SE estuvo abajo (reinicio manual, auto-reinicio al guardar, o detenido). Sin esto, una linea plana no distingue 'el proceso esta quieto' de 'el SE no estaba corriendo'.">
+      SE: --
+    </button>
+    <span id="re-hint" style="font-size:.7rem;color:#7a8b94"></span>
+  </div>
+  <div class="control-line">
+    <span style="font-size:.7rem;color:#a2b1b9">Al pasar el mouse, mostrar tambien:</span>
+    <button class="ghost" id="btn-tip-dom" onclick="toggleTip('dom', this)"
+            title="Agrega al tooltip el dominio fuzzy de cada variable (HIGH, OK, LOW...), tal como lo calculo el pipeline en su ultimo tick.">
+      Dominio
+    </button>
+    <button class="ghost" id="btn-tip-pend" onclick="toggleTip('pend', this)"
+            title="Agrega al tooltip la pendiente de cada variable en u/min, la misma que fuzzifica el motor.">
+      Pendiente
+    </button>
+    <button class="ghost" id="btn-tip-acel" onclick="toggleTip('acel', this)"
+            title="Agrega al tooltip la aceleracion de cada variable, su estado dinamico (ACELERANDO, DESACELERANDO, ESTABLE) y el signo de 2a, tal como lo calculo el pipeline.">
+      Aceleracion
+    </button>
+    <span id="tip-hint" style="font-size:.7rem;color:#7a8b94"></span>
+  </div>
+  <div class="control-line" id="y-scale-controls">
+    <label style="display:inline-flex;align-items:center;gap:6px">
+      <input type="checkbox" id="y-auto" checked onchange="onYAutoToggle()">
+      Auto-escala
+    </label>
+    <label>min <input type="number" id="y-min" step="any" disabled onchange="applyYRange()"></label>
+    <label>max <input type="number" id="y-max" step="any" disabled onchange="applyYRange()"></label>
+    <button onclick="resetZoom()">Reset zoom</button>
+    <span style="font-size:.7rem;color:#7a8b94">rueda = zoom Y &nbsp;|&nbsp; barra lateral = mover Y</span>
+  </div>
+</div>
+
+<!-- Grafico: ventana arriba, posicion temporal abajo, todo en la misma celda -->
+<div class="chart-card">
+
+  <!-- Ventana de visualizacion: ANTES de que empiece el grafico -->
+  <div class="inline-ctrl-row">
+    <span class="inline-ctrl-title">Ventana de visualizacion</span>
+    <div class="slider-wrap">
+      <span class="slider-limits">1 min</span>
+      <input type="range" id="win-slider" min="1" max="180" value="30" step="1" oninput="onWinSlider()">
+      <span class="slider-limits right">180 min</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="number" id="win-input" min="1" max="180" step="1" value="30" onchange="onWinInput()">
+      <span style="font-size:.75rem;color:#a2b1b9">min</span>
+    </div>
+  </div>
+  <div class="inline-sep"></div>
+
+  <div class="chart-wrap">
+    <div class="chart-canvas-host">
+      <canvas id="main-chart"></canvas>
+      <div class="msg-empty" id="msg-empty" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center">
+        Selecciona uno o mas tags para comenzar.
+      </div>
+    </div>
+    <div class="y-pan-col" title="Mover el eje Y arriba / abajo">
+      <span class="lbl">Y+</span>
+      <button class="y-pan-btn" onclick="nudgeYPan(10)" title="Subir">&#9650;</button>
+      <input type="range" id="y-pan-slider" min="-100" max="100" value="0" step="1" oninput="onYPanSlider()">
+      <button class="y-pan-btn" onclick="nudgeYPan(-10)" title="Bajar">&#9660;</button>
+      <button class="y-pan-btn reset" onclick="resetYPan()" title="Centrar">&#8635;</button>
+      <span class="lbl">Y-</span>
+    </div>
+  </div>
+  <div class="axis-x-controls">
+    <span style="font-size:.7rem;color:#a2b1b9;margin-right:4px">Formato eje X:</span>
+    <button class="ghost active" id="fmt-h" onclick="toggleFmt('h', this)">Horas</button>
+    <button class="ghost active" id="fmt-m" onclick="toggleFmt('m', this)">Minutos</button>
+    <button class="ghost" id="fmt-s" onclick="toggleFmt('s', this)">Segundos</button>
+    <span id="interact-hint" style="font-size:.7rem;color:#7a8b94;margin-left:auto">clic en el grafico para activar arrastre y zoom</span>
+  </div>
+
+  <div class="inline-sep"></div>
+  <!-- Posicion temporal: DESPUES del formato del eje X -->
+  <div class="inline-ctrl-row">
+    <span class="inline-ctrl-title">Posicion temporal (3 h)</span>
+    <div class="slider-wrap">
+      <span class="slider-limits">-3 h</span>
+      <input type="range" id="pos-slider" min="-10800" max="0" value="0" step="1" oninput="onPosSlider()">
+      <span class="slider-limits right">ahora</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="number" id="pos-input" min="-180" max="0" step="1" value="0" onchange="onPosInput()">
+      <span style="font-size:.75rem;color:#a2b1b9">min</span>
+    </div>
+  </div>
+  <div class="control-line" style="padding:0 2px 6px">
+    <label style="display:inline-flex;align-items:center;gap:6px">
+      <input type="checkbox" id="follow-live" checked onchange="onFollowToggle()">
+      Seguir tiempo real
+    </label>
+    <label>Refresco:
+      <select id="poll-interval" onchange="restartPolling()">
+        <option value="1000">1 s</option>
+        <option value="2000" selected>2 s</option>
+        <option value="5000">5 s</option>
+        <option value="10000">10 s</option>
+      </select>
+    </label>
+    <span id="live-badge" class="badge-live"><span class="pulse"></span> EN VIVO</span>
+    <span id="range-label" style="font-size:.75rem;color:#a2b1b9;margin-left:auto"></span>
+  </div>
+</div>
+
+<!-- Resumen -->
+<div class="panel">
+  <h3>3. Resumen estadistico (sobre la ventana visible)</h3>
+  <div class="stats-grid" id="stats-grid">
+    <div class="msg-empty" style="grid-column:1/-1">Sin datos.</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Paleta de colores para series (auto-asignación)
+// ============================================================
+const PALETTE = [
+  '#4fb3d9', '#a78bfa', '#22c55e', '#fb923c', '#f472b6',
+  '#facc15', '#ef4444', '#14b8a6', '#8b5cf6', '#10b981',
+  '#f97316', '#ec4899', '#eab308', '#0e9bb8', '#6366f1',
+];
+
+// ============================================================
+// Estado global
+// ============================================================
+const state = {
+  allTags: [],                  // catalogo completo desde /api/entrada
+  selected: new Set(),          // tag names seleccionados
+  group: 'all',
+  sagFiltro: null,              // null = solo este SAG | id de otro SAG | '*' = todos
+  colorByTag: {},               // asignacion tag -> color
+  windowMin: 30,                // duracion visible en minutos
+  positionSec: 0,               // offset desde 'ahora' (segundos, negativo = pasado)
+  followLive: true,
+  yAuto: true,
+  yMin: null,
+  yMax: null,
+  // Modo "comparar formas": cada serie se estira a su propio min/max de la
+  // ventana visible. Con unidades distintas (nivel %, corriente A, velocidad
+  // %) un eje Y compartido aplasta todo contra una sola escala y la relacion
+  // entre variables no se ve; normalizando, lo que queda a la vista es la
+  // FORMA — que sube cuando, que se adelanta a que.
+  normalizar: false,
+  // Base de la normalizacion: 'limites' (banda de operacion del tag, la misma
+  // que usa el fuzzy) o 'ventana' (min/max de lo visible).
+  normBase: 'limites',
+  // {tag: {var, lmin, lmax}} desde /api/entrada/escalas.
+  escalas: {},
+  // Limites manuales por serie, SOLO para el modo "comparar formas": cada
+  // variable puede tener su propia banda min/max, independiente de la de las
+  // demas y de lo que diga el tag. Se editan desde la leyenda.
+  // {tag: {min: <num>, max: <num>}}
+  limPorTag: {},
+  limPanelTag: null,            // serie con el panel de limites abierto
+  // Ultimo payload crudo, para poder re-dibujar al cambiar de modo sin
+  // esperar al proximo refresco.
+  lastData: {},
+  yPanPct: 0,                   // pan vertical del eje Y (-1 a +1, fraccion del rango)
+  yDrag: null,                  // rango Y dejado por un arrastre/zoom manual
+  // Handshake con el DCS: {tag, enabled, activo, motivo, serie:[[t,0|1]]}.
+  // No se grafica como serie; se pinta como franjas verticales donde el
+  // permiso NO estaba dado.
+  hs: {},
+  hsBandas: true,
+  // Cortes del motor: [{inicio_ms, fin_ms|null, motivo, caliente}] desde
+  // /api/se/reinicios. Se pintan como franjas celestes verticales, igual que
+  // las rojas del handshake. No salen de una cuenta local: las registra el
+  // servidor cuando el motor baja y sube, asi que un reinicio disparado desde
+  // el panel — que es OTRA pestana — se ve igual aca.
+  cortes: [],
+  cortesBandas: true,
+  avisoReinicioHasta: 0,      // hasta cuando se sostiene el aviso de reinicio
+  // Generacion del motor (avanza en cada arranque). Cuando cambia, esta
+  // pagina relee sus catalogos: un tag nuevo, un pseudonimo corregido o un
+  // limite recien cableado tienen que aparecer sin recargar a mano — y sin
+  // recargar la pagina, que borraria el zoom y las series elegidas.
+  generacion: null,
+  // La celda del grafico solo responde al arrastre y a la rueda cuando esta
+  // "tomada" (clic dentro). Sin esto, pasar el mouse por encima mientras se
+  // hace scroll de la pagina cambiaba el zoom sin querer.
+  chartActivo: false,
+  catalogoTimer: null,          // sonda de altas / bajas / renombres de tags
+  // Dominio y pendiente por tag, leidos de la traza del pipeline (no se
+  // recalculan aca: lo que se muestra tiene que ser lo mismo que ven las
+  // reglas). {tag: {var, dom, valor, pendiente:{slope_per_min, ventana_s, dom}}}
+  anot: {},
+  // Historial de anotaciones: una muestra por segundo grabada por el motor.
+  // [{t: ms, por_tag}], ordenado. Cubre [anotDesde, anotHasta] para anotTags.
+  anotHist: [],
+  anotDesde: null,
+  anotHasta: null,
+  anotTags: '',
+  anotRunning: false,
+  tipDom: false,                // el tooltip agrega el dominio
+  tipPend: false,               // el tooltip agrega la pendiente
+  tipAcel: false,               // el tooltip agrega la aceleracion
+  fmt: { h: true, m: true, s: false },
+  chart: null,
+  pollTimer: null,
+  hoverX: null,                 // pixel X ajustado (snap a la muestra mas cercana)
+  hoverPts: [],                 // puntos por serie en ese instante
+};
+
+const MAX_HISTORY_SEC = 3 * 60 * 60;  // 3 h = 10800 s
+const MAX_WINDOW_MIN = 180;
+
+// ============================================================
+// Etiquetas: el pseudonimo manda
+// ============================================================
+// El nombre del tag (PCS7.OS01.Hopper_Nivel_PV_A) identifica, pero no dice
+// nada al operador. Donde hay pseudonimo, se muestra ese; el nombre queda
+// como respaldo y como subtitulo donde hace falta trazar el origen.
+function _escapeHtml(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ============================================================
+// Varios SAG en el mismo grafico (Fase 5)
+// ============================================================
+// Los tags de OTRO SAG viven en state.allTags con nombre "sag2::TAG": asi no
+// chocan con un tag del mismo nombre en este SAG, y el resto de la pagina
+// (colores, limites, seleccion) los trata como una serie mas. Sus datos se
+// piden a su SAG con SE_SAG.fetchDe (encabezado X-SE-SAG explicito).
+const SEP_SAG = '::';
+const MULTI = !!(window.SE_SAG && (window.SE_SAG.todos || []).length > 1);
+const SAG_AQUI = window.SE_SAG ? window.SE_SAG.actual.id : null;
+function sagDe(name) {
+  const i = name.indexOf(SEP_SAG);
+  return i > 0 ? name.slice(0, i) : SAG_AQUI;
+}
+function crudo(name) {
+  const i = name.indexOf(SEP_SAG);
+  return i > 0 ? name.slice(i + SEP_SAG.length) : name;
+}
+function sagInfo(id) {
+  return ((window.SE_SAG && window.SE_SAG.todos) || []).find(s => s.id === id) || {id: id, nombre: id, color: '#7a8b94'};
+}
+function pasaSag(t) {
+  if (!MULTI) return true;
+  if (state.sagFiltro === '*') return true;
+  return (t.sag || SAG_AQUI) === (state.sagFiltro || SAG_AQUI);
+}
+function pintarFiltroSag() {
+  if (!MULTI) return;
+  const box = document.getElementById('sag-filtro');
+  box.style.display = '';
+  // Sin selector de SAG arriba, la pagina no es "de" un SAG: arranca
+  // mostrando los tags de todos. (Solo la primera vez; luego manda el filtro.)
+  if (!state._sagFiltroIni) { state._sagFiltroIni = true; state.sagFiltro = '*'; }
+  const ops = [[null, sagInfo(SAG_AQUI).nombre, sagInfo(SAG_AQUI).color]]
+    .concat(window.SE_SAG.todos.filter(s => s.id !== SAG_AQUI).map(s => [s.id, s.nombre, s.color]), [['*', 'Todos los SAG', null]]);
+  box.replaceChildren(...ops.map(([val, txt, color]) => {
+    const b = document.createElement('button');
+    b.className = 'ghost' + ((state.sagFiltro || null) === val ? ' active' : '');
+    b.title = val === '*' ? 'Mostrar los tags de todos los SAG' : 'Tags de ' + txt;
+    if (color) {
+      const d = document.createElement('span');
+      d.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:' + color;
+      b.appendChild(d);
+    }
+    b.appendChild(document.createTextNode(txt));
+    b.onclick = () => { state.sagFiltro = val; pintarFiltroSag(); renderChips(); };
+    return b;
+  }));
+}
+
+function infoTag(name) {
+  return (state.allTags || []).find(t => t.name === name) || null;
+}
+function etiquetaDe(name) {
+  const t = infoTag(name);
+  const ps = t && (t.pseudonimo || '').trim();
+  const base = ps || crudo(name);
+  // Una serie de otro SAG lleva su nombre al lado: en el mismo grafico dos
+  // "Potencia" de molinos distintos tienen que distinguirse.
+  return MULTI ? base + ' \u00b7 ' + sagInfo(sagDe(name)).nombre : base;
+}
+function etiquetaLarga(name) {
+  const t = infoTag(name);
+  const u = t && (t.unidad || '').trim();
+  return etiquetaDe(name) + (u ? ' [' + u + ']' : '');
+}
+
+// ============================================================
+// Preferencias persistentes (color y limites por tag)
+// ============================================================
+// Viven en el servidor (tags.json), no en el navegador: el color con el que
+// uno reconoce una variable no deberia depender de la maquina ni perderse al
+// recargar o reiniciar el contenedor.
+let _prefsPend = { colores: {}, limites: {} };
+let _prefsTimer = null;
+
+async function cargarPrefsGrafico() {
+  try {
+    const r = await fetch('/api/tags/grafico/preferencias');
+    const d = (await r.json()) || {};
+    Object.entries(d.colores || {}).forEach(([k, v]) => {
+      if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) state.colorByTag[k] = v;
+    });
+    Object.entries(d.limites || {}).forEach(([k, v]) => {
+      const mn = v && Number(v.min), mx = v && Number(v.max);
+      if (isFinite(mn) && isFinite(mx) && mx > mn) state.limPorTag[k] = { min: mn, max: mx };
+    });
+  } catch (e) {
+    console.warn('preferencias del grafico', e);
+  }
+}
+
+/** Guarda con debounce; `valor === null` borra esa preferencia. */
+function guardarPref(tipo, tag, valor) {
+  _prefsPend[tipo][tag] = valor;
+  if (_prefsTimer) clearTimeout(_prefsTimer);
+  _prefsTimer = setTimeout(async () => {
+    const body = _prefsPend;
+    _prefsPend = { colores: {}, limites: {} };
+    _prefsTimer = null;
+    try {
+      await fetch('/api/tags/grafico/preferencias', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      console.warn('no se pudieron guardar las preferencias del grafico', e);
+    }
+  }, 600);
+}
+
+/** Indice del punto mas cercano en tiempo (busqueda binaria). */
+function nearestIndexByTime(data, targetT) {
+  if (!data || !data.length) return -1;
+  let lo = 0, hi = data.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (data[mid].x < targetT) lo = mid + 1; else hi = mid;
+  }
+  if (lo > 0 && Math.abs(data[lo - 1].x - targetT) < Math.abs(data[lo].x - targetT)) lo--;
+  return lo;
+}
+
+/** Hasta que distancia en el tiempo se considera "el mismo instante".
+ *  3% de la ventana visible (minimo 3 s): con 30 min a la vista, ~54 s. Mas
+ *  que eso ya no es el mismo momento y mostrarlo seria inventar un valor. */
+function toleranciaHoverMs() {
+  return Math.max(3000, state.windowMin * 60 * 1000 * 0.03);
+}
+
+// Modo de interaccion propio: empareja POR TIEMPO, no por indice de array.
+//
+// El modo 'index' de Chart.js asume que todas las series comparten el mismo
+// vector de X. Aca no es asi: cada tag entra al historial cuando el KEPserver
+// responde y con decimacion propia, asi que dos series tienen distinta
+// cantidad de muestras. Emparejando por indice, el tooltip a veces listaba
+// una serie de mas o de menos segun donde cayera el mouse -- y en modo
+// "comparar formas" el efecto se notaba mas porque ahi ademas hay series
+// auto-ocultas. Con este modo, el tooltip y el crosshair muestran SIEMPRE
+// todas las series visibles que tengan un dato cerca de ese instante.
+Chart.Interaction.modes.tiempoCercano = function(chart, e) {
+  const xScale = chart.scales.x;
+  if (!xScale) return [];
+  let px = e && e.x;
+  try {
+    if (Chart.helpers && Chart.helpers.getRelativePosition) {
+      px = Chart.helpers.getRelativePosition(e, chart).x;
+    }
+  } catch (_) { /* el evento ya trae coordenadas de canvas */ }
+  if (px == null) return [];
+  const t = xScale.getValueForPixel(px);
+  const tol = toleranciaHoverMs();
+  const items = [];
+  chart.data.datasets.forEach((ds, i) => {
+    if (!chart.isDatasetVisible(i) || !ds.data.length) return;
+    const idx = nearestIndexByTime(ds.data, t);
+    if (idx < 0) return;
+    const pt = ds.data[idx];
+    if (pt == null || pt.y == null || !isFinite(pt.y)) return;
+    if (Math.abs(pt.x - t) > tol) return;
+    const meta = chart.getDatasetMeta(i);
+    const el = meta && meta.data && meta.data[idx];
+    if (!el) return;
+    items.push({ element: el, datasetIndex: i, index: idx });
+  });
+  return items;
+};
+
+/** Alinea el crosshair con el tooltip: mismo emparejado por tiempo. */
+function snapHover(chart, mouseX) {
+  const { chartArea } = chart;
+  if (mouseX == null || mouseX < chartArea.left || mouseX > chartArea.right) {
+    return { snapPx: null, pts: [] };
+  }
+  const xScale = chart.scales.x;
+  const targetT = xScale.getValueForPixel(mouseX);
+  const tol = toleranciaHoverMs();
+  let snapPx = mouseX;
+  let bestDist = Infinity;
+  const pts = [];
+  chart.data.datasets.forEach((ds, i) => {
+    // isDatasetVisible respeta tanto ds.hidden como el ocultado por leyenda;
+    // mirar solo meta.hidden dejaba pintar puntos de series apagadas.
+    if (!chart.isDatasetVisible(i) || !ds.data.length) return;
+    const idx = nearestIndexByTime(ds.data, targetT);
+    if (idx < 0) return;
+    const pt = ds.data[idx];
+    if (pt == null || pt.y == null || !isFinite(pt.y)) return;
+    const dist = Math.abs(pt.x - targetT);
+    if (dist > tol) return;
+    if (dist < bestDist) {
+      bestDist = dist;
+      snapPx = xScale.getPixelForValue(pt.x);
+    }
+    pts.push({ pt, ds, i });
+  });
+  return { snapPx, pts };
+}
+
+// ============================================================
+// Plugin custom: crosshair vertical con valores por serie
+// ============================================================
+const crosshairPlugin = {
+  id: 'crosshair',
+  afterEvent(chart, args) {
+    const ev = args.event;
+    if (ev.type === 'mousemove') {
+      const snap = snapHover(chart, ev.x);
+      state.hoverX = snap.snapPx;
+      state.hoverPts = snap.pts;
+      chart.draw();
+    } else if (ev.type === 'mouseout') {
+      state.hoverX = null;
+      state.hoverPts = [];
+      chart.draw();
+    }
+  },
+  afterDatasetsDraw(chart) {
+    if (state.hoverX == null) return;
+    const { ctx, chartArea } = chart;
+    const x = state.hoverX;
+    if (x < chartArea.left || x > chartArea.right) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(168,85,247,0.65)';
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    const yScale = chart.scales.y;
+    state.hoverPts.forEach(({ pt, ds }) => {
+      const py = yScale.getPixelForValue(pt.y);
+      if (py < chartArea.top || py > chartArea.bottom) return;
+      ctx.beginPath();
+      ctx.arc(x, py, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = ds.borderColor;
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#101a20';
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+};
+// ============================================================
+// Plugin custom: lineas de referencia del modo normalizado
+// ============================================================
+// Con base 'limites' el 0% y el 100% son lmin y lmax de CADA serie, asi que
+// dos lineas alcanzan para todas: reemplazan a graficar cada limite como una
+// serie constante, que en este modo no se puede dibujar sin mentir.
+const refLinesPlugin = {
+  id: 'refLines',
+  afterDatasetsDraw(chart) {
+    if (!state.normalizar) return;
+    if (state.normBase !== 'limites' && !Object.keys(state.limPorTag).length) return;
+    const { ctx, chartArea, scales } = chart;
+    const y = scales.y;
+    if (!y) return;
+    ctx.save();
+    [[100, 'lmax (100%)'], [0, 'lmin (0%)']].forEach(([val, txt]) => {
+      const py = y.getPixelForValue(val);
+      if (py < chartArea.top || py > chartArea.bottom) return;
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, py);
+      ctx.lineTo(chartArea.right, py);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = 'rgba(162,177,185,0.55)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '10px system-ui, sans-serif';
+      ctx.fillStyle = '#7a8b94';
+      ctx.textBaseline = val === 100 ? 'bottom' : 'top';
+      ctx.fillText(txt, chartArea.left + 4, val === 100 ? py - 2 : py + 3);
+    });
+    ctx.restore();
+  }
+};
+
+// ============================================================
+// Plugin custom: franjas donde el DCS NO autorizaba escribir
+// ============================================================
+// El permiso es el FBK del handshake: mientras esta en falso el SE no escribe
+// ningun setpoint. Verlo sobre el trending es lo que explica por que una
+// variable dejo de moverse sin que ninguna regla cambiara.
+function bandasNoAutorizado(serie, toMs) {
+  const out = [];
+  if (!serie || !serie.length) return out;
+  let ini = null;
+  for (let i = 0; i < serie.length; i++) {
+    const t = serie[i][0];
+    const activo = !!serie[i][1];
+    if (!activo) { if (ini === null) ini = t; }
+    else if (ini !== null) { out.push([ini, t]); ini = null; }
+  }
+  // La ultima muestra se sostiene hasta el borde derecho de la ventana.
+  if (ini !== null) out.push([ini, toMs]);
+  return out;
+}
+
+const hsBandsPlugin = {
+  id: 'hsBands',
+  beforeDatasetsDraw(chart) {
+    if (!state.hsBandas) return;
+    const serie = (state.hs && state.hs.serie) || [];
+    if (!serie.length) return;
+    const { ctx, chartArea, scales } = chart;
+    const x = scales.x;
+    if (!x) return;
+    const bandas = bandasNoAutorizado(serie, x.max);
+    if (!bandas.length) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+    ctx.clip();
+    bandas.forEach(([t0, t1]) => {
+      let px0 = x.getPixelForValue(t0);
+      let px1 = x.getPixelForValue(t1);
+      if (px1 < chartArea.left || px0 > chartArea.right) return;
+      px0 = Math.max(px0, chartArea.left);
+      px1 = Math.min(px1, chartArea.right);
+      const w = Math.max(1, px1 - px0);
+      ctx.fillStyle = 'rgba(244,63,94,0.16)';
+      ctx.fillRect(px0, chartArea.top, w, chartArea.bottom - chartArea.top);
+      ctx.strokeStyle = 'rgba(244,63,94,0.45)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px0 + 0.5, chartArea.top + 0.5, w - 1, chartArea.bottom - chartArea.top - 1);
+      if (w > 90) {
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(248,113,113,0.95)';
+        ctx.textBaseline = 'top';
+        ctx.fillText('DCS no autoriza', px0 + 5, chartArea.top + 4);
+      }
+    });
+    ctx.restore();
+  }
+};
+
+// ============================================================
+// Plugin custom: franjas donde el MOTOR estuvo abajo
+// ============================================================
+// Mismo problema que resuelven las rojas del handshake, con otra causa: si el
+// SE se reinicia (a mano o por el auto-reinicio al guardar), sus setpoints
+// dejan de moverse unos instantes y las pendientes tienen que volver a cubrir
+// su ventana. Sin la franja, eso se lee como "el proceso esta quieto" o,
+// peor, como "el SE dejo de funcionar".
+//
+// Un reinicio en caliente dura fracciones de segundo: a 30 min de ventana eso
+// es MENOS DE UN PIXEL. Por eso hay un ancho minimo — una franja exacta e
+// invisible no informa nada, y el dato que importa aca es CUANDO, no cuanto.
+const REINICIO_ANCHO_MIN_PX = 3;
+
+const reinicioBandsPlugin = {
+  id: 'reinicioBands',
+  beforeDatasetsDraw(chart) {
+    if (!state.cortesBandas) return;
+    const cortes = state.cortes || [];
+    if (!cortes.length) return;
+    const { ctx, chartArea, scales } = chart;
+    const x = scales.x;
+    if (!x) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+    ctx.clip();
+    cortes.forEach(c => {
+      const t0 = c.inicio_ms;
+      // fin_ms nulo = el motor sigue abajo: la franja llega al borde derecho.
+      const t1 = (c.fin_ms === null || c.fin_ms === undefined) ? x.max : c.fin_ms;
+      let px0 = x.getPixelForValue(t0);
+      let px1 = x.getPixelForValue(t1);
+      if (px1 < chartArea.left || px0 > chartArea.right) return;
+      px0 = Math.max(px0, chartArea.left);
+      px1 = Math.min(px1, chartArea.right);
+      const w = Math.max(REINICIO_ANCHO_MIN_PX, px1 - px0);
+      ctx.fillStyle = 'rgba(79,179,217,0.22)';
+      ctx.fillRect(px0, chartArea.top, w, chartArea.bottom - chartArea.top);
+      ctx.strokeStyle = 'rgba(79,179,217,0.85)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px0 + 0.5, chartArea.top);
+      ctx.lineTo(px0 + 0.5, chartArea.bottom);
+      ctx.stroke();
+      if (w > 110) {
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(125,211,252,0.95)';
+        ctx.textBaseline = 'top';
+        ctx.fillText(c.caliente ? 'SE reiniciando (caliente)' : 'SE detenido',
+                     px0 + 5, chartArea.top + 4);
+      }
+    });
+    ctx.restore();
+  }
+};
+
+Chart.register(hsBandsPlugin);
+Chart.register(reinicioBandsPlugin);
+Chart.register(crosshairPlugin);
+Chart.register(refLinesPlugin);
+
+// ============================================================
+// Cargar catálogo de tags desde /api/entrada
+// (solo enabled=True → esos son los "de la demo")
+// ============================================================
+// Se relee periodicamente: dar de alta, suspender o eliminar un tag en la
+// pagina de Tags -- o reiniciar el motor -- tiene que verse aca sin recargar
+// a mano. El endpoint es el catalogo liviano, sin lectura OPC.
+async function loadTagCatalog(auto) {
+  let tags;
+  try {
+    const r = await fetch('/api/tags/catalogo');
+    tags = await r.json();
+  } catch (e) {
+    console.error('No se pudo cargar el catalogo de tags', e);
+    if (!auto) {
+      document.getElementById('tag-chips').innerHTML =
+        '<span style="color:#ef4444;font-size:.75rem">No se pudo cargar el catalogo de tags.</span>';
+    }
+    return;
+  }
+
+  const nuevos = (tags || []).filter(t => t.enabled !== false).map(t => ({
+    name:  t.name,
+    group: t.group,           // pv | cruda | lim | sp | se | other
+    pseudonimo: t.pseudonimo || '',
+    unidad: t.unidad_ing || '',
+    sag: SAG_AQUI,
+  }));
+  if (MULTI) {
+    const otros = window.SE_SAG.todos.filter(s => s.id !== SAG_AQUI);
+    const res = await Promise.all(otros.map(s =>
+      window.SE_SAG.fetchDe(s.id, '/api/tags/catalogo').then(r => r.ok ? r.json() : []).catch(() => [])));
+    otros.forEach((s, i) => (res[i] || []).filter(t => t.enabled !== false).forEach(t => nuevos.push({
+      name: s.id + SEP_SAG + t.name, group: t.group, pseudonimo: t.pseudonimo || '',
+      unidad: t.unidad_ing || '', sag: s.id,
+    })));
+    pintarFiltroSag();
+  }
+
+  const antes = new Map((state.allTags || []).map(t => [t.name, t.pseudonimo]));
+  const ahora = new Map(nuevos.map(t => [t.name, t.pseudonimo]));
+  state.allTags = nuevos;
+
+  let altas = 0, renombrados = 0;
+  const bajas = [];
+  ahora.forEach((ps, n) => {
+    if (!antes.has(n)) altas++;
+    else if (antes.get(n) !== ps) renombrados++;
+  });
+  antes.forEach((_, n) => { if (!ahora.has(n)) bajas.push(n); });
+
+  // Un tag suspendido o borrado no puede seguir graficandose: sale de la
+  // seleccion en vez de quedar como una serie muerta que nunca se actualiza.
+  const perdidos = bajas.filter(n => state.selected.has(n));
+  perdidos.forEach(n => {
+    state.selected.delete(n);
+    if (state.limPanelTag === n) cerrarPanelLimites();
+  });
+
+  renderChips();
+  if (auto && (perdidos.length || renombrados)) {
+    rebuildDatasets();          // las etiquetas viven en el dataset
+    fetchData();
+  }
+  if (auto && (altas || bajas.length) && state.normalizar) {
+    cargarEscalas().then(redibujar);
+  }
+  if (auto) avisoCatalogo(altas, bajas.length, renombrados, perdidos);
+}
+
+function avisoCatalogo(altas, bajas, renombrados, perdidos) {
+  const el = document.getElementById('cat-msg');
+  if (!el) return;
+  const p = [];
+  if (altas) p.push('+' + altas + ' tag(s) nuevo(s)');
+  if (bajas) p.push('-' + bajas + ' baja(s) o suspendido(s)');
+  if (renombrados) p.push(renombrados + ' pseudonimo(s) actualizado(s)');
+  if (!p.length) { el.textContent = ''; return; }
+  if (perdidos && perdidos.length) {
+    p.push('fuera del grafico: ' + perdidos.map(n => etiquetaDe(n)).join(', '));
+  }
+  el.textContent = 'Catalogo actualizado: ' + p.join(' \u00b7 ');
+  el.style.color = '#a855f7';
+  clearTimeout(avisoCatalogo._t);
+  avisoCatalogo._t = setTimeout(() => { el.textContent = ''; }, 8000);
+}
+
+function setGroup(g, btn) {
+  state.group = g;
+  document.querySelectorAll('.tag-groups button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChips();
+}
+
+function renderChips() {
+  const q = (document.getElementById('tag-search').value || '').toLowerCase().trim();
+  const box = document.getElementById('tag-chips');
+  const visible = state.allTags.filter(t => {
+    if (!pasaSag(t)) return false;
+    if (state.group !== 'all' && t.group !== state.group) return false;
+    if (!q) return true;
+    return t.name.toLowerCase().includes(q) || t.pseudonimo.toLowerCase().includes(q);
+  });
+  if (!visible.length) {
+    box.innerHTML = '<span style="color:#7a8b94;font-size:.75rem">Sin resultados.</span>';
+    return;
+  }
+  box.innerHTML = visible.map(t => {
+    const sel = state.selected.has(t.name);
+    const color = sel ? colorFor(t.name) : '#35474f';
+    // Con varios SAG todos los chips llevan su SAG (tambien el de la pagina).
+    const sagMarca = MULTI
+      ? `<span title="${_escapeHtml(sagInfo(t.sag).nombre)}" style="display:inline-block;padding:0 6px;margin-right:5px;border-radius:8px;font-size:.62rem;font-weight:700;color:${sagInfo(t.sag).color};border:1px solid ${sagInfo(t.sag).color}">${_escapeHtml(sagInfo(t.sag).nombre)}</span>` : '';
+    const label = sagMarca + _escapeHtml(t.pseudonimo ? `${t.pseudonimo} (${crudo(t.name)})` : crudo(t.name));
+    return `<span class="chip ${sel?'selected':''}" style="color:${color};border-color:${color}" onclick="toggleTag('${t.name}')">
+              <span class="dot"></span>${label}
+            </span>`;
+  }).join('');
+  updateSelectionInfo();
+}
+
+function colorFor(name) {
+  if (state.colorByTag[name]) return state.colorByTag[name];
+  const used = new Set(Object.values(state.colorByTag));
+  const next = PALETTE.find(c => !used.has(c)) || PALETTE[Object.keys(state.colorByTag).length % PALETTE.length];
+  state.colorByTag[name] = next;
+  // Tambien se persiste el color auto-asignado: si no, cada recarga podia
+  // repartir los colores distinto segun el orden en que se seleccionaron.
+  guardarPref('colores', name, next);
+  return next;
+}
+
+/** Color elegido a mano para una serie. */
+function setColorSerie(tagName, hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return;
+  state.colorByTag[tagName] = hex;
+  guardarPref('colores', tagName, hex);
+  aplicarColores();
+}
+
+/** Vuelve al color de la paleta (el proximo libre). */
+function restaurarColorSerie(tagName) {
+  delete state.colorByTag[tagName];
+  guardarPref('colores', tagName, null);
+  const nuevo = colorFor(tagName);
+  const inp = document.getElementById('slp-color');
+  if (inp) inp.value = nuevo;
+  aplicarColores();
+}
+
+function aplicarColores() {
+  if (state.chart) {
+    state.chart.data.datasets.forEach(ds => {
+      const c = colorFor(ds.tagName);
+      ds.borderColor = c;
+      ds.backgroundColor = c + '20';
+    });
+    state.chart.update('none');
+  }
+  renderChips();
+  updateStats(state.lastData || {});
+  const dot = document.querySelector('#series-lim-panel .slp-dot');
+  if (dot && state.limPanelTag) dot.style.background = colorFor(state.limPanelTag);
+}
+
+function toggleTag(name) {
+  if (state.selected.has(name)) {
+    state.selected.delete(name);
+    // El color y los limites NO se borran: son preferencias del usuario y
+    // tienen que seguir ahi la proxima vez que vuelva a graficar el tag.
+    if (state.limPanelTag === name) cerrarPanelLimites();
+  } else {
+    state.selected.add(name);
+    colorFor(name);
+  }
+  renderChips();
+  rebuildDatasets();
+  fetchData();
+}
+
+function selectAllVisible() {
+  const q = (document.getElementById('tag-search').value || '').toLowerCase().trim();
+  const visible = state.allTags.filter(t => {
+    if (!pasaSag(t)) return false;
+    if (state.group !== 'all' && t.group !== state.group) return false;
+    if (!q) return true;
+    return t.name.toLowerCase().includes(q) || t.pseudonimo.toLowerCase().includes(q);
+  });
+  visible.forEach(t => { state.selected.add(t.name); colorFor(t.name); });
+  renderChips();
+  rebuildDatasets();
+  fetchData();
+}
+
+function clearSelection() {
+  state.selected.clear();
+  cerrarPanelLimites();
+  renderChips();
+  rebuildDatasets();
+  fetchData();
+}
+
+function updateSelectionInfo() {
+  const n = state.selected.size;
+  document.getElementById('sel-info').textContent =
+    n === 0 ? 'Sin tags seleccionados.' : `${n} tag${n===1?'':'s'} seleccionado${n===1?'':'s'}.`;
+}
+
+// ============================================================
+// Sliders de ventana y posición
+// ============================================================
+function onWinSlider() {
+  state.windowMin = parseInt(document.getElementById('win-slider').value);
+  document.getElementById('win-input').value = state.windowMin;
+  clampPosition();
+  fetchData();
+}
+function onWinInput() {
+  let v = parseInt(document.getElementById('win-input').value);
+  if (isNaN(v)) v = 30;
+  v = Math.max(1, Math.min(MAX_WINDOW_MIN, v));
+  state.windowMin = v;
+  document.getElementById('win-slider').value = v;
+  document.getElementById('win-input').value = v;
+  clampPosition();
+  fetchData();
+}
+function onPosSlider() {
+  state.positionSec = parseInt(document.getElementById('pos-slider').value);
+  const posMin = Math.round(state.positionSec / 60);
+  document.getElementById('pos-input').value = posMin;
+  if (state.positionSec !== 0 && state.followLive) {
+    document.getElementById('follow-live').checked = false;
+    state.followLive = false;
+    updateLiveBadge();
+  }
+  fetchData();
+}
+function onPosInput() {
+  let v = parseInt(document.getElementById('pos-input').value);
+  if (isNaN(v)) v = 0;
+  v = Math.max(-180, Math.min(0, v));
+  state.positionSec = v * 60;
+  document.getElementById('pos-input').value = v;
+  document.getElementById('pos-slider').value = state.positionSec;
+  if (v !== 0 && state.followLive) {
+    document.getElementById('follow-live').checked = false;
+    state.followLive = false;
+    updateLiveBadge();
+  }
+  fetchData();
+}
+function clampPosition() {
+  // asegurar que la ventana quede dentro del rango disponible
+  const minPos = -(MAX_HISTORY_SEC - state.windowMin * 60);
+  if (state.positionSec < minPos) state.positionSec = minPos;
+  document.getElementById('pos-slider').value = state.positionSec;
+  document.getElementById('pos-input').value = Math.round(state.positionSec / 60);
+}
+function onFollowToggle() {
+  state.followLive = document.getElementById('follow-live').checked;
+  if (state.followLive) {
+    state.positionSec = 0;
+    document.getElementById('pos-slider').value = 0;
+    document.getElementById('pos-input').value = 0;
+  }
+  updateLiveBadge();
+  fetchData();
+}
+function updateLiveBadge() {
+  const b = document.getElementById('live-badge');
+  if (state.followLive) {
+    b.className = 'badge-live';
+    b.innerHTML = '<span class="pulse"></span> EN VIVO';
+  } else {
+    b.className = 'badge-live badge-paused';
+    b.innerHTML = '<span class="pulse"></span> HISTORICO';
+  }
+}
+
+// ============================================================
+// Eje Y
+// ============================================================
+/** Rango normalizado del eje: 0-100 con un poco de aire arriba y abajo. */
+const NORM_MIN = -4, NORM_MAX = 104;
+
+async function onNormBase() {
+  state.normBase = document.getElementById('norm-base').value;
+  if (state.normBase === 'limites') await cargarEscalas();
+  redibujar();
+}
+
+/** Escalas de ingenieria por tag. Los limites cambian poco, pero cambian
+ *  (un tag de limite en el DCS), asi que se releen al entrar al modo. */
+async function cargarEscalas() {
+  try {
+    const r = await fetch('/api/entrada/escalas');
+    state.escalas = await r.json() || {};
+  } catch (e) {
+    console.warn('escalas', e);
+    state.escalas = {};
+  }
+}
+
+async function toggleNormalizar() {
+  state.normalizar = !state.normalizar;
+  const btn = document.getElementById('btn-normalizar');
+  const hint = document.getElementById('norm-hint');
+  const ctrls = document.getElementById('y-scale-controls');
+  const pan = document.querySelector('.y-pan-col');
+  btn.classList.toggle('active', state.normalizar);
+  document.getElementById('norm-base-wrap').style.display =
+    state.normalizar ? 'inline-flex' : 'none';
+  document.getElementById('norm-consts-wrap').style.display =
+    state.normalizar ? 'inline-flex' : 'none';
+  if (state.normalizar) await cargarEscalas();
+  // Los controles de escala Y no significan nada cuando cada serie tiene la
+  // suya: se apagan en vez de quedar mintiendo.
+  if (ctrls) ctrls.classList.toggle('y-controls-off', state.normalizar);
+  if (pan) pan.classList.toggle('y-controls-off', state.normalizar);
+  // El zoom de rueda tambien sobra: moveria un eje que ya no es comun.
+  sincronizarInteraccion();
+  setChartActivo(state.chartActivo);   // refresca el texto de ayuda
+  if (state.normalizar) {
+    resetYPan();
+  } else {
+    hint.textContent = '';
+    cerrarPanelLimites();
+  }
+  redibujar();
+}
+
+/** Texto de estado del modo: que base se uso y que quedo fuera. */
+function actualizarHintNorm(sinEscala, ocultas, manuales) {
+  const hint = document.getElementById('norm-hint');
+  const partes = [];
+  partes.push(state.normBase === 'limites'
+    ? '0% = lmin, 100% = lmax de cada tag'
+    : 'cada serie estirada a su min/max visible');
+  partes.push('clic en la leyenda = limites de esa serie');
+  if (manuales) partes.push(manuales + ' con limite manual');
+  if (sinEscala) partes.push(sinEscala + ' sin limites cargados (se usa min/max de ventana)');
+  if (ocultas) partes.push(ocultas + ' constante(s) oculta(s)');
+  partes.push('tooltip y resumen en valores reales');
+  hint.textContent = partes.join(' · ');
+  hint.style.color = '#a855f7';
+}
+
+/** Vuelve a aplicar el ultimo payload con el modo actual. */
+function redibujar() {
+  const { fromMs, toMs } = computeRange();
+  applyData(state.lastData || {}, fromMs, toMs);
+}
+
+/** min/max de una serie (ignora huecos). */
+function rangoDe(pts) {
+  let mn = null, mx = null;
+  for (const p of pts) {
+    const v = p.y;
+    if (v == null || !isFinite(v)) continue;
+    if (mn === null || v < mn) mn = v;
+    if (mx === null || v > mx) mx = v;
+  }
+  return { mn, mx };
+}
+
+/** Lleva una serie a 0-100.
+ *
+ *  Con base 'limites' el 0 y el 100 son lmin/lmax del tag, asi que el dibujo
+ *  dice donde esta cada variable DENTRO de su banda y las lineas de referencia
+ *  del grafico valen para todas. Con base 'ventana' se estira contra su propio
+ *  min/max visible: maximo contraste de forma, pero la referencia se mueve.
+ *
+ *  Devuelve {pts, base, constante}. Una serie plana (un limite graficado, o un
+ *  solo punto) no tiene rango que estirar en modo ventana: se marca como
+ *  constante y se dibuja al 50% en vez de convertir el ruido de la ultima cifra
+ *  en una montaña.
+ */
+function normalizarPuntos(pts, tagName) {
+  const { mn, mx } = rangoDe(pts);
+  if (mn === null) return { pts, base: null, constante: false };
+  const constante = !((mx - mn) > 1e-9);
+
+  // Limite manual de ESTA serie: manda sobre cualquier otra base. Es una
+  // decision explicita del operador y no se pisa con el min/max del tag ni
+  // con el de la ventana.
+  const man = limitesManualesDe(tagName);
+  if (man) {
+    const rangoM = man.max - man.min;
+    return {
+      pts: pts.map(p => ({
+        x: p.x,
+        y: (p.y == null || !isFinite(p.y)) ? p.y : ((p.y - man.min) / rangoM) * 100,
+        yr: p.yr,
+      })),
+      base: 'manual', constante: false,
+    };
+  }
+
+  const esc = state.escalas[tagName];
+  if (state.normBase === 'limites' && esc && esc.lmax > esc.lmin) {
+    const rango = esc.lmax - esc.lmin;
+    return {
+      pts: pts.map(p => ({
+        x: p.x,
+        y: (p.y == null || !isFinite(p.y)) ? p.y : ((p.y - esc.lmin) / rango) * 100,
+        yr: p.yr,
+      })),
+      base: 'limites', constante,
+    };
+  }
+
+  if (constante) {
+    return { pts: pts.map(p => ({ x: p.x, y: 50, yr: p.yr })), base: 'ventana', constante };
+  }
+  const rango = mx - mn;
+  return {
+    pts: pts.map(p => ({
+      x: p.x,
+      y: (p.y == null || !isFinite(p.y)) ? p.y : ((p.y - mn) / rango) * 100,
+      yr: p.yr,
+    })),
+    base: 'ventana', constante,
+  };
+}
+
+// ============================================================
+// Dominio y pendiente (traza del pipeline)
+// ============================================================
+async function fetchAnotaciones() {
+  try {
+    const r = await fetch('/api/se/grafico/anotaciones');
+    const d = (await r.json()) || {};
+    state.anot = d.por_tag || {};
+    state.anotRunning = !!d.running;
+  } catch (e) {
+    console.warn('anotaciones', e);
+  }
+  actualizarHintTip();
+}
+
+// Tolerancia para aceptar la muestra anterior al cursor. El motor graba cada
+// 1 s; mas alla de esto el hueco es real (motor detenido) y no se inventa.
+const ANOT_TOL_MS = 5000;
+
+function tipsActivos() { return state.tipDom || state.tipPend || state.tipAcel; }
+
+/** Trae el historial de anotaciones de la ventana, en forma incremental. */
+async function fetchAnotHist(fromMs, toMs) {
+  if (!tipsActivos() || state.selected.size === 0) return;
+  const tags = Array.from(state.selected).sort().join(',');
+  const completo = tags !== state.anotTags || state.anotDesde === null
+    || fromMs < state.anotDesde - 1000 || toMs < state.anotHasta - 1000;
+  const desde = completo ? fromMs : state.anotHasta;
+  try {
+    const r = await fetch('/api/se/grafico/anotaciones/historial?tags='
+      + encodeURIComponent(tags) + '&from_ms=' + Math.floor(desde)
+      + '&to_ms=' + Math.floor(toMs));
+    const d = await r.json();
+    const nuevos = (d.puntos || []).map(p => ({t: p[0], por_tag: p[1] || {}}));
+    if (completo) {
+      state.anotHist = nuevos;
+      state.anotDesde = fromMs;
+      state.anotTags = tags;
+    } else {
+      const ult = state.anotHist.length ? state.anotHist[state.anotHist.length - 1].t : -Infinity;
+      for (const p of nuevos) if (p.t > ult) state.anotHist.push(p);
+      // Lo que salio por la izquierda de la ventana ya no se consulta.
+      let k = 0;
+      while (k < state.anotHist.length && state.anotHist[k].t < fromMs - ANOT_TOL_MS) k++;
+      if (k) state.anotHist.splice(0, k);
+      state.anotDesde = Math.max(state.anotDesde, fromMs);
+    }
+    state.anotHasta = toMs;
+  } catch (e) {
+    console.warn('historial de anotaciones', e);
+  }
+}
+
+/** Muestra grabada en el instante `tMs` (la ultima a esa hora o antes). */
+function anotEn(tMs) {
+  const h = state.anotHist;
+  if (!h.length || tMs < h[0].t - 500) return null;
+  let lo = 0, hi = h.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (h[mid].t <= tMs + 500) lo = mid; else hi = mid - 1;
+  }
+  const p = h[lo];
+  return (Math.abs(tMs - p.t) <= ANOT_TOL_MS) ? p : null;
+}
+
+/** Anotacion de un tag. Con `tMs`, la del INSTANTE (tooltip); sin `tMs`, la
+ *  del ultimo tick (tarjetas de resumen, que hablan de "ahora"). */
+function anotDe(tagName, tMs) {
+  if (tMs === undefined || tMs === null) return state.anot[tagName] || null;
+  const p = anotEn(tMs);
+  return p ? (p.por_tag[tagName] || null) : null;
+}
+
+/** Dominio fuzzy del tag, o '' si el pipeline no lo tiene. */
+function domDe(tagName, tMs) {
+  const a = anotDe(tagName, tMs);
+  return (a && a.dom) ? String(a.dom) : '';
+}
+
+/** Pendiente en u/min con flecha, o '' si no hay. */
+function pendDe(tagName, tMs) {
+  const a = anotDe(tagName, tMs);
+  const p = a && a.pendiente;
+  if (!p || !isFinite(Number(p.slope_per_min))) return '';
+  const v = Number(p.slope_per_min);
+  const flecha = v > 0.001 ? '\u2191' : (v < -0.001 ? '\u2193' : '\u2192');
+  return flecha + ' ' + v.toFixed(3) + ' u/min';
+}
+
+function pendDom(tagName, tMs) {
+  const a = anotDe(tagName, tMs);
+  return (a && a.pendiente && a.pendiente.dom) ? String(a.pendiente.dom) : '';
+}
+
+/** Aceleracion en u/s^2, o '' si no hay ninguna declarada sobre esa variable. */
+function acelDe(tagName, tMs) {
+  const a = anotDe(tagName, tMs);
+  const x = a && a.aceleracion;
+  if (!x || !isFinite(Number(x.aceleracion))) return '';
+  return Number(x.aceleracion).toFixed(4) + ' u/s\u00b2';
+}
+
+/** ACELERANDO / DESACELERANDO / ESTABLE, o '' con velocidad constante.
+ *
+ * Vacio NO es "no hay dato": es la variable moviendose a velocidad
+ * practicamente constante, que no esta acelerando ni frenando ni ESTABLE. En
+ * ese caso lo que hay es el SIGNO, que viene siempre. Ver `acelSigno`.
+ */
+function acelDom(tagName, tMs) {
+  const a = anotDe(tagName, tMs);
+  return (a && a.aceleracion && a.aceleracion.dom) ? String(a.aceleracion.dom) : '';
+}
+
+/** ACELERACION_POSITIVA / _NEGATIVA / _NULA. */
+function acelSigno(tagName, tMs) {
+  const a = anotDe(tagName, tMs);
+  return (a && a.aceleracion && a.aceleracion.signo) ? String(a.aceleracion.signo) : '';
+}
+
+// Abreviatura para el tooltip y la tarjeta. El nombre completo es el que se
+// escribe en las reglas; aca no entra al lado del numero y la unidad.
+const ACEL_SIGNO_CORTO = {ACELERACION_POSITIVA: '2a>0',
+                          ACELERACION_NEGATIVA: '2a<0',
+                          ACELERACION_NULA:     '2a~0'};
+const ACEL_SIGNO_COLOR = {ACELERACION_POSITIVA: '#f59e0b',
+                          ACELERACION_NEGATIVA: '#4fb3d9',
+                          ACELERACION_NULA:     '#a2b1b9'};
+
+function toggleTip(cual, btn) {
+  if (cual === 'dom') state.tipDom = !state.tipDom;
+  else if (cual === 'acel') state.tipAcel = !state.tipAcel;
+  else state.tipPend = !state.tipPend;
+  btn.classList.toggle('active',
+    cual === 'dom' ? state.tipDom : (cual === 'acel' ? state.tipAcel : state.tipPend));
+  actualizarHintTip();
+  if (tipsActivos()) {
+    const {fromMs, toMs} = computeRange();
+    fetchAnotHist(fromMs, toMs).then(() => { if (state.chart) state.chart.update('none'); });
+  }
+  if (state.chart) state.chart.update('none');
+}
+
+function actualizarHintTip() {
+  const el = document.getElementById('tip-hint');
+  if (!el) return;
+  if (!state.tipDom && !state.tipPend && !state.tipAcel) { el.textContent = ''; return; }
+  if (!state.anotRunning) {
+    el.textContent = 'motor detenido: el tooltip muestra lo grabado mientras corria; donde no corrio no hay dato';
+    el.style.color = '#f59e0b';
+    return;
+  }
+  el.textContent = 'dominio, pendiente y aceleracion del instante bajo el cursor (grabados cada 1 s mientras corre el motor)';
+  el.style.color = '#7a8b94';
+}
+
+// ============================================================
+// Handshake con el DCS (permiso de escritura)
+// ============================================================
+async function fetchHandshake(fromMs, toMs) {
+  try {
+    const r = await fetch('/api/tags/handshake/historial?from_ms=' +
+                          Math.floor(fromMs) + '&to_ms=' + Math.floor(toMs));
+    state.hs = (await r.json()) || {};
+  } catch (e) {
+    console.warn('handshake', e);
+  }
+  actualizarBotonHS();
+}
+
+function actualizarBotonHS() {
+  const btn = document.getElementById('btn-hs');
+  const hint = document.getElementById('hs-hint');
+  if (!btn) return;
+  const hs = state.hs || {};
+  let txt, color;
+  if (!hs.tag) {
+    txt = 'DCS: sin tag FBK'; color = '#7a8b94';
+  } else if (hs.activo === true) {
+    txt = 'DCS: HABILITADO'; color = '#22c55e';
+  } else if (hs.activo === false) {
+    txt = 'DCS: BLOQUEADO'; color = '#ef4444';
+  } else {
+    txt = 'DCS: sin lectura'; color = '#f59e0b';
+  }
+  btn.textContent = txt;
+  btn.style.color = color;
+  btn.style.borderColor = color;
+  btn.classList.toggle('active', !!state.hsBandas);
+
+  if (!hint) return;
+  const partes = [];
+  if (hs.tag) partes.push('FBK: ' + hs.tag);
+  if (hs.tag && !hs.enabled) partes.push('handshake no exigido (el SE escribe igual)');
+  if (hs.motivo) partes.push(hs.motivo);
+  const n = bandasNoAutorizado((hs.serie || []), Date.now()).length;
+  partes.push(state.hsBandas
+    ? (n ? n + ' tramo(s) sin permiso en la ventana' : 'sin tramos bloqueados en la ventana')
+    : 'franjas ocultas');
+  hint.textContent = partes.join(' \u00b7 ');
+}
+
+function toggleBandasHS() {
+  state.hsBandas = !state.hsBandas;
+  actualizarBotonHS();
+  if (state.chart) state.chart.update('none');
+}
+
+// ============================================================
+// Cortes del motor (reinicios) + version del motor
+// ============================================================
+// Esta pagina NO dispara reinicios: los dispara el panel, en otra pestana. Lo
+// unico que puede hacer es enterarse, y para eso el servidor lleva el registro
+// (`/api/se/reinicios`). Calcularlo aca mirando si la traza se corto habria
+// sido adivinar: la traza tambien se corta cuando el KEPserver no contesta.
+async function fetchCortes(fromMs, toMs) {
+  let d;
+  try {
+    const r = await fetch('/api/se/reinicios?from_ms=' + Math.floor(fromMs) +
+                          '&to_ms=' + Math.floor(toMs));
+    d = (await r.json()) || {};
+  } catch (e) {
+    console.warn('reinicios', e);
+    return;
+  }
+  state.cortes = d.cortes || [];
+  await _verGeneracion(d.generacion, d.running);
+  actualizarBotonReinicio(d.running);
+}
+
+// Releer el catalogo al detectar un arranque nuevo es lo que hace que esta
+// pestana "tome la version nueva": tras aplicar cambios puede haber tags
+// nuevos, pseudonimos corregidos o limites recien cableados. Se refresca EN
+// SITIO y no con location.reload() a proposito — recargar borraria el zoom,
+// las series elegidas y la ventana que el operador estaba mirando, que es
+// justo lo que estaba usando para diagnosticar el cambio que acaba de hacer.
+async function _verGeneracion(gen, running) {
+  if (gen === undefined || gen === null) return;
+  if (state.generacion === null) { state.generacion = gen; return; }
+  if (gen === state.generacion) return;
+  state.generacion = gen;
+  try {
+    await loadTagCatalog(true);
+    await cargarEscalas();
+    await cargarPrefsGrafico();
+  } catch (e) {
+    console.warn('refresco post-reinicio', e);
+  }
+  const hint = document.getElementById('re-hint');
+  if (hint) {
+    hint.textContent = 'El SE se reinicio: catalogo, escalas y limites releidos '
+                     + '(' + new Date().toLocaleTimeString() + ')';
+    hint.style.color = '#4fb3d9';
+    // El aviso se sostiene unos segundos: si el refresco de 2 s lo pisara,
+    // desapareceria antes de que nadie alcance a leerlo.
+    state.avisoReinicioHasta = Date.now() + 15000;
+  }
+}
+
+function actualizarBotonReinicio(running) {
+  const btn = document.getElementById('btn-re');
+  const hint = document.getElementById('re-hint');
+  if (!btn) return;
+  const cortes = state.cortes || [];
+  const abierto = cortes.some(c => c.fin_ms === null || c.fin_ms === undefined);
+  let txt, color;
+  if (abierto || running === false) {
+    txt = 'SE: DETENIDO'; color = '#4fb3d9';
+  } else if (cortes.length) {
+    txt = 'SE: ' + cortes.length + ' reinicio(s)'; color = '#4fb3d9';
+  } else {
+    txt = 'SE: sin cortes'; color = '#7a8b94';
+  }
+  btn.textContent = txt;
+  btn.style.color = color;
+  btn.style.borderColor = color;
+  btn.classList.toggle('active', !!state.cortesBandas);
+  if (!hint) return;
+  if (Date.now() < (state.avisoReinicioHasta || 0)) return;
+  hint.textContent = state.cortesBandas
+    ? (cortes.length ? cortes.length + ' corte(s) del motor en la ventana'
+                     : 'sin cortes del motor en la ventana')
+    : 'franjas ocultas';
+  hint.style.color = '#7a8b94';
+}
+
+function toggleBandasReinicio() {
+  state.cortesBandas = !state.cortesBandas;
+  state.avisoReinicioHasta = 0;
+  const hint = document.getElementById('re-hint');
+  if (hint) { hint.textContent = ''; hint.style.color = '#7a8b94'; }
+  actualizarBotonReinicio();
+  if (state.chart) state.chart.update('none');
+}
+
+// ============================================================
+// Limites por serie (modo "comparar formas")
+// ============================================================
+/** Override valido de una serie, o null. Un rango invertido o de ancho cero
+ *  no se aplica: dividir por el daria infinito y la serie desapareceria sin
+ *  decir por que. */
+function limitesManualesDe(tagName) {
+  const l = state.limPorTag[tagName];
+  if (!l) return null;
+  const mn = Number(l.min), mx = Number(l.max);
+  if (!isFinite(mn) || !isFinite(mx) || !(mx > mn)) return null;
+  return { min: mn, max: mx };
+}
+
+function _limPanelEl() { return document.getElementById('series-lim-panel'); }
+
+function cerrarPanelLimites() {
+  const el = _limPanelEl();
+  if (el) el.remove();
+  state.limPanelTag = null;
+}
+
+/** Abre / cierra el panel de la serie clickeada en la leyenda. */
+function togglePanelLimites(tagName, box) {
+  if (state.limPanelTag === tagName) { cerrarPanelLimites(); return; }
+  cerrarPanelLimites();
+  state.limPanelTag = tagName;
+
+  const card = document.querySelector('.chart-card');
+  const canvas = document.getElementById('main-chart');
+  if (!card || !canvas) return;
+
+  const esc = state.escalas[tagName] || {};
+  const man = state.limPorTag[tagName] || {};
+  const vMin = (man.min !== undefined && man.min !== null && man.min !== '')
+    ? man.min : (isFinite(esc.lmin) ? esc.lmin : '');
+  const vMax = (man.max !== undefined && man.max !== null && man.max !== '')
+    ? man.max : (isFinite(esc.lmax) ? esc.lmax : '');
+  const color = colorFor(tagName);
+  const tagAttr = tagName.replace(/'/g, "\\'");
+
+  const el = document.createElement('div');
+  el.id = 'series-lim-panel';
+  el.className = 'series-lim-panel';
+  const nota = state.normalizar
+    ? '0% = min, 100% = max de esta serie. Independiente del resto.'
+    : 'Los limites se aplican en el modo "Comparar formas (sin eje Y)". El color se guarda siempre.';
+  el.innerHTML =
+    '<div class="slp-head"><span class="slp-dot" style="background:' + color + '"></span>' +
+      '<span>' + _escapeHtml(etiquetaDe(tagName)) + '</span>' +
+      '<button class="slp-close" title="Cerrar" onclick="cerrarPanelLimites()">&#10005;</button></div>' +
+    '<div class="slp-sub">' + _escapeHtml(tagName) + '</div>' +
+    '<div class="slp-sec">Color</div>' +
+    '<div class="slp-row">' +
+      '<input type="color" id="slp-color" value="' + color + '" ' +
+        'oninput="setColorSerie(\'' + tagAttr + '\', this.value)">' +
+      '<button class="ghost" onclick="restaurarColorSerie(\'' + tagAttr + '\')">Color por defecto</button>' +
+    '</div>' +
+    '<div class="slp-sec">Limites (comparar formas)</div>' +
+    '<div class="slp-row"><label>min</label>' +
+      '<input type="number" step="any" id="slp-min" value="' + vMin + '" style="width:96px"></div>' +
+    '<div class="slp-row"><label>max</label>' +
+      '<input type="number" step="any" id="slp-max" value="' + vMax + '" style="width:96px"></div>' +
+    '<div class="slp-btns">' +
+      '<button class="primary" onclick="aplicarLimitesSerie(\'' + tagAttr + '\')">Aplicar</button>' +
+      '<button class="ghost" onclick="limpiarLimitesSerie(\'' + tagAttr + '\')">Usar limites del tag</button>' +
+      '<button class="ghost" onclick="toggleVisibilidadSerie(\'' + tagAttr + '\')">Ocultar / mostrar</button>' +
+    '</div>' +
+    '<div class="slp-note" id="slp-note">' + nota + '</div>';
+  card.appendChild(el);
+
+  // Posicion: justo debajo del item de leyenda que se clickeo.
+  const cr = canvas.getBoundingClientRect();
+  const pr = card.getBoundingClientRect();
+  let left = cr.left - pr.left + ((box && box.left) || 0);
+  let top  = cr.top  - pr.top  + ((box && box.top) || 0) + ((box && box.height) || 14) + 6;
+  const maxLeft = card.clientWidth - el.offsetWidth - 8;
+  left = Math.max(8, Math.min(left, Math.max(8, maxLeft)));
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+
+function aplicarLimitesSerie(tagName) {
+  const mn = parseFloat(document.getElementById('slp-min').value);
+  const mx = parseFloat(document.getElementById('slp-max').value);
+  const note = document.getElementById('slp-note');
+  if (!isFinite(mn) || !isFinite(mx) || !(mx > mn)) {
+    if (note) { note.textContent = 'Rango invalido: max tiene que ser mayor que min.'; note.style.color = '#ef4444'; }
+    return;
+  }
+  state.limPorTag[tagName] = { min: mn, max: mx };
+  guardarPref('limites', tagName, { min: mn, max: mx });
+  if (note) { note.textContent = 'Aplicado y guardado: 0% = ' + mn + ', 100% = ' + mx + '.'; note.style.color = '#22c55e'; }
+  redibujar();
+}
+
+function limpiarLimitesSerie(tagName) {
+  delete state.limPorTag[tagName];
+  guardarPref('limites', tagName, null);
+  const esc = state.escalas[tagName] || {};
+  const iMn = document.getElementById('slp-min'), iMx = document.getElementById('slp-max');
+  if (iMn) iMn.value = isFinite(esc.lmin) ? esc.lmin : '';
+  if (iMx) iMx.value = isFinite(esc.lmax) ? esc.lmax : '';
+  const note = document.getElementById('slp-note');
+  if (note) { note.textContent = 'Sin limite manual: se usa la base general del modo.'; note.style.color = '#7a8b94'; }
+  redibujar();
+}
+
+function toggleVisibilidadSerie(tagName) {
+  if (!state.chart) return;
+  const i = state.chart.data.datasets.findIndex(d => d.tagName === tagName);
+  if (i < 0) return;
+  const ds = state.chart.data.datasets[i];
+  const meta = state.chart.getDatasetMeta(i);
+  const oculta = meta.hidden === null ? !!ds.hidden : meta.hidden;
+  meta.hidden = !oculta;
+  ds.hidden = !oculta;
+  ds._autoHidden = false;   // decision manual: el modo no la vuelve a tapar
+  state.chart.update('none');
+}
+
+function onYAutoToggle() {
+  state.yAuto = document.getElementById('y-auto').checked;
+  state.yDrag = null;
+  document.getElementById('y-min').disabled = state.yAuto;
+  document.getElementById('y-max').disabled = state.yAuto;
+  applyYRange();
+}
+function applyYRange() {
+  if (!state.chart) return;
+  const y = state.chart.options.scales.y;
+  if (state.normalizar) {
+    // Eje sin numeros: con cada serie en su propia escala, cualquier valor
+    // que se imprimiera aca seria falso para todas menos una. El rango es
+    // 0-100 con aire, pero se agranda si alguna serie se fue de su banda:
+    // una PV por encima de su lmax es justo lo que hay que poder ver.
+    const r = computeDataYRange();
+    y.min = (r.min != null) ? Math.min(NORM_MIN, r.min) : NORM_MIN;
+    y.max = (r.max != null) ? Math.max(NORM_MAX, r.max) : NORM_MAX;
+    y.ticks.display = false;
+    state.chart.update('none');
+    return;
+  }
+  y.ticks.display = true;
+  if (!state.yAuto) {
+    // Manual: usar inputs + pan offset
+    const mn = parseFloat(document.getElementById('y-min').value);
+    const mx = parseFloat(document.getElementById('y-max').value);
+    if (!isNaN(mn) && !isNaN(mx) && mx > mn) {
+      const range = mx - mn;
+      const shift = state.yPanPct * range;
+      y.min = mn + shift;
+      y.max = mx + shift;
+    }
+  } else {
+    // Auto: si hay pan, calculamos el rango de datos y aplicamos offset
+    if (state.yDrag) {
+      // Rango dejado por un arrastre / zoom manual: el refresco no lo pisa.
+      const range = (state.yDrag.max - state.yDrag.min) || 1;
+      const shift = state.yPanPct * range;
+      y.min = state.yDrag.min + shift;
+      y.max = state.yDrag.max + shift;
+    } else if (state.yPanPct !== 0) {
+      const r = computeDataYRange();
+      if (r.min != null) {
+        const range = (r.max - r.min) || 1;
+        const shift = state.yPanPct * range;
+        y.min = r.min + shift;
+        y.max = r.max + shift;
+      } else {
+        y.min = undefined;
+        y.max = undefined;
+      }
+    } else {
+      y.min = undefined;
+      y.max = undefined;
+    }
+  }
+  state.chart.update('none');
+}
+function computeDataYRange() {
+  let mn = null, mx = null;
+  if (!state.chart) return { min: null, max: null };
+  state.chart.data.datasets.forEach((ds, i) => {
+    const meta = state.chart.getDatasetMeta(i);
+    if (meta && meta.hidden) return;
+    ds.data.forEach(pt => {
+      const v = pt.y;
+      if (v == null || !isFinite(v)) return;
+      if (mn == null || v < mn) mn = v;
+      if (mx == null || v > mx) mx = v;
+    });
+  });
+  if (mn != null && mn === mx) { mn -= 1; mx += 1; }
+  if (mn != null) {
+    const pad = (mx - mn) * 0.05;
+    mn -= pad; mx += pad;
+  }
+  return { min: mn, max: mx };
+}
+function onYPanSlider() {
+  state.yPanPct = parseFloat(document.getElementById('y-pan-slider').value) / 100;
+  applyYRange();
+}
+function nudgeYPan(delta) {
+  const s = document.getElementById('y-pan-slider');
+  let v = parseFloat(s.value) + delta;
+  v = Math.max(-100, Math.min(100, v));
+  s.value = v;
+  state.yPanPct = v / 100;
+  applyYRange();
+}
+function resetYPan() {
+  state.yPanPct = 0;
+  document.getElementById('y-pan-slider').value = 0;
+  applyYRange();
+}
+function resetZoom() {
+  state.yDrag = null;
+  if (state.chart && state.chart.resetZoom) state.chart.resetZoom();
+  resetYPan();
+}
+
+// ============================================================
+// Interaccion: la celda del grafico se "toma" con un clic
+// ============================================================
+function setChartActivo(on) {
+  state.chartActivo = !!on;
+  const card = document.querySelector('.chart-card');
+  if (card) card.classList.toggle('chart-activo', state.chartActivo);
+  const h = document.getElementById('interact-hint');
+  if (h) {
+    h.textContent = state.chartActivo
+      ? (state.normalizar
+          ? 'grafico activo: arrastra para mover el tiempo (clic fuera para soltar)'
+          : 'grafico activo: arrastra para mover, rueda = zoom Y (clic fuera para soltar)')
+      : 'clic en el grafico para activar arrastre y zoom';
+    h.style.color = state.chartActivo ? '#4ade80' : '#7a8b94';
+  }
+  sincronizarInteraccion();
+}
+
+/** Unico lugar que decide si el pan y el zoom estan habilitados. */
+function sincronizarInteraccion() {
+  const z = state.chart && state.chart.options.plugins.zoom;
+  if (!z) return;
+  const activo = !!state.chartActivo;
+  z.pan.enabled = activo;
+  // Con cada serie en su propia escala, arrastrar en Y no significa nada:
+  // queda solo el tiempo.
+  z.pan.mode = state.normalizar ? 'x' : 'xy';
+  const zoomOk = activo && !state.normalizar;
+  z.zoom.wheel.enabled = zoomOk;
+  z.zoom.pinch.enabled = zoomOk;
+  state.chart.update('none');
+}
+
+/** Traduce lo que quedo despues de arrastrar / hacer zoom al estado propio.
+ *  Sin esto el proximo refresco reimpondria la ventana y el gesto se perderia. */
+function onPanZoomComplete(ctx) {
+  const chart = (ctx && ctx.chart) || state.chart;
+  if (!chart) return;
+  const winMs = state.windowMin * 60 * 1000;
+  const xmin = chart.scales.x.min;
+  if (xmin != null && isFinite(xmin)) {
+    let posSec = Math.round(((xmin + winMs) - Date.now()) / 1000);
+    const minPos = -(MAX_HISTORY_SEC - state.windowMin * 60);
+    posSec = Math.max(minPos, Math.min(0, posSec));
+    state.positionSec = posSec;
+    document.getElementById('pos-slider').value = posSec;
+    document.getElementById('pos-input').value = Math.round(posSec / 60);
+    if (posSec !== 0 && state.followLive) {
+      document.getElementById('follow-live').checked = false;
+      state.followLive = false;
+      updateLiveBadge();
+    }
+  }
+  if (!state.normalizar) {
+    const y = chart.scales.y;
+    if (y && isFinite(y.min) && isFinite(y.max)) state.yDrag = { min: y.min, max: y.max };
+  }
+  fetchData();
+}
+
+// ============================================================
+// Formato eje X (toggles H/M/S)
+// ============================================================
+function toggleFmt(k, btn) {
+  state.fmt[k] = !state.fmt[k];
+  btn.classList.toggle('active', state.fmt[k]);
+  // al menos uno tiene que estar activo
+  if (!state.fmt.h && !state.fmt.m && !state.fmt.s) {
+    state.fmt[k] = true;
+    btn.classList.add('active');
+    return;
+  }
+  applyXFormat();
+}
+function applyXFormat() {
+  if (!state.chart) return;
+  const f = buildXFormat();
+  state.chart.options.scales.x.time.displayFormats = f.disp;
+  state.chart.options.scales.x.time.tooltipFormat = f.tt;
+  state.chart.update('none');
+}
+function buildXFormat() {
+  // construye el format string segun toggles
+  const parts = [];
+  if (state.fmt.h) parts.push('HH');
+  if (state.fmt.m) parts.push('mm');
+  if (state.fmt.s) parts.push('ss');
+  const base = parts.join(':') || 'mm';
+  return {
+    disp: {
+      millisecond: base, second: base, minute: base, hour: base,
+      day: base, week: base, month: base, quarter: base, year: base,
+    },
+    tt: base,
+  };
+}
+
+// ============================================================
+// Polling & datos
+// ============================================================
+function computeRange() {
+  const now = Date.now();
+  const winMs = state.windowMin * 60 * 1000;
+  const posMs = state.positionSec * 1000;   // negativo o 0
+  const toMs = now + posMs;
+  const fromMs = toMs - winMs;
+  return { fromMs, toMs, now };
+}
+
+// El historial se llena en el ciclo de lectura en vivo (/api/tags/lectura).
+// Si solo lo alimentara la pagina de Tags, habria que tenerla abierta en otra
+// pestaña para que este grafico avanzara. Golpeando el mismo endpoint desde
+// aca, estar en el Explorador basta para que el buffer siga creciendo, al
+// ritmo del selector de Refresco.
+async function muestrearKepserver() {
+  try {
+    await fetch('/api/tags/lectura');
+  } catch (e) {
+    console.warn('muestreo KEPserver', e);
+  }
+  // El buffer de cada SAG se llena con SU lectura en vivo: si hay series de
+  // otro SAG en el grafico, ese SAG tambien tiene que muestrear.
+  if (MULTI) {
+    const otros = new Set(Array.from(state.selected).map(sagDe).filter(id => id !== SAG_AQUI));
+    await Promise.all(Array.from(otros).map(id =>
+      window.SE_SAG.fetchDe(id, '/api/tags/lectura').catch(() => null)));
+  }
+}
+
+async function fetchData() {
+  const empty = document.getElementById('msg-empty');
+  // El permiso del DCS se consulta siempre: vale aunque no haya ninguna serie
+  // seleccionada, y el boton tiene que decir la verdad igual.
+  const rango = computeRange();
+  await fetchHandshake(rango.fromMs, rango.toMs);
+  await fetchCortes(rango.fromMs, rango.toMs);
+  await fetchAnotaciones();
+  await fetchAnotHist(rango.fromMs, rango.toMs);
+  if (state.selected.size === 0) {
+    empty.style.display = 'flex';
+    if (state.chart) {
+      state.chart.data.datasets.forEach(d => d.data = []);
+      state.chart.update('none');
+    }
+    updateStats({});
+    updateRangeLabel();
+    return;
+  }
+  empty.style.display = 'none';
+
+  const { fromMs, toMs } = computeRange();
+  updateRangeLabel(fromMs, toMs);
+  // Cada SAG responde por sus tags. Los de otro SAG se piden a ese SAG con
+  // el nombre crudo y vuelven con el prefijo "sagN::".
+  const porSag = {};
+  Array.from(state.selected).forEach(n => { (porSag[sagDe(n)] = porSag[sagDe(n)] || []).push(n); });
+  const q = nombres => `/api/tags/history/range?tags=${encodeURIComponent(nombres.map(crudo).join(','))}&from_ms=${Math.floor(fromMs)}&to_ms=${Math.floor(toMs)}`;
+  try {
+    const partes = await Promise.all(Object.entries(porSag).map(async ([sid, nombres]) => {
+      const r = (!MULTI || sid === SAG_AQUI) ? await fetch(q(nombres)) : await window.SE_SAG.fetchDe(sid, q(nombres));
+      const d = r.ok ? await r.json() : {};
+      if (!MULTI || sid === SAG_AQUI) return d;
+      const out = {};
+      Object.entries(d || {}).forEach(([k, v]) => { out[sid + SEP_SAG + k] = v; });
+      return out;
+    }));
+    const data = Object.assign({}, ...partes);
+    applyData(data, fromMs, toMs);
+    updateStats(data);
+  } catch (e) {
+    console.error('fetch history', e);
+  }
+}
+
+function applyData(dataByTag, fromMs, toMs) {
+  if (!state.chart) return;
+  state.lastData = dataByTag || {};
+  const mostrarConstantes = !!(document.getElementById('norm-consts') || {}).checked;
+  let sinEscala = 0, ocultas = 0, manuales = 0;
+  state.chart.data.datasets.forEach(ds => {
+    const pts = (dataByTag[ds.tagName] || []).map(p => ({ x: p[0], y: p[1], yr: p[1] }));
+    // `yr` es el valor de ingenieria y viaja SIEMPRE: normalizado o no, el
+    // tooltip y el resumen tienen que seguir hablando en unidades reales.
+    if (!state.normalizar) {
+      ds.data = pts;
+      if (ds._autoHidden) { ds.hidden = false; ds._autoHidden = false; }
+      return;
+    }
+    const r = normalizarPuntos(pts, ds.tagName);
+    ds.data = r.pts;
+    if (r.base === 'manual') manuales++;
+    if (state.normBase === 'limites' && r.base === 'ventana' && pts.length) sinEscala++;
+    // Un limite es una constante: en modo ventana se apilaria con todos los
+    // demas en la misma linea del medio, diciendo que MAX y MIN valen igual.
+    // Se ocultan por defecto y se avisa cuantos.
+    const esconder = r.constante && !mostrarConstantes && pts.length > 0;
+    if (esconder) {
+      ds.hidden = true;
+      ds._autoHidden = true;
+      ocultas++;
+    } else if (ds._autoHidden) {
+      ds.hidden = false;
+      ds._autoHidden = false;
+    }
+  });
+  if (state.normalizar) actualizarHintNorm(sinEscala, ocultas, manuales);
+  state.chart.options.scales.x.min = fromMs;
+  state.chart.options.scales.x.max = toMs;
+  // Re-aplicar pan Y en cada refresco (el rango de datos cambia con el tiempo)
+  if (state.normalizar) {
+    applyYRange();
+  } else if (state.yDrag || state.yPanPct !== 0 || !state.yAuto) {
+    applyYRange();
+  } else {
+    state.chart.update('none');
+  }
+}
+
+function updateRangeLabel(fromMs, toMs) {
+  const el = document.getElementById('range-label');
+  if (!fromMs) { el.textContent = ''; return; }
+  const f = new Date(fromMs), t = new Date(toMs);
+  el.textContent = `${fmtDate(f)}  →  ${fmtDate(t)}`;
+}
+function fmtDate(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// ============================================================
+// Estadísticas (mean, min, max, σ)
+// ============================================================
+function updateStats(dataByTag) {
+  const grid = document.getElementById('stats-grid');
+  const names = Array.from(state.selected);
+  if (!names.length) {
+    grid.innerHTML = '<div class="msg-empty" style="grid-column:1/-1">Sin datos.</div>';
+    return;
+  }
+  // El sufijo avisa que dominio y pendiente son del ultimo tick del motor:
+  // mirando una ventana historica NO corresponden a lo que se ve en pantalla.
+  const vivo = state.followLive && state.positionSec === 0;
+  const marca = vivo ? '' : ' <span style="color:#f59e0b">(ahora)</span>';
+
+  grid.innerHTML = names.map(n => {
+    const serie = dataByTag[n] || [];
+    const pts = serie.map(p => p[1]);
+    const color = colorFor(n);
+    const titulo = _escapeHtml(etiquetaLarga(n));
+    const sub = etiquetaDe(n) === n ? '' :
+      `<div style="font-size:.66rem;color:#7a8b94;word-break:break-all;margin:-2px 0 4px">${_escapeHtml(n)}</div>`;
+
+    const dom = domDe(n);
+    const pend = pendDe(n);
+    const pdom = pendDom(n);
+    const filaDom = `<div class="st-row"><span>dominio${marca}</span><b>${
+      dom ? _escapeHtml(dom) : '<span style="color:#7a8b94">--</span>'}</b></div>`;
+    const filaPend = `<div class="st-row"><span>pendiente${marca}</span><b>${
+      pend ? _escapeHtml(pend) + (pdom ? ' <span style="color:#a2b1b9;font-weight:400">(' + _escapeHtml(pdom) + ')</span>' : '')
+           : '<span style="color:#7a8b94">--</span>'}</b></div>`;
+    // La fila va SIEMPRE, como dominio y pendiente: un "--" dice "esta
+    // variable no tiene ninguna declarada", que es informacion. Esconderla
+    // dejaba la tarjeta con dos filas en unas variables y tres en otras, y
+    // habia que acordarse de que la funcion existe para ir a buscarla.
+    const acel = acelDe(n);
+    const adom = acelDom(n);
+    const asig = acelSigno(n);
+    const colAcel = adom === 'ACELERANDO' ? '#ef4444'
+                  : (adom === 'DESACELERANDO' ? '#22c55e' : '#a2b1b9');
+    // Las dos etiquetas, en ese orden: la dinamica dice si el movimiento se
+    // agranda y el signo hacia donde empuja. Con velocidad constante la
+    // dinamica no existe y va solo el signo — poner "ESTABLE" ahi seria
+    // afirmar que el proceso esta quieto mientras se escapa parejo.
+    const etqAcel = (adom
+        ? ` <span style="color:${colAcel};font-weight:400">(${_escapeHtml(adom)})</span>`
+        : '')
+      + (asig
+        ? ` <span style="color:${ACEL_SIGNO_COLOR[asig] || '#a2b1b9'};font-weight:400"`
+          + ` title="${_escapeHtml(asig)}">${_escapeHtml(ACEL_SIGNO_CORTO[asig] || asig)}</span>`
+        : '');
+    const filaAcel = `<div class="st-row"><span>aceleracion${marca}</span><b>${
+      acel ? _escapeHtml(acel) + etqAcel
+           : '<span style="color:#7a8b94">--</span>'}</b></div>`;
+
+    if (!pts.length) {
+      return `<div class="stat-card" style="border-left-color:${color}">
+        <div class="st-name"><span class="st-dot" style="background:${color}"></span>${titulo}</div>
+        ${sub}
+        <div class="st-row"><span>sin datos en la ventana</span></div>
+        ${filaDom}
+        ${filaPend}
+        ${filaAcel}
+      </div>`;
+    }
+    const mean = pts.reduce((a,b)=>a+b,0) / pts.length;
+    const actual = pts[pts.length - 1];
+    return `<div class="stat-card" style="border-left-color:${color}">
+      <div class="st-name"><span class="st-dot" style="background:${color}"></span>${titulo}</div>
+      ${sub}
+      <div class="st-row"><span>actual</span><b>${actual.toFixed(3)}</b></div>
+      <div class="st-row"><span>media</span><b>${mean.toFixed(3)}</b></div>
+      ${filaDom}
+      ${filaPend}
+      ${filaAcel}
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// Chart.js — construcción / datasets
+// ============================================================
+function buildChart() {
+  const host = document.querySelector('.chart-canvas-host');
+  const ctx = document.getElementById('main-chart').getContext('2d');
+  const f = buildXFormat();
+  state.chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      parsing: false,
+      normalized: true,
+      interaction: { mode: 'tiempoCercano', intersect: false, axis: 'x' },
+      scales: {
+        x: {
+          type: 'time',
+          time: { displayFormats: f.disp, tooltipFormat: f.tt },
+          grid: { color: 'rgba(162,177,185,0.08)' },
+          ticks: { color: '#a2b1b9', font: { size: 10 }, maxRotation: 0, autoSkipPadding: 20 },
+        },
+        y: {
+          grid: { color: 'rgba(162,177,185,0.08)' },
+          ticks: { color: '#a2b1b9', font: { size: 10 } },
+        },
+      },
+      plugins: {
+        legend: {
+          labels: { color: '#e8eef1', font: { size: 11 }, boxWidth: 12 },
+          // La leyenda abre el panel de ESA serie (color, limites, visibilidad)
+          // en vez de apagarla de un clic: apagar sigue estando, pero como un
+          // boton del panel, donde se ve lo que hace.
+          onClick: (e, legendItem, legend) => {
+            const chart = legend.chart;
+            const ds = chart.data.datasets[legendItem.datasetIndex];
+            if (!ds) return;
+            const box = (legend.legendHitBoxes || [])[legendItem.datasetIndex];
+            togglePanelLimites(ds.tagName, box);
+          },
+        },
+        tooltip: {
+          mode: 'tiempoCercano',
+          intersect: false,
+          backgroundColor: 'rgba(16,26,32,0.95)',
+          titleColor: '#a855f7',
+          bodyColor: '#e8eef1',
+          borderColor: '#23323b',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            title: (items) => items.length ? fmtDate(new Date(items[0].parsed.x)) : '',
+            // Siempre el valor de ingenieria: en modo normalizado `parsed.y`
+            // es un porcentaje interno que no le sirve a nadie.
+            label: (item) => {
+              const real = (item.raw && item.raw.yr !== undefined)
+                ? item.raw.yr : item.parsed.y;
+              const tag = item.dataset.tagName;
+              const tx = item.parsed.x;
+              let txt = ` ${item.dataset.label}: ${Number(real).toFixed(3)}`;
+              // Extras opcionales: los del INSTANTE bajo el cursor, del
+              // historial que graba el motor (1 muestra/s).
+              if (state.tipDom) {
+                const d = domDe(tag, tx);
+                if (d) txt += `  [${d}]`;
+              }
+              if (state.tipPend) {
+                const p = pendDe(tag, tx);
+                const pd = pendDom(tag, tx);
+                if (p) txt += `  ${p}` + (pd ? ` (${pd})` : '');
+              }
+              if (state.tipAcel) {
+                const ac = acelDe(tag, tx);
+                if (ac) {
+                  const sg = acelSigno(tag, tx);
+                  const ad = acelDom(tag, tx);
+                  txt += `  ${ac}`
+                    + (ad ? ` (${ad})` : '')
+                    + (sg ? ` ${ACEL_SIGNO_CORTO[sg] || sg}` : '');
+                }
+              }
+              return txt;
+            },
+          },
+        },
+        zoom: {
+          // Arrancan APAGADOS: se encienden al tomar la celda con un clic.
+          pan:  { enabled: false, mode: 'xy', onPanComplete: onPanZoomComplete },
+          zoom: { wheel: { enabled: false }, pinch: { enabled: false }, mode: 'y',
+                  onZoomComplete: onPanZoomComplete },
+        },
+      },
+    },
+  });
+  if (host && window.ResizeObserver) {
+    new ResizeObserver(() => {
+      if (state.chart) state.chart.resize();
+    }).observe(host);
+  }
+}
+
+function rebuildDatasets() {
+  if (!state.chart) return;
+  state.chart.data.datasets = Array.from(state.selected).map(name => ({
+    label: etiquetaLarga(name),   // pseudonimo [unidad]; el tag va en tagName
+    tagName: name,
+    data: [],
+    borderColor: colorFor(name),
+    backgroundColor: colorFor(name) + '20',
+    borderWidth: 1.6,
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    tension: 0.15,
+    spanGaps: true,
+  }));
+  state.chart.update('none');
+}
+
+// ============================================================
+// Loop de polling
+// ============================================================
+function restartPolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  const ms = parseInt(document.getElementById('poll-interval').value) || 2000;
+  state.pollTimer = setInterval(async () => {
+    // Muestrear siempre: si dejara de hacerlo al soltar "Seguir tiempo real",
+    // se abriria un hueco en la serie justo mientras miras hacia atras.
+    await muestrearKepserver();
+    if (state.followLive) fetchData();
+  }, ms);
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+// Tomar / soltar la celda del grafico. En captura, para que el gesto que
+// activa tambien sirva para arrastrar: el plugin de zoom escucha despues.
+document.addEventListener('mousedown', (e) => {
+  const card = document.querySelector('.chart-card');
+  const wrap = document.querySelector('.chart-wrap');
+  if (!card || !wrap) return;
+  if (wrap.contains(e.target)) {
+    if (!state.chartActivo) setChartActivo(true);
+  } else if (!card.contains(e.target) && state.chartActivo) {
+    setChartActivo(false);
+  }
+}, true);
+
+window.addEventListener('DOMContentLoaded', async () => {
+  buildChart();
+  setChartActivo(false);
+  await cargarPrefsGrafico();     // colores y limites guardados
+  await cargarEscalas();          // banda lmin/lmax por tag, para el panel de serie
+  await loadTagCatalog();
+  // Altas, bajas, suspensiones y renombres se reflejan solos.
+  state.catalogoTimer = setInterval(() => loadTagCatalog(true), 10000);
+  updateLiveBadge();
+  await muestrearKepserver();
+  await fetchData();
+  restartPolling();
+});
+</script>
+<script src="/static/activity-alerts.js"></script>
+<script>
+ActivityAlerts.init({
+  page: 'graficos',
+  pageLabel: 'Explorador de Series',
+  restartOnSave: false,
+});
+</script>
+
+</body>
+</html>

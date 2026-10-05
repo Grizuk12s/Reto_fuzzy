@@ -1,0 +1,16 @@
+{
+  "entradas": [
+    {
+      "backup_dir": "/app/config/sags/sag2/.backup/import_20261001_195011",
+      "applied_at": "2026-10-01T19:50:11+00:00",
+      "modulos": [
+        "tags"
+      ],
+      "modo": "agregar",
+      "exported_at": "2026-10-01T19:49:06+00:00",
+      "archivos": [
+        "tags.json"
+      ]
+    }
+  ]
+}

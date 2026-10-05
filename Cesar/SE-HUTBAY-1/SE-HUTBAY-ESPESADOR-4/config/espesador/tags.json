@@ -342,102 +342,142 @@
       "PCS7.OS01.Hopper_Nivel_PV_A": {
         "min": 62.0,
         "max": 78.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true,
+        "sin_enabled": true,
+        "sin_periodo_s": 30.0
       },
       "PCS7.OS01.Hopper_Nivel_PV_B": {
         "min": 62.0,
         "max": 78.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.Hopper_Lvl_MAX": {
         "min": 90.0,
         "max": 90.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.Hopper_Lvl_MIN": {
         "min": 60.0,
         "max": 60.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Exp_Speed_Exp": {
         "min": 0.0,
         "max": 0.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "enabled": true,
+        "categoria": "sp",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Velocidad_SP": {
         "min": 70.0,
         "max": 80.0,
-        "noise": 0.5
+        "noise": 0.5,
+        "enabled": true,
+        "categoria": "sp",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Velocidad_PV": {
         "min": 60.0,
         "max": 80.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Speed_MAX": {
         "min": 100.0,
         "max": 100.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Speed_MIN": {
         "min": 50.0,
         "max": 50.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "enabled": true,
+        "categoria": "lim",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Corriente": {
         "min": 65.0,
         "max": 85.0,
-        "noise": 2.0
+        "noise": 2.0,
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true
       },
       "PCS7.OS01.PU009_Flujo_Agua_Sello": {
         "min": 12.0,
         "max": 17.0,
-        "noise": 0.4
+        "noise": 0.4,
+        "vigente": false
       },
       "PCS7.OS01.AG004_Nivel_PV_A": {
         "min": 55.0,
         "max": 75.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "enabled": true,
+        "categoria": "pv",
+        "vigente": true
       },
       "PCS7.OS01.AG004_Nivel_PV_B": {
         "min": 55.0,
         "max": 75.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.PU009_Exp_TK004_Lvl_MAX": {
         "min": 90.0,
         "max": 90.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "vigente": false
       },
       "PCS7.OS01.PU009_Exp_TK004_Lvl_MIN": {
         "min": 50.0,
         "max": 50.0,
-        "noise": 0.0
+        "noise": 0.0,
+        "vigente": false
       },
       "PCS7.OS01.PU0025_Velocidad": {
         "min": 60.0,
         "max": 85.0,
-        "noise": 2.0
+        "noise": 2.0,
+        "vigente": false
       },
       "PCS7.OS01.PU0026_Velocidad": {
         "min": 70.0,
         "max": 85.0,
-        "noise": 1.5
+        "noise": 1.5,
+        "vigente": false
       },
       "PCS7.OS01.PIC2391_Presion": {
         "min": 130.0,
         "max": 175.0,
-        "noise": 4.0
+        "noise": 4.0,
+        "vigente": false
       }
     }
   },
   "heartbeat": {
     "enabled": true,
-    "tag_out": "PCS7.OS01.PU009_Exp_HB",
+    "tag_out": "PLANTA.HB_OUT",
     "tag_in": "",
-    "intervalo_s": 2.0,
-    "value_a": 0.0,
-    "value_b": 1.0,
+    "intervalo_s": 0.2,
+    "value_a": 1,
+    "value_b": 0,
     "data_type": "Boolean"
   },
   "handshake": {

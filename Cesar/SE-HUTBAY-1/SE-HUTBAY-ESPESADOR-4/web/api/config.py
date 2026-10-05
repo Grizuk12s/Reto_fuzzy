@@ -4,6 +4,7 @@
 Rutas:
   GET/POST/PUT/DELETE  /api/meta
   GET/POST/PUT/DELETE  /api/reglas[/<id>]
+  POST                 /api/reglas/<id>/mover   (orden entre iguales prioridades)
   GET/PUT/POST         /api/filtros[/reset]
   GET/PUT/POST         /api/defuzzy[/reset]
   GET/PUT/POST         /api/fuzzy[/reset]
@@ -58,9 +59,26 @@ from web.state import (
     _license_check, _license_sign_and_save, _license_now_iso,
     LIMITES_BOUNDS, bindings_limites, limites_disponibles, limites_huerfanos,
     limites_requeridos, limites_num,
+    _load_tags,
 )
 
 bp_config = Blueprint("config", __name__)
+
+
+def _jsonify_orden(obj, *args):
+    """Como `jsonify`, pero SIN ordenar las claves.
+
+    Flask ordena alfabeticamente las claves de todo dict al serializar. En el
+    fuzzy eso reordenaba las filas (HIGH, LOW, OK) cada vez que la pagina
+    recargaba, y al guardar el orden alfabetico quedaba escrito en el JSON: el
+    operador no podia elegir el orden. Se usa en las rutas de fuzzy y de
+    pendientes, donde el orden de las etiquetas es un dato.
+    """
+    from flask import current_app
+    return current_app.response_class(
+        json.dumps(obj, ensure_ascii=False, default=str) + "\n",
+        mimetype="application/json")
+
 
 
 # ============================================================
@@ -102,7 +120,7 @@ def api_meta():
 LICENCIA_DURACIONES_VALIDAS = (3, 6, 9, 12)
 LICENCIA_CODIGO_PROTOTIPO = "HUTBAY-LIC-PROTOTIPO-2026"
 # Tope duro de vigencia: ninguna licencia puede expirar despues de esta fecha.
-LICENCIA_FECHA_MAXIMA = date(2026, 10, 12)
+LICENCIA_FECHA_MAXIMA = date(2026, 10, 31)
 
 
 def _defaults_licencia() -> dict:
@@ -648,6 +666,14 @@ def api_delete_regla(regla_id: str):
     return jsonify({"ok": True, "eliminada": removed})
 
 
+@bp_config.route("/api/reglas/reset", methods=["POST"])
+def api_reset_reglas():
+    """Vacia reglas.json. Sin reglas el motor corre, fuzzifica y no actua."""
+    n = len(_load_reglas())
+    _save_reglas([])
+    return jsonify({"ok": True, "borradas": n})
+
+
 @bp_config.route("/api/reglas/<regla_id>/toggle", methods=["POST"])
 def api_toggle_regla(regla_id: str):
     reglas = _load_reglas()
@@ -658,6 +684,59 @@ def api_toggle_regla(regla_id: str):
     reglas[idx] = regla
     _save_reglas(reglas)
     return jsonify({"ok": True, "enabled": regla["enabled"]})
+
+
+def _prio_regla(r: dict) -> float:
+    try:
+        return float(r.get("priority") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def orden_visible_reglas(reglas: list[dict]) -> list[int]:
+    """Indices de `reglas` en el orden en que se muestran y se evaluan.
+
+    Prioridad descendente; a igual prioridad manda el orden del archivo. Es el
+    mismo criterio del motor (`sorted(..., reverse=True)` es estable), asi que
+    lo que el operador ve arriba es lo que se evalua primero.
+    """
+    return sorted(range(len(reglas)), key=lambda i: -_prio_regla(reglas[i]))
+
+
+@bp_config.route("/api/reglas/<regla_id>/mover", methods=["POST"])
+def api_mover_regla(regla_id: str):
+    """Sube o baja una regla entre las de SU MISMA prioridad.
+
+    A igual prioridad el motor evalua en el orden del archivo, y ese orden
+    importa: dos reglas que comparten un wait no pueden disparar las dos en el
+    mismo tick — gana la primera. Cambiar de prioridad no se hace aca: se edita
+    la regla.
+
+    Body: {"direccion": "arriba" | "abajo"}.
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    direccion = str(body.get("direccion") or "").lower()
+    if direccion not in ("arriba", "abajo"):
+        return jsonify({"error": "direccion debe ser 'arriba' o 'abajo'."}), 400
+    reglas = _load_reglas()
+    idx, regla = _find_regla(reglas, regla_id)
+    if idx is None:
+        return jsonify({"error": f"Regla '{regla_id}' no encontrada."}), 404
+    orden = orden_visible_reglas(reglas)
+    pos = orden.index(idx)
+    vecino_pos = pos - 1 if direccion == "arriba" else pos + 1
+    if not (0 <= vecino_pos < len(orden)):
+        return jsonify({"error": "La regla ya esta en el extremo."}), 409
+    j = orden[vecino_pos]
+    if _prio_regla(reglas[j]) != _prio_regla(regla):
+        return jsonify({"error": "Solo se puede mover entre reglas de la misma "
+                                 "prioridad. Para pasar a otra, edita la prioridad."}), 409
+    # Intercambiar sus lugares en el archivo invierte solo el orden de ESAS
+    # dos: el resto de las empatadas conserva su orden relativo.
+    reglas[idx], reglas[j] = reglas[j], reglas[idx]
+    _save_reglas(reglas)
+    return jsonify({"ok": True, "con": str(reglas[idx].get("id")),
+                    "orden": [str(reglas[i].get("id")) for i in orden_visible_reglas(reglas)]})
 
 
 # ============================================================
@@ -1209,8 +1288,24 @@ FUZZY_TIPOS = ("high", "low", "norm")
 from core.fuzzy.pendientes import (
     ETIQUETAS_PENDIENTE_DEFAULT,
     EJE_PENDIENTE_DEFAULT,
+    ventana_s_de_spec,
 )
-PENDIENTE_VENTANA_DEFAULT = 5.0
+# Ventana de una pendiente nueva, en SEGUNDOS (antes eran 5 minutos).
+PENDIENTE_VENTANA_S_DEFAULT = 300.0
+# Alias historico en minutos: lo siguen leyendo llamadas viejas.
+PENDIENTE_VENTANA_DEFAULT = PENDIENTE_VENTANA_S_DEFAULT / 60.0
+# Tope de cordura: mas de un dia de ventana es un error de tipeo, no una
+# deriva lenta. Abajo no hay piso fijo mas que "> 0": una pendiente de 6 s es
+# legitima si el filtro es de 2 s.
+PENDIENTE_VENTANA_S_MAX = 86400.0
+
+# Relacion recomendada entre la ventana de la pendiente y la del filtro de su
+# variable fuente. Por debajo de 2x la pendiente mide el transitorio del
+# filtro y no el proceso; por encima de 4x empieza a promediar cambios reales
+# y llega tarde. Es un AVISO, no un rechazo: el experto de planta puede tener
+# motivos (una deriva de turno se mira con ventanas largas a proposito).
+PENDIENTE_FACTOR_MIN = 2.0
+PENDIENTE_FACTOR_MAX = 4.0
 
 # Plantilla de arranque para un fuzzy nuevo: tres puntos, triangulo simetrico.
 # Es deliberadamente neutra; se calibra despues mirando la traza.
@@ -1488,7 +1583,7 @@ def api_get_fuzzy():
     items = entradas_fuzzificables()
     actual = _load_fuzzy()
     idents = {i["identificador"] for i in items}
-    return jsonify({
+    return _jsonify_orden({
         "variables": sorted(actual.keys()),
         "pv": items,
         "sin_fuzzy": [i["identificador"] for i in items if i["identificador"] not in actual],
@@ -1552,16 +1647,16 @@ def api_crear_fuzzy(var: str):
     body = request.get_json(force=True) or {}
     tipo = str(body.get("type", "norm")).lower()
     if tipo not in FUZZY_TIPOS:
-        return jsonify({"error": f"'type' invalido. Validos: {list(FUZZY_TIPOS)}."}), 400
+        return _jsonify_orden({"error": f"'type' invalido. Validos: {list(FUZZY_TIPOS)}."}), 400
 
     items = entradas_fuzzificables()
     if var not in {i["identificador"] for i in items}:
-        return jsonify({"error": f"'{var}' no corresponde a ningun tag de categoria PV "
+        return _jsonify_orden({"error": f"'{var}' no corresponde a ningun tag de categoria PV "
                                  "ni a una variable calculada."}), 400
 
     cfg = _load_fuzzy()
     if var in cfg:
-        return jsonify({"error": f"'{var}' ya tiene fuzzy definido."}), 409
+        return _jsonify_orden({"error": f"'{var}' ya tiene fuzzy definido."}), 409
 
     cfg[var] = {"type": tipo,
                 "offset": list(FUZZY_NUEVO["offset"]),
@@ -1576,7 +1671,7 @@ def api_crear_fuzzy(var: str):
                 # viejo `limites_sp` del contrato.
                 "limites_num": dict(LIMITES_NUM_VACIO)}
     _save_fuzzy(cfg)
-    return jsonify({"ok": True, "var": var, "actual": cfg,
+    return _jsonify_orden({"ok": True, "var": var, "actual": cfg,
                     "aviso": "Creado con una plantilla neutra. Calibralo antes de usarlo."}), 201
 
 
@@ -1588,7 +1683,7 @@ def api_borrar_fuzzy(var: str):
 
     cfg = _load_fuzzy()
     if var not in cfg:
-        return jsonify({"error": f"'{var}' no tiene fuzzy definido."}), 404
+        return _jsonify_orden({"error": f"'{var}' no tiene fuzzy definido."}), 404
     try:
         reglas = [str(r.get("id", "?")) for r in cargar_reglas_json()
                   if var in variables_de_regla(r) or f"pend_{var}" in variables_de_regla(r)]
@@ -1596,7 +1691,7 @@ def api_borrar_fuzzy(var: str):
         reglas = []
     del cfg[var]
     _save_fuzzy(cfg)
-    return jsonify({"ok": True, "actual": cfg, "reglas_afectadas": reglas})
+    return _jsonify_orden({"ok": True, "actual": cfg, "reglas_afectadas": reglas})
 
 
 @bp_config.route("/api/fuzzy", methods=["PUT"])
@@ -1608,7 +1703,7 @@ def api_put_fuzzy():
 
     norm, error = _normalizar_fuzzy_payload(data)
     if error is not None:
-        return jsonify({"error": error}), 400
+        return _jsonify_orden({"error": error}), 400
 
     # Fallar ruidoso, nunca adivinar: si el guardado dejaria reglas muertas
     # porque desaparece una etiqueta que nombran, no se guarda. `__forzar__`
@@ -1616,14 +1711,14 @@ def api_put_fuzzy():
     if not forzar:
         problemas = _huerfanas_por_guardar(_load_fuzzy(), norm)
         if problemas:
-            return jsonify({
+            return _jsonify_orden({
                 "error": ("No se guardo: el cambio dejaria reglas sin la etiqueta "
                           "que nombran. " + " | ".join(problemas)),
                 "huerfanas": problemas,
             }), 409
 
     _save_fuzzy(norm)
-    return jsonify({"ok": True, "actual": norm})
+    return _jsonify_orden({"ok": True, "actual": norm})
 
 
 @bp_config.route("/api/fuzzy/reset", methods=["POST"])
@@ -1645,7 +1740,7 @@ def api_reset_fuzzy():
                         for rid in ids})
     _save_fuzzy({})
     _save_pendientes({})
-    return jsonify({"ok": True, "actual": {}, "pendientes": {},
+    return _jsonify_orden({"ok": True, "actual": {}, "pendientes": {},
                     "reglas_afectadas": afectadas})
 
 
@@ -1676,7 +1771,106 @@ def _load_pendientes() -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         return _defaults_pendientes()
-    return data if isinstance(data, dict) else _defaults_pendientes()
+    if not isinstance(data, dict):
+        return _defaults_pendientes()
+    return _migrar_pendientes(data)
+
+
+def _migrar_pendientes(data: dict) -> dict:
+    """Traduce entradas viejas {ventana_min} a {ventana_s}.
+
+    No reescribe el archivo, igual que `_migrar_filtros`: la migracion se
+    persiste recien cuando el operador guarda desde la pagina, asi un rollback
+    del codigo se encuentra el pendientes.json que dejo.
+    """
+    out: dict = {}
+    for nombre, cfg in data.items():
+        if not isinstance(cfg, dict):
+            out[nombre] = cfg
+            continue
+        spec = dict(cfg)
+        ventana_s = ventana_s_de_spec(spec)
+        if ventana_s is not None:
+            spec["ventana_s"] = ventana_s
+        spec.pop("ventana_min", None)
+        out[nombre] = spec
+    return out
+
+
+def _filtro_ventana_s_de(variable: str) -> float | None:
+    """Ventana del filtro Exp-Q de la variable fuente, si tiene uno.
+
+    Una variable CALCULADA no tiene filtro propio (se filtran sus insumos),
+    asi que aca devuelve None y la relacion no se evalua.
+    """
+    cfg = (_load_filtros() or {}).get(str(variable))
+    if not isinstance(cfg, dict):
+        return None
+    try:
+        v = float(cfg.get("ventana_s"))
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0.0 else None
+
+
+def _relacion_filtro(variable: str, ventana_s: float) -> dict:
+    """Cuantas veces la ventana del filtro mide la de la pendiente.
+
+    Es la comprobacion que antes quedaba en la cabeza del que configuraba: sin
+    esto, bajar el filtro a 10 s y dejar la pendiente en 2 min pasa inadvertido
+    y la tendencia sigue llegando tarde aunque el filtro ya responda.
+    """
+    filtro_s = _filtro_ventana_s_de(variable)
+    if filtro_s is None:
+        return {"filtro_ventana_s": None, "factor": None, "estado": "sin_filtro",
+                "recomendado_s": None,
+                "mensaje": (f"'{variable}' no tiene filtro propio configurado: "
+                            "la relacion 2x-4x no se puede evaluar.")}
+    factor = float(ventana_s) / filtro_s
+    rango = [round(filtro_s * PENDIENTE_FACTOR_MIN, 2),
+             round(filtro_s * PENDIENTE_FACTOR_MAX, 2)]
+    if factor < PENDIENTE_FACTOR_MIN:
+        estado = "corta"
+        mensaje = (f"Ventana corta: {ventana_s:g} s es {factor:.1f}x el filtro "
+                   f"de {filtro_s:g} s. Por debajo de {PENDIENTE_FACTOR_MIN:g}x la "
+                   f"pendiente mide el transitorio del filtro, no el proceso. "
+                   f"Recomendado: {rango[0]:g} - {rango[1]:g} s.")
+    elif factor > PENDIENTE_FACTOR_MAX:
+        estado = "larga"
+        mensaje = (f"Ventana larga: {ventana_s:g} s es {factor:.1f}x el filtro "
+                   f"de {filtro_s:g} s. Por encima de {PENDIENTE_FACTOR_MAX:g}x la "
+                   f"tendencia promedia cambios reales y llega tarde. "
+                   f"Recomendado: {rango[0]:g} - {rango[1]:g} s.")
+    else:
+        estado = "ok"
+        mensaje = (f"{factor:.1f}x el filtro de {filtro_s:g} s "
+                   f"(dentro de {PENDIENTE_FACTOR_MIN:g}x-{PENDIENTE_FACTOR_MAX:g}x).")
+    return {"filtro_ventana_s": filtro_s, "factor": round(factor, 2),
+            "estado": estado, "recomendado_s": rango, "mensaje": mensaje}
+
+
+def _ratificadores_por_variable() -> dict:
+    """Aceleraciones habilitadas, agrupadas por la variable que miden.
+
+    Es lo que la pagina puede ofrecer como ratificador de una pendiente: tiene
+    que ser de la MISMA variable, porque ratificar es contrastar dos medidas de
+    la misma senal a dos escalas de tiempo.
+    """
+    out: dict = {}
+    for nombre, cfg in (_load_aceleraciones() or {}).items():
+        if not isinstance(cfg, dict) or not cfg.get("habilitado", True):
+            continue
+        var = str(cfg.get("variable") or "").strip()
+        if not var:
+            continue
+        try:
+            ventana = float(cfg.get("ventana_s", 0.0))
+        except (TypeError, ValueError):
+            ventana = 0.0
+        out.setdefault(var, []).append({"nombre": nombre, "ventana_s": ventana})
+    for var in out:
+        out[var].sort(key=lambda a: (a["ventana_s"], a["nombre"]))
+    return out
 
 
 def _fuentes_pendiente_disponibles() -> list[dict]:
@@ -1698,12 +1892,19 @@ def _validar_pendiente_spec(nombre: str, cfg) -> tuple[dict | None, str | None]:
     if fuentes and variable not in fuentes:
         return None, (f"'{nombre}': '{variable}' no es una PV ni una variable calculada. "
                       f"Validas: {sorted(fuentes)}.")
-    try:
-        ventana_min = float(cfg.get("ventana_min"))
-    except (TypeError, ValueError):
-        return None, f"'{nombre}': 'ventana_min' debe ser numerico."
-    if ventana_min <= 0.0:
-        return None, f"'{nombre}': 'ventana_min' debe ser > 0."
+    # La ventana se declara en SEGUNDOS. `ventana_min` (minutos) se acepta por
+    # compatibilidad con los archivos que ya estan en disco; se convierte y se
+    # guarda siempre en segundos.
+    if cfg.get("ventana_s") is None and cfg.get("ventana_min") is None:
+        return None, (f"'{nombre}': falta 'ventana_s' (la ventana de la "
+                      "pendiente, en segundos).")
+    ventana_s = ventana_s_de_spec(cfg)
+    if ventana_s is None:
+        return None, (f"'{nombre}': 'ventana_s' debe ser un numero > 0 "
+                      "(segundos).")
+    if ventana_s > PENDIENTE_VENTANA_S_MAX:
+        return None, (f"'{nombre}': 'ventana_s' no puede pasar de "
+                      f"{PENDIENTE_VENTANA_S_MAX:g} s.")
 
     eje = cfg.get("x")
     if not isinstance(eje, list) or len(eje) < 3:
@@ -1754,14 +1955,45 @@ def _validar_pendiente_spec(nombre: str, cfg) -> tuple[dict | None, str | None]:
             return None, f"'{nombre}': la fila '{et}' debe estar entre 0 y 1."
         labels_norm[et] = valores
 
-    return {"variable": variable, "ventana_min": ventana_min,
+    # --- Ratificacion con una aceleracion de ventana corta ---------------
+    # Opcional. Si esta, la pendiente NO afirma su tendencia cuando el `rate`
+    # de esa aceleracion apunta al lado contrario. Ver `ratificar` en
+    # core/fuzzy/pendientes.py.
+    ratifica_con = str(cfg.get("ratifica_con") or "").strip()
+    if ratifica_con:
+        aceleraciones = _load_aceleraciones() or {}
+        acel = aceleraciones.get(ratifica_con)
+        if not isinstance(acel, dict):
+            return None, (f"'{nombre}': la aceleracion '{ratifica_con}' no existe. "
+                          "Creala en la pagina Aceleracion o deja la pendiente "
+                          "sin ratificar.")
+        if not acel.get("habilitado", True):
+            return None, (f"'{nombre}': la aceleracion '{ratifica_con}' esta "
+                          "deshabilitada, asi que no puede ratificar nada.")
+        if str(acel.get("variable") or "").strip() != variable:
+            return None, (f"'{nombre}': '{ratifica_con}' mide "
+                          f"'{acel.get('variable')}' y esta pendiente mide "
+                          f"'{variable}'. Solo se ratifica con una aceleracion "
+                          "de LA MISMA variable.")
+        try:
+            acel_ventana = float(acel.get("ventana_s", 0.0))
+        except (TypeError, ValueError):
+            acel_ventana = 0.0
+        if acel_ventana > ventana_s:
+            return None, (f"'{nombre}': '{ratifica_con}' mira {acel_ventana:g} s y "
+                          f"la pendiente {ventana_s:g} s. Ratificar es contrastar la "
+                          "tendencia larga contra lo que pasa AHORA, asi que la "
+                          "aceleracion tiene que mirar una ventana mas corta.")
+
+    return {"variable": variable, "ventana_s": ventana_s,
             "descripcion": str(cfg.get("descripcion", "") or ""),
+            "ratifica_con": ratifica_con,
             "x": eje_f, "labels": labels_norm}, None
 
 
 def _normalizar_pendientes_payload(data) -> tuple[dict | None, str | None]:
     if not isinstance(data, dict):
-        return None, "El payload debe ser un objeto { <nombre>: {variable, ventana_min, x, labels} }."
+        return None, "El payload debe ser un objeto { <nombre>: {variable, ventana_s, x, labels} }."
     # Una pendiente es una variable mas para las reglas: su nombre no puede
     # chocar con una PV, una cruda, una calculada ni un setpoint.
     ocupados = (set(VARIABLES_PROCESO) | set(SETPOINT_KEYS)
@@ -1850,13 +2082,24 @@ def api_get_pendientes():
     """Fuzzy de pendiente + catalogo de fuentes posibles."""
     actual = _load_pendientes()
     fuentes = _fuentes_pendiente_disponibles()
-    return jsonify({
+    return _jsonify_orden({
         "actual": actual,
         "fuentes": fuentes,
-        "plantilla": {"ventana_min": PENDIENTE_VENTANA_DEFAULT,
+        "plantilla": {"ventana_s": PENDIENTE_VENTANA_S_DEFAULT,
                       "x": list(EJE_PENDIENTE_DEFAULT),
                       "labels": {k: list(v) for k, v
                                  in ETIQUETAS_PENDIENTE_DEFAULT.items()}},
+        # Sintonizacion contra el filtro de la variable fuente: la pagina
+        # pinta esto al lado de cada ventana. Se calcula en el backend porque
+        # el criterio (2x-4x) es del producto, no de una pantalla.
+        "relacion_filtro": {n: _relacion_filtro(c.get("variable", ""),
+                                                ventana_s_de_spec(c) or 0.0)
+                            for n, c in actual.items() if isinstance(c, dict)},
+        "factores": {"min": PENDIENTE_FACTOR_MIN, "max": PENDIENTE_FACTOR_MAX},
+        # Con que se puede ratificar cada pendiente: las aceleraciones
+        # habilitadas de LA MISMA variable. La pagina solo ofrece estas.
+        "ratificadores": _ratificadores_por_variable(),
+        "ventana_s_max": PENDIENTE_VENTANA_S_MAX,
         # Cuantas pendientes tiene ya cada fuente: son varias por variable a
         # proposito (5 min para un arranque, 30 min para una deriva lenta).
         "por_variable": {i["identificador"]: sorted(
@@ -1877,25 +2120,31 @@ def api_put_pendientes():
     forzar = bool(body.pop("__forzar__", False))
     norm, error = _normalizar_pendientes_payload(body)
     if error is not None:
-        return jsonify({"error": error}), 400
+        return _jsonify_orden({"error": error}), 400
     if not forzar:
         actual = _load_pendientes()
         problemas = _pendientes_huerfanas_por_guardar(actual, norm)
         if problemas:
-            return jsonify({
+            return _jsonify_orden({
                 "error": ("No se guardo: el cambio dejaria reglas sin la pendiente "
                           "que nombran. " + " | ".join(problemas)),
                 "huerfanas": problemas,
             }), 409
         problemas = _pendientes_labels_huerfanas(actual, norm)
         if problemas:
-            return jsonify({
+            return _jsonify_orden({
                 "error": ("No se guardo: el cambio dejaria reglas sin la etiqueta "
                           "que nombran. " + " | ".join(problemas)),
                 "huerfanas": problemas,
             }), 409
     _save_pendientes(norm)
-    return jsonify({"ok": True, "actual": norm})
+    # Los avisos de sintonizacion NO bloquean el guardado: son una opinion
+    # sobre la calibracion, no un error de configuracion.
+    relacion = {n: _relacion_filtro(c["variable"], c["ventana_s"])
+                for n, c in norm.items()}
+    return _jsonify_orden({"ok": True, "actual": norm, "relacion_filtro": relacion,
+                    "avisos": [r["mensaje"] for r in relacion.values()
+                               if r["estado"] in ("corta", "larga")]})
 
 
 @bp_config.route("/api/pendientes/<nombre>", methods=["POST"])
@@ -1905,10 +2154,18 @@ def api_crear_pendiente(nombre: str):
     cfg = _load_pendientes()
     nombre_s = str(nombre).strip()
     if nombre_s in cfg:
-        return jsonify({"error": f"'{nombre_s}' ya existe."}), 409
+        return _jsonify_orden({"error": f"'{nombre_s}' ya existe."}), 409
+    ventana_s = ventana_s_de_spec(body) or PENDIENTE_VENTANA_S_DEFAULT
+    # Si la fuente ya tiene filtro, la pendiente nace sintonizada contra el
+    # (3x, el centro del rango) en vez de con un default suelto que despues hay
+    # que corregir a mano.
+    if ventana_s_de_spec(body) is None:
+        filtro_s = _filtro_ventana_s_de(str(body.get("variable") or "").strip())
+        if filtro_s is not None:
+            ventana_s = round(filtro_s * (PENDIENTE_FACTOR_MIN + PENDIENTE_FACTOR_MAX) / 2.0, 2)
     nuevo = {
         "variable": str(body.get("variable") or "").strip(),
-        "ventana_min": body.get("ventana_min", PENDIENTE_VENTANA_DEFAULT),
+        "ventana_s": ventana_s,
         "descripcion": body.get("descripcion", ""),
         "x": list(EJE_PENDIENTE_DEFAULT),
         "labels": {k: list(v) for k, v in ETIQUETAS_PENDIENTE_DEFAULT.items()},
@@ -1917,11 +2174,14 @@ def api_crear_pendiente(nombre: str):
     candidato[nombre_s] = nuevo
     norm, error = _normalizar_pendientes_payload(candidato)
     if error is not None:
-        return jsonify({"error": error}), 400
+        return _jsonify_orden({"error": error}), 400
     _save_pendientes(norm)
-    return jsonify({"ok": True, "nombre": nombre_s, "actual": norm,
+    rel = _relacion_filtro(norm[nombre_s]["variable"], norm[nombre_s]["ventana_s"])
+    return _jsonify_orden({"ok": True, "nombre": nombre_s, "actual": norm,
+                    "relacion_filtro": rel,
                     "aviso": "Creada con un eje neutro en unidades/min. "
-                             "Calibralo antes de usarla en una regla."}), 201
+                             "Calibralo antes de usarla en una regla. "
+                             + str(rel.get("mensaje") or "")}), 201
 
 
 @bp_config.route("/api/pendientes/<nombre>", methods=["DELETE"])
@@ -1929,16 +2189,16 @@ def api_borrar_pendiente(nombre: str):
     cfg = _load_pendientes()
     nombre_s = str(nombre).strip()
     if nombre_s not in cfg:
-        return jsonify({"error": f"'{nombre_s}' no existe."}), 404
+        return _jsonify_orden({"error": f"'{nombre_s}' no existe."}), 404
     forzar = str(request.args.get("forzar", "")).lower() in ("1", "true", "si")
     restante = {k: v for k, v in cfg.items() if k != nombre_s}
     if not forzar:
         problemas = _pendientes_huerfanas_por_guardar(cfg, restante)
         if problemas:
-            return jsonify({"error": ("No se borro: " + " | ".join(problemas)),
+            return _jsonify_orden({"error": ("No se borro: " + " | ".join(problemas)),
                             "huerfanas": problemas}), 409
     _save_pendientes(restante)
-    return jsonify({"ok": True, "actual": restante})
+    return _jsonify_orden({"ok": True, "actual": restante})
 
 
 # ============================================================
@@ -2128,6 +2388,22 @@ def api_get_aceleraciones():
     })
 
 
+def _pendientes_que_ratifican_con(nombres) -> list[str]:
+    """Pendientes que se ratifican con alguna de esas aceleraciones.
+
+    Sin esta red, borrar o deshabilitar una aceleracion dejaba a su pendiente
+    con un ratificador inexistente — y como la ratificacion es fail-closed, la
+    pendiente se omite en cada tick y toda regla que la nombre queda
+    `no_evaluable`. O sea: el SE dejaba de actuar y el motivo estaba a dos
+    pantallas de distancia.
+    """
+    objetivo = set(nombres or [])
+    return sorted(
+        f"'{n}' se ratifica con '{c.get('ratifica_con')}'"
+        for n, c in (_load_pendientes() or {}).items()
+        if isinstance(c, dict) and str(c.get("ratifica_con") or "") in objetivo)
+
+
 @bp_config.route("/api/aceleraciones", methods=["PUT"])
 def api_put_aceleraciones():
     body = request.get_json(force=True) or {}
@@ -2142,6 +2418,19 @@ def api_put_aceleraciones():
                 "error": ("No se guardo: el cambio dejaria reglas sin la "
                           "aceleracion que nombran. " + " | ".join(problemas)),
                 "huerfanas": problemas,
+            }), 409
+        # Las que desaparecen o quedan deshabilitadas dejan sin ratificador a
+        # su pendiente, y una pendiente sin ratificador no se emite.
+        perdidas = [n for n, c in (_load_aceleraciones() or {}).items()
+                    if n not in norm or not norm[n].get("habilitado", True)]
+        ratificadas = _pendientes_que_ratifican_con(perdidas)
+        if ratificadas:
+            return jsonify({
+                "error": ("No se guardo: hay pendientes que se ratifican con una "
+                          "aceleracion que quedaria borrada o deshabilitada, y sin "
+                          "ratificador la pendiente deja de emitirse. "
+                          + " | ".join(ratificadas)),
+                "huerfanas": ratificadas,
             }), 409
     _save_aceleraciones(norm)
     return jsonify({"ok": True, "actual": norm})
@@ -2216,6 +2505,13 @@ def api_borrar_aceleracion(nombre: str):
         if problemas:
             return jsonify({"error": ("No se borro: " + " | ".join(problemas)),
                             "huerfanas": problemas}), 409
+        ratificadas = _pendientes_que_ratifican_con([nombre_s])
+        if ratificadas:
+            return jsonify({
+                "error": ("No se borro: sin ratificador la pendiente deja de "
+                          "emitirse y las reglas que la nombran quedan no "
+                          "evaluables. " + " | ".join(ratificadas)),
+                "huerfanas": ratificadas}), 409
     _save_aceleraciones(restante)
     return jsonify({"ok": True, "actual": restante})
 
@@ -2572,6 +2868,21 @@ def api_put_variables():
     return jsonify({"ok": True, "actual": norm})
 
 
+@bp_config.route("/api/variables/reset", methods=["POST"])
+def api_reset_variables():
+    """Vacia crudas y definiciones calculadas. Las PV no se tocan: salen de los
+    tags. Informa que reglas nombraban una calculada, para que la pagina lo diga."""
+    antes = _load_variables()
+    calc = {str(d.get("nombre") or d.get("name") or "")
+            for d in (antes.get("definiciones") or []) if isinstance(d, dict)}
+    calc.discard("")
+    afectadas = sorted({rid for (var, _et), ids in etiquetas_usadas_por_reglas().items()
+                        if var in calc for rid in ids})
+    cfg = _defaults_variables()
+    _save_variables(cfg)
+    return jsonify({"ok": True, "actual": cfg, "reglas_afectadas": afectadas})
+
+
 # ============================================================
 # Helpers — Permisivos
 # ============================================================
@@ -2599,6 +2910,17 @@ def _load_permisivos() -> dict:
 
 def _save_permisivos(cfg: dict) -> None:
     escribir_json_atomico(PERMISIVOS_JSON, cfg)
+
+
+@bp_config.route("/api/permisivos/reset", methods=["POST"])
+def api_reset_permisivos():
+    """Vacia permisivos.json. Las reglas que nombran __PERM_<X> quedan no evaluables."""
+    nombres = set((_load_permisivos() or {}).keys())
+    afectadas = sorted({rid for (var, _et), ids in etiquetas_usadas_por_reglas().items()
+                        if var.startswith("__PERM_") and var[len("__PERM_"):] in nombres
+                        for rid in ids})
+    _save_permisivos(_defaults_permisivos())
+    return jsonify({"ok": True, "reglas_afectadas": afectadas})
 
 
 def _validar_condicion(cond, path: str) -> str | None:
@@ -2768,6 +3090,10 @@ def _es_grupo_and(x) -> bool:
     return isinstance(x, dict) and isinstance(x.get("AND"), list)
 
 
+def _es_grupo_or(x) -> bool:
+    return isinstance(x, dict) and isinstance(x.get("OR"), list)
+
+
 def _items_de_condicion_estado(condicion) -> list:
     """Los items de la condicion de un estado, venga como {'AND': [...]} o lista."""
     if _es_grupo_and(condicion):
@@ -2778,11 +3104,23 @@ def _items_de_condicion_estado(condicion) -> list:
 
 
 def _refs_de_estado(estado) -> list:
-    """Nombres de estado que la condicion de `estado` referencia."""
-    out = []
-    for it in _items_de_condicion_estado((estado or {}).get("condicion")):
-        if _es_grupo_and(it) and it.get(REF_ESTADO):
-            out.append(str(it[REF_ESTADO]))
+    """Nombres de estado que la condicion de `estado` referencia.
+
+    Mira TAMBIEN dentro de los grupos OR: desde que un estado puede decir
+    "(A y B) o (C y D)" con A..D siendo estados, una referencia escondida en
+    un OR es igual de real que una suelta. Si no se contara, la regla de UN
+    SOLO NIVEL se podria saltear metiendo el anidamiento dentro de un OR.
+    """
+    def _buscar(items, acc):
+        for it in items or []:
+            if _es_grupo_and(it):
+                if it.get(REF_ESTADO):
+                    acc.append(str(it[REF_ESTADO]))
+                _buscar(it.get("AND") or [], acc)
+            elif _es_grupo_or(it):
+                _buscar(it.get("OR") or [], acc)
+    out: list = []
+    _buscar(_items_de_condicion_estado((estado or {}).get("condicion")), out)
     return out
 
 
@@ -2817,6 +3155,8 @@ def _copia_igual(copia, vigente) -> bool:
                 out.append([str(it[0]), str(it[1]).upper()])
             elif _es_grupo_and(it):
                 out.append({"AND": norm(it), REF_ESTADO: it.get(REF_ESTADO)})
+            elif _es_grupo_or(it):
+                out.append({"OR": norm({"AND": it.get("OR") or []})})
             else:
                 out.append(it)
         return out
@@ -2849,43 +3189,96 @@ def _normalizar_estado_payload(nombre: str, data: dict, estados: dict,
 
     norm_items = []
     refs_usadas = []
+
+    def _norm_hoja(it, ctx):
+        var = str(it[0]).strip()
+        et  = str(it[1]).strip().upper()
+        if var not in variables_validas():
+            return None, f"{ctx}: variable invalida '{var}'."
+        if et not in etiquetas_validas_de(var):
+            return None, _error_etiqueta(ctx, var, et)
+        return [var, et], None
+
+    def _norm_ref(it, ctx):
+        """Referencia a otro estado. La copia se REGENERA desde lo vigente."""
+        ref = str(it[REF_ESTADO]).strip()
+        if ref == nombre_s:
+            return None, f"{ctx}: '{nombre_s}' no puede referenciarse a si mismo."
+        if ref not in estados:
+            return None, (f"{ctx}: el estado '{ref}' no existe. "
+                          "Crealo primero o elegi otro.")
+        # --- Un solo nivel, direccion 1: el referido no puede referenciar ---
+        refs_del_referido = _refs_de_estado(estados[ref])
+        if refs_del_referido:
+            return None, (f"{ctx}: '{ref}' ya esta compuesto por otros estados "
+                          f"({', '.join(sorted(refs_del_referido))}). Se permite "
+                          "UN solo nivel de anidamiento, para que nadie tenga que "
+                          "seguir una cadena para saber que evalua un estado.")
+        if ref in refs_usadas:
+            return None, f"{ctx}: '{ref}' esta puesto dos veces."
+        refs_usadas.append(ref)
+        vig = _condicion_vigente_de_estado(estados, ref)
+        return {REF_ESTADO: ref, "AND": vig["AND"]}, None
+
     for i, it in enumerate(items, start=1):
         ctx = f"'{nombre_s}' condicion #{i}"
 
         if _es_hoja_cond(it):
-            var = str(it[0]).strip()
-            et  = str(it[1]).strip().upper()
-            if var not in variables_validas():
-                return None, f"{ctx}: variable invalida '{var}'."
-            if et not in etiquetas_validas_de(var):
-                return None, _error_etiqueta(ctx, var, et)
-            norm_items.append([var, et])
+            n, err = _norm_hoja(it, ctx)
+            if err:
+                return None, err
+            norm_items.append(n)
             continue
 
         if _es_grupo_and(it) and it.get(REF_ESTADO):
-            ref = str(it[REF_ESTADO]).strip()
-            if ref == nombre_s:
-                return None, f"{ctx}: '{nombre_s}' no puede referenciarse a si mismo."
-            if ref not in estados:
-                return None, (f"{ctx}: el estado '{ref}' no existe. "
-                              "Crealo primero o elegi otro.")
-            # --- Un solo nivel, direccion 1: el referido no puede referenciar ---
-            refs_del_referido = _refs_de_estado(estados[ref])
-            if refs_del_referido:
-                return None, (f"{ctx}: '{ref}' ya esta compuesto por otros estados "
-                              f"({', '.join(sorted(refs_del_referido))}). Se permite "
-                              "UN solo nivel de anidamiento, para que nadie tenga que "
-                              "seguir una cadena para saber que evalua un estado.")
-            if ref in refs_usadas:
-                return None, f"{ctx}: '{ref}' esta puesto dos veces."
-            refs_usadas.append(ref)
-            # La copia se REGENERA desde la definicion vigente.
-            vig = _condicion_vigente_de_estado(estados, ref)
-            norm_items.append({REF_ESTADO: ref, "AND": vig["AND"]})
+            n, err = _norm_ref(it, ctx)
+            if err:
+                return None, err
+            norm_items.append(n)
+            continue
+
+        # --- Grupo OR ---------------------------------------------------
+        # Un estado ya no es solo un AND de condiciones. Sin esto, un
+        # escenario tan corriente como "Alto = (Alto y no bajando) o (OK y
+        # subiendo)" no se podia guardar como UN estado: habia que partirlo en
+        # dos y rearmarlo dentro de cada regla, y entonces el escenario no
+        # existia en ningun lado como objeto con nombre.
+        # El motor ya evaluaba OR (maximo) desde siempre; lo que faltaba era
+        # dejarlo declarar aca.
+        # Adentro de un OR van condiciones sueltas o estados enteros, NO otro
+        # OR: "(A o B) o C" es "A o B o C" escrito raro, y anidar alternativas
+        # hace la condicion ilegible de un vistazo, que es justo lo que un
+        # estado con nombre viene a evitar.
+        if _es_grupo_or(it):
+            opciones = it.get("OR") or []
+            if len(opciones) < 2:
+                return None, (f"{ctx} (OR): un grupo OR necesita al menos 2 "
+                              "opciones. Con una sola, sacalo: la condicion "
+                              "suelta dice lo mismo.")
+            norm_or = []
+            for j, op in enumerate(opciones, start=1):
+                ctx_op = f"{ctx} OR #{j}"
+                if _es_hoja_cond(op):
+                    n, err = _norm_hoja(op, ctx_op)
+                elif _es_grupo_and(op) and op.get(REF_ESTADO):
+                    n, err = _norm_ref(op, ctx_op)
+                elif _es_grupo_or(op):
+                    return None, (f"{ctx_op}: no se puede poner un grupo OR dentro "
+                                  "de otro. Pone todas las opciones en el mismo "
+                                  "grupo: '(A o B) o C' es 'A o B o C'.")
+                else:
+                    return None, (f"{ctx_op}: formato no reconocido. Cada opcion de "
+                                  "un OR es [variable, etiqueta] o una referencia a "
+                                  "otro estado.")
+                if err:
+                    return None, err
+                norm_or.append(n)
+            norm_items.append({"OR": norm_or})
             continue
 
         return None, (f"{ctx}: formato no reconocido. Cada condicion es "
-                      "[variable, etiqueta] o una referencia a otro estado.")
+                      "[variable, etiqueta], una referencia a otro estado o "
+                      "un grupo OR.")
 
     # --- Un solo nivel, direccion 2: si a mi me referencian, no puedo referenciar ---
     if refs_usadas and quien_me_referencia:
@@ -3124,6 +3517,29 @@ def api_reset_estados():
 @bp_config.route("/api/waits", methods=["GET"])
 def api_get_waits():
     return jsonify(_load_waits())
+
+
+@bp_config.route("/api/waits/reset", methods=["POST"])
+def api_reset_waits():
+    """Vacia el catalogo de waits. Las reglas que los nombran quedan con una
+    referencia colgada: se informan para que la pagina lo diga."""
+    ids = {str(w.get("wait_id") or w.get("id") or "") for w in _load_waits()
+           if isinstance(w, dict)}
+    ids.discard("")
+    def _wait_ids(obj, out):
+        if isinstance(obj, dict):
+            if obj.get("wait_id"):
+                out.add(str(obj["wait_id"]))
+            for v in obj.values():
+                _wait_ids(v, out)
+        elif isinstance(obj, list):
+            for v in obj:
+                _wait_ids(v, out)
+        return out
+    afectadas = [str(r.get("id")) for r in _load_reglas()
+                 if _wait_ids(r.get("then", []), set()) & ids]
+    _save_waits(_defaults_waits())
+    return jsonify({"ok": True, "reglas_afectadas": afectadas})
 
 
 @bp_config.route("/api/waits/<path:wait_id>", methods=["GET"])
@@ -3424,9 +3840,12 @@ def api_sincronizar_tracking():
 
 import hashlib as _hashlib
 
-# tags.json esta afuera a proposito: el mapeo tag->rol se aplica en
-# _init_state() y ademas cambia por cada tick que persiste el heartbeat.
-# Reiniciar el SE en cada tick seria un lazo infinito.
+# Un archivo que el motor lee en `_init_state()` y NO esta en esta lista es
+# una pagina cuyo boton Guardar no aplica nada hasta que alguien reinicie a
+# mano — y la pantalla dice "se aplica al reiniciar el motor", asi que el
+# operador cree que ya quedo. Le paso a `aceleraciones.json`, que estuvo
+# fuera desde que se creo: guardar una aceleracion no disparaba el
+# auto-reinicio. Al agregar una configuracion nueva al motor, agregala aca.
 _ARCHIVOS_VERSIONADOS = (
     "contrato.json",
     "reglas.json",
@@ -3436,15 +3855,47 @@ _ARCHIVOS_VERSIONADOS = (
     "defuzzy.json",
     "tracking.json",
     "pendientes.json",
+    "aceleraciones.json",
     "variables.json",
     "estados.json",
     "waits.json",
 )
 
+# tags.json NO se puede versionar por mtime: el generador y el heartbeat lo
+# reescriben solos (bloques "generator" y "heartbeat"), asi que la huella
+# cambiaria sola y el SE se reiniciaria en un lazo infinito. Pero el motor SI
+# toma cosas de ahi en `_init_state()` — el mapeo tag->rol y el handshake —, y
+# dejarlo entero afuera significaba que guardar el handshake no aplicaba nada.
+# Se versiona entonces el SUBCONJUNTO que el motor lee, ignorando lo que se
+# reescribe solo y lo que es puramente visual (colores del grafico).
+_TAGS_CAMPOS_MOTOR = ("id", "name", "categoria", "rol", "enabled", "vigente",
+                      "data_type", "pseudonimo")
 
-@bp_config.route("/api/config/version", methods=["GET"])
-def api_config_version():
-    """Huella de los JSON de configuracion que impactan al motor."""
+
+def _huella_tags() -> str:
+    """Huella de lo que el MOTOR lee de tags.json. Ver comentario de arriba."""
+    try:
+        store = _load_tags() or {}
+    except Exception:                                   # noqa: BLE001
+        return "tags:ilegible"
+    filas = []
+    for t in (store.get("tags") or []):
+        if not isinstance(t, dict):
+            continue
+        filas.append([t.get(k) for k in _TAGS_CAMPOS_MOTOR])
+    filas.sort(key=lambda f: str(f[1]))
+    payload = {"tags": filas, "handshake": store.get("handshake") or {}}
+    return _hashlib.sha1(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def huella_config() -> tuple[str, dict]:
+    """Huella de los JSON de configuracion que impactan al motor.
+
+    La usan la pagina (mensajes) y el AutoAplicador del servidor, que la
+    compara contra la que el motor cargo para decidir si hay que reiniciar.
+    """
     base = os.path.dirname(REGLAS_JSON)
     h = _hashlib.sha1()
     detalle = {}
@@ -3458,4 +3909,22 @@ def api_config_version():
             marca = f"{nombre}:missing"
             detalle[nombre] = None
         h.update(marca.encode("utf-8"))
-    return jsonify({"version": h.hexdigest(), "archivos": detalle})
+    huella_tags = _huella_tags()
+    detalle["tags.json"] = {"parcial": True, "huella": huella_tags[:12]}
+    h.update(f"tags.json:{huella_tags}".encode("utf-8"))
+    return h.hexdigest(), detalle
+
+
+def _registrar_huella():
+    from web.state import registrar_huella_config
+    registrar_huella_config(lambda: huella_config()[0])
+
+
+_registrar_huella()
+
+
+@bp_config.route("/api/config/version", methods=["GET"])
+def api_config_version():
+    """Huella de los JSON de configuracion que impactan al motor."""
+    version, detalle = huella_config()
+    return jsonify({"version": version, "archivos": detalle})

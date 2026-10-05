@@ -38,6 +38,41 @@
     "min_activacion": 0.5
   },
   {
+    "id": "aaaa",
+    "bloque": "estabilidad",
+    "fuerza": [
+      "hopper_nvl_pv_a",
+      "LOW"
+    ],
+    "if": [
+      [
+        "hopper_nvl_pv_a",
+        "OK"
+      ]
+    ],
+    "then": [
+      {
+        "accion": "AUMENTAR",
+        "waits": [
+          {
+            "descripcion": "Espera tras frenar la bomba",
+            "nombre": "Bajo",
+            "tipo": "custom",
+            "variable_controlada": "velocidad_salida_del_se",
+            "wait_id": "wait::bajo",
+            "duracion_s": 900,
+            "accion": "AUMENTAR"
+          }
+        ],
+        "reiniciar_waits": []
+      }
+    ],
+    "weight": 1.0,
+    "priority": 50.0,
+    "min_activacion": 0.0,
+    "enabled": false
+  },
+  {
     "id": "A2_Prueba_Hopper_Lmita",
     "bloque": "estabilidad",
     "fuerza": [

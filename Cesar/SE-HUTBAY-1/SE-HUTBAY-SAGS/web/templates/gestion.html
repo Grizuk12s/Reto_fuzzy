@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gestion de SAG</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#101a20;color:#e8eef1;min-height:100vh}
+nav{display:flex;align-items:center;gap:14px;padding:12px 20px;background:#0a1216;border-bottom:1px solid #152128;border-top:3px solid #ee3524}
+nav img{height:17px;display:block}
+nav .nav-txt{font-size:.7rem;color:#7a8b94;text-transform:uppercase;letter-spacing:.06em;padding-left:14px;border-left:1px solid #23323b}
+/* Formato homogeneo: arranca a la izquierda, mismo margen que el editor */
+.container{max-width:none;margin:0;padding:20px 20px 60px}
+h1{font-size:1.6rem;font-weight:700;margin-bottom:6px}
+.subtitle{color:#a2b1b9;font-size:.88rem;line-height:1.55;max-width:720px;margin-bottom:28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.card{background:#152128;border:1px solid #23323b;border-radius:14px;padding:22px 22px 18px;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:14px}
+.card .bar{position:absolute;left:0;top:0;bottom:0;width:5px}
+.card-head{display:flex;align-items:center;gap:10px}
+.card-name{font-size:1.15rem;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-id{font-family:'Cascadia Code','Fira Code',monospace;font-size:.72rem;color:#7a8b94}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:12px;font-size:.7rem;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ok{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.warn{background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.bad{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
+.off{background:rgba(122,139,148,.1);color:#a2b1b9;border:1px solid rgba(122,139,148,.25)}
+.fixed{background:rgba(79,179,217,.1);color:#4fb3d9;border:1px solid rgba(79,179,217,.3)}
+.rows{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.82rem}
+.rows .k{color:#7a8b94}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.btn{padding:8px 16px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-size:.84rem;font-weight:600;display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-family:inherit}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:#ee3524;color:#fff}
+.btn-primary:hover:not(:disabled){background:#c92a1b}
+.btn-ghost{background:transparent;color:#e8eef1;border-color:#35474f}
+.btn-ghost:hover:not(:disabled){border-color:#a2b1b9}
+.btn-danger{background:transparent;color:#a2b1b9;border-color:#23323b}
+.btn-danger:hover:not(:disabled){border-color:#ef4444;color:#ef4444}
+.edit{display:none;gap:8px;align-items:center;flex-wrap:wrap}
+.edit.show{display:flex}
+input[type=text],select{padding:9px 12px;border-radius:8px;border:1px solid #23323b;background:#101a20;color:#e8eef1;font-size:.86rem;font-family:inherit}
+input[type=text]{flex:1;min-width:140px}
+input[type=text]:focus,select:focus{outline:none;border-color:#4fb3d9}
+input[type=color]{width:42px;height:36px;border:1px solid #23323b;border-radius:8px;background:#101a20;padding:3px;cursor:pointer}
+.new-card{border-style:dashed;border-color:#35474f;background:#101a20}
+.new-card h2{font-size:1.05rem;font-weight:700}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:.72rem;color:#a2b1b9;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.hint{font-size:.76rem;color:#7a8b94;line-height:1.5}
+.msg{font-size:.82rem;line-height:1.5;padding:10px 12px;border-radius:8px;display:none}
+.msg.show{display:block}
+.msg.err{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
+.msg.okm{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);color:#86efac}
+.full-msg{margin-bottom:18px}
+@media (max-width:640px){.container{padding:22px 16px 40px}}
+</style>
+<link rel="stylesheet" href="/static/hudbay.css">
+<script src="/static/portada.js" defer></script>
+</head>
+<body>
+<nav>
+  <a href="/" title="Volver a la portada"><img src="/static/hudbay-logo.png" alt="Hudbay"></a>
+  <span class="nav-txt">Molienda SAG</span>
+  <a href="/gestion" style="color:#ee3524;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem;font-weight:600;background:#152128">Gestion de SAG</a>
+  <a href="/motor" style="color:#a2b1b9;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:.85rem">Motor</a>
+</nav>
+<div class="container">
+  <h1>Gestion de SAG</h1>
+  <p class="subtitle">Cada SAG tiene su propio motor, su configuracion (tags, reglas, fuzzy, defuzzy, tracking) y sus tablas en la base de datos. Elige uno para entrar a su configuracion. El SAG 1 es el SAG por defecto y no se puede eliminar.</p>
+  <div class="msg full-msg" id="msgGlobal"></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+let estado = {max_sags: 0, sags: [], sag_fijo: 'sag1'};
+let motores = {};          // id -> {running, error}
+let editando = null;       // id en edicion (no repintar encima)
+
+function el(tag, attrs, ...hijos) {
+  const e = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (k === 'class') e.className = v;
+    else if (k === 'style') e.style.cssText = v;
+    else if (k.startsWith('on')) e[k] = v;
+    else e.setAttribute(k, v);
+  });
+  hijos.flat().forEach(h => e.append(h instanceof Node ? h : document.createTextNode(h)));
+  return e;
+}
+
+function mensaje(id, texto, ok) {
+  const m = document.getElementById(id);
+  if (!m) return;
+  m.textContent = texto;
+  m.className = 'msg show ' + (ok ? 'okm' : 'err') + (id === 'msgGlobal' ? ' full-msg' : '');
+}
+
+async function api(metodo, ruta, cuerpo) {
+  const r = await fetch(ruta, {method: metodo, headers: cuerpo ? {'Content-Type': 'application/json'} : {},
+                               body: cuerpo ? JSON.stringify(cuerpo) : undefined});
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error((data && data.error) || ('Error ' + r.status));
+  return data;
+}
+
+async function cargar() {
+  try {
+    estado = await api('GET', '/gestion/api/sags');
+  } catch (e) { mensaje('msgGlobal', 'No se pudo leer la lista de SAG: ' + e.message, false); return; }
+  await Promise.all(estado.sags.map(async s => {
+    if (!s.vivo) { motores[s.id] = null; return; }
+    try {
+      const r = await fetch('/api/se/status', {headers: {'X-SE-SAG': s.id}});
+      motores[s.id] = r.ok ? await r.json() : null;
+    } catch (e) { motores[s.id] = null; }
+  }));
+  if (!editando) pintar();
+}
+
+function pillProceso(s) {
+  if (s.vivo) return el('span', {class: 'pill ok'}, el('span', {class: 'dot'}), 'En linea');
+  if (s.ultimo_error) return el('span', {class: 'pill bad', title: s.ultimo_error}, el('span', {class: 'dot'}), 'Caido');
+  return el('span', {class: 'pill warn'}, el('span', {class: 'dot'}), 'Arrancando');
+}
+
+function pillMotor(s) {
+  const m = motores[s.id];
+  if (!m) return el('span', {class: 'pill off'}, 'Sin datos');
+  return m.running ? el('span', {class: 'pill ok'}, el('span', {class: 'dot'}), 'Corriendo')
+                   : el('span', {class: 'pill off'}, el('span', {class: 'dot'}), 'Detenido');
+}
+
+function tarjeta(s) {
+  const fijo = s.id === estado.sag_fijo;
+  const corriendo = motores[s.id] && motores[s.id].running;
+  const msgId = 'msg-' + s.id;
+
+  const nombreIn = el('input', {type: 'text', value: s.nombre, maxlength: '40'});
+  const colorIn = el('input', {type: 'color', value: s.color});
+  const edit = el('div', {class: 'edit'}, nombreIn, colorIn,
+    el('button', {class: 'btn btn-primary', onclick: async () => {
+      try {
+        await api('PATCH', '/gestion/api/sags/' + s.id, {nombre: nombreIn.value, color: colorIn.value});
+        editando = null; await cargar();
+      } catch (e) { mensaje(msgId, e.message, false); }
+    }}, 'Guardar'),
+    el('button', {class: 'btn btn-ghost', onclick: () => { editando = null; pintar(); }}, 'Cancelar'));
+
+  const borrar = el('button', {class: 'btn btn-danger', title: corriendo ? 'Deten el motor antes de eliminar' : '',
+    onclick: async () => {
+      if (!confirm('Eliminar ' + s.nombre + '?\n\nSu configuracion se ARCHIVA (no se borra) y su motor se apaga. Las tablas de la base de datos se conservan.')) return;
+      try {
+        const r = await api('DELETE', '/gestion/api/sags/' + s.id);
+        mensaje('msgGlobal', s.nombre + ' eliminado. Configuracion archivada en config/' + r.archivado_en + '.', true);
+        await cargar();
+      } catch (e) { mensaje(msgId, e.message, false); }
+    }}, 'Eliminar');
+  if (corriendo) borrar.disabled = true;
+
+  const card = el('div', {class: 'card'},
+    el('div', {class: 'bar', style: 'background:' + s.color}),
+    el('div', {class: 'card-head'},
+      el('span', {style: 'width:12px;height:12px;border-radius:50%;flex-shrink:0;background:' + s.color}),
+      el('span', {class: 'card-name', title: s.nombre}, s.nombre),
+      fijo ? el('span', {class: 'pill fixed'}, 'Por defecto') : ''),
+    el('div', {class: 'rows'},
+      el('span', {class: 'k'}, 'Identificador'), el('span', {class: 'card-id'}, s.id + '  ·  tablas ' + s.id + '_entrada / _salida'),
+      el('span', {class: 'k'}, 'Proceso'), el('span', {}, pillProceso(s)),
+      el('span', {class: 'k'}, 'Motor'), el('span', {}, pillMotor(s))),
+    edit,
+    el('div', {class: 'msg', id: msgId}),
+    el('div', {class: 'actions'},
+      el('a', {class: 'btn btn-primary', href: '/gestion/seleccionar/' + encodeURIComponent(s.id) + '?volver=/espesador'}, 'Abrir'),
+      el('button', {class: 'btn btn-ghost', onclick: () => { editando = s.id; edit.classList.add('show'); nombreIn.focus(); }}, 'Renombrar / color'),
+      fijo ? '' : borrar));
+  if (editando === s.id) edit.classList.add('show');
+  return card;
+}
+
+function tarjetaNueva() {
+  const lleno = estado.sags.length >= estado.max_sags;
+  const nombreIn = el('input', {type: 'text', placeholder: 'Ej: SAG 2', maxlength: '40', id: 'nuevoNombre'});
+  const paleta = ['#14b8a6', '#a78bfa', '#f472b6', '#38bdf8', '#facc15', '#fb923c'];
+  const libre = paleta.find(c => !estado.sags.some(s => (s.color || '').toLowerCase() === c)) || '#a78bfa';
+  const colorIn = el('input', {type: 'color', value: libre, id: 'nuevoColor'});
+  const base = el('select', {id: 'nuevaBase'},
+    el('option', {value: 'vacio'}, 'Vacio (se configura desde cero)'),
+    estado.sags.map(s => el('option', {value: 'clonar:' + s.id}, 'Clonar la logica de ' + s.nombre)));
+  const crear = el('button', {class: 'btn btn-primary', onclick: async () => {
+    crear.disabled = true;
+    try {
+      const r = await api('POST', '/gestion/api/sags', {nombre: nombreIn.value, color: colorIn.value, base: base.value});
+      mensaje('msgGlobal', r.sag.nombre + ' creado. Su proceso arranca en unos segundos; el motor queda detenido hasta que lo inicies desde su pagina.', true);
+      nombreIn.value = '';
+      await cargar();
+    } catch (e) { mensaje('msgNuevo', e.message, false); crear.disabled = false; }
+  }}, 'Crear SAG');
+
+  if (lleno) {
+    return el('div', {class: 'card new-card'},
+      el('h2', {}, 'Crear SAG'),
+      el('p', {class: 'hint'}, 'Ya hay ' + estado.sags.length + ' SAG, que es el maximo permitido por ahora (' + estado.max_sags + ').'));
+  }
+  return el('div', {class: 'card new-card'},
+    el('h2', {}, 'Crear SAG'),
+    el('div', {class: 'field'}, el('label', {}, 'Nombre'), el('div', {style: 'display:flex;gap:8px'}, nombreIn, colorIn)),
+    el('div', {class: 'field'}, el('label', {}, 'Partir de'), base),
+    el('p', {class: 'hint'}, 'Clonar copia reglas, filtros, fuzzy, defuzzy, tracking, estados, waits y los tags de lectura (PV, CRUDA, LIM). ',
+      'Nunca copia setpoints, handshake ni heartbeat: el SAG nuevo no escribe al DCS hasta que configures los suyos.'),
+    el('div', {class: 'msg', id: 'msgNuevo'}),
+    el('div', {class: 'actions'}, crear));
+}
+
+function pintar() {
+  // El refresco periodico no puede borrar lo que se esta escribiendo en
+  // "Crear SAG": se guardan los valores (y el foco) y se reponen.
+  const previo = {};
+  ['nuevoNombre', 'nuevoColor', 'nuevaBase'].forEach(id => {
+    const e = document.getElementById(id); if (e) previo[id] = e.value;
+  });
+  const foco = document.activeElement && document.activeElement.id;
+  const g = document.getElementById('grid');
+  g.replaceChildren(...estado.sags.map(tarjeta), tarjetaNueva());
+  Object.entries(previo).forEach(([id, v]) => {
+    const e = document.getElementById(id);
+    if (e && [...(e.options || [])].every(o => o.value !== v) && e.tagName === 'SELECT') return;
+    if (e) e.value = v;
+  });
+  if (foco && document.getElementById(foco)) document.getElementById(foco).focus();
+}
+
+cargar();
+setInterval(cargar, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+{
+  "active": true,
+  "months": 3,
+  "type": "Licencia prototipo 3 meses",
+  "activated_at": "2026-10-01",
+  "expires_at": "2026-10-31",
+  "capped": true,
+  "history": [
+    {
+      "activated_at": "2026-07-20",
+      "months": 6,
+      "expires_at": "2026-10-12",
+      "capped": true,
+      "status": "Reemplazada",
+      "code_masked": "HUTBAY-***-2026"
+    },
+    {
+      "activated_at": "2026-07-20",
+      "months": 6,
+      "expires_at": "2026-10-12",
+      "capped": true,
+      "status": "Reemplazada",
+      "code_masked": "HUTBAY-***-2026"
+    },
+    {
+      "activated_at": "2026-10-01",
+      "months": 3,
+      "expires_at": "2026-10-31",
+      "capped": true,
+      "status": "Activa",
+      "code_masked": "HUTBAY-***-2026"
+    }
+  ],
+  "duration_seconds": 2678400.0,
+  "consumed_seconds": 0.0,
+  "last_seen_at": "2026-10-01T14:11:45",
+  "signature": "6c5b256646b8567121f1a7f908985fcd52f0e4736e7a926f295f3ae8824c6b11"
+}

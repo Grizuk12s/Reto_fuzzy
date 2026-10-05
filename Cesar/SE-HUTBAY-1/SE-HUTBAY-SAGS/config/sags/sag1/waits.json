@@ -1,0 +1,16 @@
+[
+  {
+    "wait_id": "wait::as",
+    "nombre": "as",
+    "tipo": "custom",
+    "variable_controlada": null,
+    "descripcion": "as"
+  },
+  {
+    "wait_id": "wait::sfd",
+    "nombre": "sfd",
+    "tipo": "custom",
+    "variable_controlada": null,
+    "descripcion": "sfdd"
+  }
+]

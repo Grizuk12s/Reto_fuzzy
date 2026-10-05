@@ -1,0 +1,7 @@
+{
+  "velocidad_sp": {
+    "pv_key": "velocidad_pv",
+    "rango": 0.3,
+    "habilitado": true
+  }
+}

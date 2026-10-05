@@ -1,0 +1,727 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh}
+.sidebar{width:220px;flex-shrink:0;background:#0b1322;border-right:1px solid #1e293b;padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto;transition:width .25s ease}
+.sidebar.collapsed{width:52px;padding:18px 4px;align-items:center;overflow-x:hidden}
+.sidebar .brand{font-size:.95rem;font-weight:700;color:#38bdf8;padding:4px 8px 14px 8px;border-bottom:1px solid #1e293b;margin-bottom:8px;white-space:nowrap;overflow:hidden}
+.sidebar.collapsed .brand{font-size:.75rem;padding:4px 2px 14px 2px;text-align:center}
+.sidebar a{display:flex;align-items:center;color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:6px;font-size:.85rem;border-left:3px solid transparent;transition:.15s;white-space:nowrap;overflow:hidden}
+.sidebar.collapsed a{padding:8px 0;justify-content:center;border-left:none;font-size:.7rem}
+.sidebar a:hover{background:#1e293b;color:#e2e8f0}
+.sidebar a.active{background:#1e293b;color:#38bdf8;border-left-color:#38bdf8;font-weight:600}
+.sidebar.collapsed a.active{border-left:none;border-bottom:2px solid #38bdf8;border-radius:4px}
+.sidebar a.external{color:#64748b;font-size:.78rem;margin-top:4px}
+.sidebar.collapsed a.external{font-size:.7rem;margin-top:2px}
+.sidebar .link-label{transition:opacity .2s}
+.sidebar.collapsed .link-label{display:none}
+.sidebar .badge-full{display:inline-block}
+.sidebar.collapsed .badge-full{display:none}
+.sidebar .badge-short{display:none}
+.sidebar.collapsed .badge-short{display:inline-block}
+.sidebar.collapsed .section-label{display:none}
+.sidebar .sidebar-toggle{background:none;border:1px solid #1e293b;color:#64748b;cursor:pointer;padding:6px;border-radius:6px;font-size:.85rem;margin-bottom:6px;transition:.15s;width:100%}
+.sidebar .sidebar-toggle:hover{background:#1e293b;color:#e2e8f0}
+.sidebar.collapsed .sidebar-toggle{padding:6px 2px;font-size:.75rem}
+.sidebar .step-num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:.65rem;font-weight:700;margin-right:6px;flex-shrink:0}
+.sidebar .step-num.s1{background:rgba(37,99,235,.2);color:#3b82f6}
+.sidebar .step-num.s2{background:rgba(8,145,178,.2);color:#06b6d4}
+.sidebar .step-num.s3{background:rgba(16,185,129,.2);color:#10b981}
+.sidebar .step-num.s4{background:rgba(99,102,241,.2);color:#6366f1}
+.sidebar .step-num.s5{background:rgba(168,85,247,.2);color:#a855f7}
+.sidebar .step-num.s6{background:rgba(20,184,166,.2);color:#14b8a6}
+.sidebar .step-num.s7{background:rgba(245,158,11,.2);color:#f59e0b}
+.sidebar .step-num.s8{background:rgba(34,197,94,.2);color:#22c55e}
+.sidebar .step-num.s9{background:rgba(236,72,153,.2);color:#ec4899}
+.sidebar .section-label{display:block;color:#475569;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:4px 10px;margin-top:6px}
+.sidebar hr.sep{border:none;border-top:1px solid #1e293b;margin:12px 4px}
+
+.main{flex:1;padding:20px;overflow-x:auto}
+.seccion{display:none}
+.seccion.active{display:block}
+.placeholder-card{background:#1e293b;border:1px dashed #475569;border-radius:10px;padding:24px;color:#94a3b8;text-align:center}
+.placeholder-card h3{color:#e2e8f0;margin-bottom:8px}
+h1{color:#38bdf8;margin-bottom:8px}
+h2{color:#94a3b8;font-size:1rem;margin-bottom:20px;font-weight:400}
+.top-bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:20px}
+button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:.875rem;font-weight:600;transition:.15s}
+.btn-primary{background:#3b82f6;color:#fff}.btn-primary:hover{background:#2563eb}
+.btn-success{background:#22c55e;color:#fff}.btn-success:hover{background:#16a34a}
+.btn-danger{background:#ef4444;color:#fff}.btn-danger:hover{background:#dc2626}
+.btn-sm{padding:4px 10px;font-size:.75rem}
+table{width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden;margin-bottom:20px}
+th{background:#334155;color:#94a3b8;text-align:left;padding:10px 12px;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+td{padding:8px 12px;border-top:1px solid #334155;font-size:.85rem;vertical-align:top}
+tr:hover{background:#2d3a4f}
+.tag{display:inline-block;background:#334155;border-radius:4px;padding:2px 6px;margin:1px;font-size:.75rem}
+.tag-var{border-left:3px solid #38bdf8}
+.tag-label{border-left:3px solid #a78bfa}
+.tag-action{border-left:3px solid #fb923c}
+.tag-block{border-left:3px solid #22c55e}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:100;justify-content:center;align-items:center}
+.modal-overlay.active{display:flex}
+.modal{background:#1e293b;border-radius:12px;padding:24px;width:700px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 40px rgba(0,0,0,.5)}
+.modal h3{color:#38bdf8;margin-bottom:16px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group.full{grid-column:1/-1}
+label{font-size:.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em}
+input,select,textarea{background:#0f172a;border:1px solid #475569;border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:.85rem}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#3b82f6}
+.cond-row{display:flex;gap:6px;align-items:center;margin-bottom:4px}
+.cond-row select{flex:1}
+.cond-row button{flex-shrink:0}
+.action-row select{max-width:260px}
+.action-row input[type=number]{background:#0f172a;border:1px solid #475569;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:.8rem}
+#sim-results{background:#1e293b;border-radius:8px;padding:16px;margin-top:20px;display:none}
+#sim-results h3{color:#22c55e;margin-bottom:12px}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+.stat-card{background:#334155;border-radius:8px;padding:12px;text-align:center}
+.stat-card .val{font-size:1.5rem;font-weight:700;color:#38bdf8}
+.stat-card .lbl{font-size:.7rem;color:#94a3b8;text-transform:uppercase;margin-top:4px}
+.ev-table{max-height:300px;overflow-y:auto}
+.loading{color:#94a3b8;font-style:italic}
+.hint{font-size:.7rem;color:#64748b;margin-top:2px}
+/* ---- Pagina de Aceleracion ---- */
+.acel-ayuda{background:#0f172a;border:1px solid #334155;border-radius:10px;margin-bottom:14px}
+.acel-ayuda>summary{cursor:pointer;padding:10px 14px;font-size:.82rem;font-weight:600;color:#38bdf8;list-style:none}
+.acel-ayuda>summary::-webkit-details-marker{display:none}
+.acel-ayuda>summary::before{content:'\25B8 ';color:#64748b}
+.acel-ayuda[open]>summary::before{content:'\25BE '}
+.acel-ayuda-body{padding:0 14px 12px;font-size:.8rem;color:#cbd5e1;line-height:1.65}
+.acel-ayuda-body p{margin:0 0 8px}
+.acel-tabla-ayuda{width:auto;margin:4px 0 10px;font-size:.75rem}
+.acel-tabla-ayuda th{padding:5px 12px;font-size:.66rem}
+.acel-tabla-ayuda td{padding:4px 12px;color:#94a3b8}
+.acel-pill{display:inline-block;font-size:.64rem;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.03em;white-space:nowrap}
+.p-ace{background:rgba(239,68,68,.15);color:#f87171}
+.p-des{background:rgba(34,197,94,.15);color:#4ade80}
+.p-est{background:rgba(100,116,139,.2);color:#94a3b8}
+.p-off{background:rgba(100,116,139,.12);color:#64748b}
+.acel-barra{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.acel-motor{font-size:.76rem;color:#64748b}
+.acel-motor.on{color:#22c55e}
+.acel-motor.off{color:#f59e0b}
+.acel-auto{font-size:.75rem;color:#94a3b8;display:flex;gap:6px;align-items:center}
+.acel-card{background:#1e293b;border:1px solid #334155;border-left:3px solid #475569;border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.acel-card.st-ACELERANDO{border-left-color:#ef4444}
+.acel-card.st-DESACELERANDO{border-left-color:#22c55e}
+.acel-card.st-ESTABLE{border-left-color:#475569}
+.acel-card.st-off{border-left-color:#334155;opacity:.62}
+.acel-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.acel-nombre{font-family:ui-monospace,Consolas,monospace;font-size:.9rem;font-weight:700;color:#e2e8f0}
+.acel-de{font-size:.75rem;color:#64748b}
+.acel-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px}
+.acel-f{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 10px}
+.acel-f label{display:block;font-size:.66rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.acel-f input{width:100%;font-family:ui-monospace,Consolas,monospace}
+.acel-f .u{font-size:.65rem;color:#475569;margin-top:3px}
+.acel-live{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 12px;margin-top:10px}
+.acel-live .lk{font-size:.64rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.acel-live .lv{font-family:ui-monospace,Consolas,monospace;font-size:.95rem;font-weight:700;color:#e2e8f0;margin-top:2px}
+.acel-live-vacio{margin-top:10px;padding:8px 12px;background:#0f172a;border:1px dashed #334155;border-radius:8px;font-size:.76rem;color:#64748b}
+.acel-bar{height:6px;background:#1e293b;border-radius:3px;overflow:hidden;margin-top:6px}
+.acel-bar i{display:block;height:100%;border-radius:3px;transition:width .3s ease}
+.acel-bar{position:relative}
+.acel-bar u{position:absolute;top:-2px;left:33.33%;width:2px;height:10px;background:#94a3b8;opacity:.85;border-radius:1px}
+.acel-nota{font-size:.72rem;color:#64748b;margin-top:8px;line-height:1.55}
+.acel-usos{font-size:.72rem;color:#38bdf8;margin-top:6px}
+
+.tags-legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#1e293b;border-radius:8px;border:1px solid #334155}
+.tags-legend-item{display:flex;align-items:center;gap:6px;font-size:.8rem;color:#cbd5e1}
+.tags-legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.dot-connected{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.5)}
+.dot-disconnected{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.5)}
+.dot-not-found{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,.5)}
+.dot-suspended{background:#64748b}
+.dot-unknown{background:#6366f1;box-shadow:0 0 6px rgba(99,102,241,.4)}
+
+.tag-status-cell{display:flex;align-items:center;gap:8px}
+.tag-status-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600;white-space:nowrap}
+.badge-connected{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.badge-disconnected{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
+.badge-not-found{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.badge-suspended{background:rgba(100,116,139,.15);color:#94a3b8;border:1px solid rgba(100,116,139,.3)}
+.badge-unknown{background:rgba(99,102,241,.15);color:#818cf8;border:1px solid rgba(99,102,241,.3)}
+.badge-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+.tag-value-display{font-family:'Cascadia Code','Fira Code',monospace;font-size:.9rem;color:#38bdf8;font-weight:600}
+.tag-value-na{color:#64748b;font-style:italic;font-weight:400}
+
+.tag-row-suspended{opacity:.5}
+.tag-row-suspended td{color:#64748b}
+
+.tags-add-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#1e293b;border-radius:8px;border:1px solid #334155}
+.tags-add-form input,.tags-add-form select{min-width:200px}
+.tags-actions{display:flex;gap:4px}
+
+.toggle-switch{position:relative;display:inline-block;width:52px;height:28px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ef4444;transition:.3s;border-radius:28px}
+.toggle-slider:before{position:absolute;content:"";height:22px;width:22px;left:3px;bottom:3px;background:#fff;transition:.3s;border-radius:50%}
+.toggle-switch input:checked + .toggle-slider{background:#22c55e}
+.toggle-switch input:checked + .toggle-slider:before{transform:translateX(24px)}
+
+
+.tag-group-header{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 14px;margin-top:16px;margin-bottom:8px;font-size:.82rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.tag-group-header .group-dot{width:10px;height:10px;border-radius:50%}
+
+/* --- Categorias de tags (seleccion manual) --- */
+.cat-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-bottom:16px}
+.cat-card{background:#0f172a;border:1px solid #334155;border-left-width:4px;border-radius:8px;padding:10px 12px}
+.cat-card .cat-name{display:flex;align-items:center;gap:7px;font-size:.8rem;font-weight:700;color:#e2e8f0;margin-bottom:4px}
+.cat-card .cat-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.cat-card .cat-code{font-family:ui-monospace,Consolas,monospace;font-size:.68rem;color:#64748b;border:1px solid #334155;border-radius:4px;padding:0 5px;margin-left:auto}
+.cat-card .cat-desc{font-size:.74rem;color:#94a3b8;line-height:1.45}
+.cat-card .cat-role{display:inline-block;margin-top:5px;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:4px;background:#1e293b;color:#94a3b8}
+.tag-cat-select{font-size:.75rem;padding:3px 6px;min-width:0;width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:5px}
+.tag-rol-select{font-size:.75rem;padding:3px 6px;min-width:0;width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:5px}
+.tag-rol-select.sin-asignar{border-color:#f59e0b;color:#f59e0b}
+.tag-rol-select:disabled{opacity:.35;cursor:not-allowed}
+.cobertura{border-radius:10px;padding:12px 16px;margin-bottom:16px;border:2px solid #334155;background:#1e293b;font-size:.82rem}
+.cobertura.ok{border-color:#22c55e}
+.cobertura.falta{border-color:#f59e0b}
+.cobertura h4{margin:0 0 6px;font-size:.9rem}
+.cobertura ul{margin:4px 0 0 18px;padding:0;color:#94a3b8}
+.cobertura code{background:#0f172a;padding:1px 5px;border-radius:4px;color:#f59e0b}
+
+.license-panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:860px}
+.license-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;margin-bottom:18px}
+.license-status-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;font-size:.8rem;font-weight:700;border:1px solid #475569;background:#0f172a;color:#94a3b8}
+.license-status-pill.active{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.12);color:#22c55e}
+.license-status-pill.expired{border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.12);color:#f59e0b}
+.license-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}
+.license-stat{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px}
+.license-stat .k{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.license-stat .v{font-size:1rem;color:#e2e8f0;font-weight:700}
+.license-actions{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.license-actions select{min-width:180px}
+.license-msg{margin-top:12px;font-size:.85rem;min-height:1.2em}
+
+/* Rule enable/disable */
+tr.rule-disabled{opacity:.4;background:#1a1a2e}
+tr.rule-disabled:hover{background:#1e1e34}
+.btn-toggle{padding:4px 10px;font-size:.7rem;font-weight:700;border-radius:4px;text-transform:uppercase;letter-spacing:.3px}
+.btn-toggle.on{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.btn-toggle.off{background:rgba(100,116,139,.15);color:#64748b;border:1px solid rgba(100,116,139,.3)}
+
+/* Rule execution flash — full border + bg pulse via JS, state in sessionStorage */
+
+/* Activity bar */
+.activity-bar{position:fixed;bottom:0;left:220px;right:0;background:#0b1322;border-top:1px solid #1e293b;z-index:90;transition:height .3s}
+.activity-bar.collapsed{height:36px;overflow:hidden}
+.activity-bar.expanded{height:260px}
+.activity-bar-header{display:flex;align-items:center;justify-content:space-between;padding:6px 16px;cursor:pointer;user-select:none}
+.activity-bar-header:hover{background:#1e293b}
+.activity-bar-title{font-size:.78rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;display:flex;align-items:center;gap:8px}
+.activity-bar-title .pulse{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse-dot 2s infinite}
+.activity-bar-arrow{color:#64748b;font-size:.9rem;transition:transform .3s}
+.activity-bar.expanded .activity-bar-arrow{transform:rotate(180deg)}
+.activity-bar-body{padding:0 16px 10px;overflow-y:auto;max-height:218px}
+.activity-bar-body table{width:100%;border-collapse:collapse;font-size:.78rem}
+.activity-bar-body th{background:#1e293b;color:#64748b;text-align:left;padding:6px 10px;font-size:.68rem;text-transform:uppercase;position:sticky;top:0;z-index:1}
+.activity-bar-body td{padding:5px 10px;border-top:1px solid #1e293b20;color:#cbd5e1}
+.activity-bar-body tr.ev-ok td:first-child{border-left:3px solid #22c55e}
+.activity-bar-body tr.ev-fail td:first-child{border-left:3px solid #ef4444}
+.activity-bar-body .ev-time{color:#38bdf8;font-family:'Cascadia Code','Fira Code',monospace;font-size:.72rem}
+.activity-bar-body .ev-actions{color:#fb923c}
+
+body{margin:0}.main{padding:20px}.seccion{display:block!important}
+</style></head><body><div class="main"><section class="seccion" id="seccion-aceleracion">
+  <div class="top-bar">
+    <div>
+      <h1>Aceleracion</h1>
+      <h2>Una pendiente dice si la variable <b>sube o baja</b>. Una aceleracion dice si ese
+          movimiento <b>se esta agrandando o achicando</b>. Cada una queda disponible en
+          <b>Condiciones de reglas, Estados y Subestados</b>.</h2>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-success" onclick="addAceleracion()">+ Aceleracion</button>
+      <button class="btn-primary" onclick="saveAceleraciones()">Guardar</button>
+      <button class="btn-danger" onclick="vaciarAceleraciones()" title="Deja aceleraciones.json en {}">Vaciar</button>
+    </div>
+  </div>
+
+  <details class="acel-ayuda">
+    <summary>Como se calcula y como se calibra</summary>
+    <div class="acel-ayuda-body">
+      <p><b>El calculo.</b> Sobre <b>todas</b> las muestras de la ventana se ajusta
+         <code>x(t) = a&middot;t&sup2; + b&middot;t + c</code> por minimos cuadrados. De ahi salen
+         <code>aceleracion = 2a</code> y <code>rate = 2a&middot;t_final + b</code> — la tasa
+         <b>al final</b> de la ventana, o sea lo que la variable esta haciendo ahora, no el
+         promedio del tramo.</p>
+      <p><b>El estado mira la MAGNITUD del cambio, no el signo de la aceleracion.</b>
+         Una variable que <b>baja cada vez mas rapido</b> tiene aceleracion negativa y esta
+         <span class="acel-pill p-ace">ACELERANDO</span>: lo que decide es si <code>rate</code> y
+         <code>aceleracion</code> apuntan al mismo lado.</p>
+      <table class="acel-tabla-ayuda">
+        <tr><th>rate</th><th>aceleracion</th><th>estado</th><th></th></tr>
+        <tr><td>sube</td><td>positiva</td><td><span class="acel-pill p-ace">ACELERANDO</span></td><td>|rate| crece</td></tr>
+        <tr><td>baja</td><td>negativa</td><td><span class="acel-pill p-ace">ACELERANDO</span></td><td>baja cada vez mas rapido</td></tr>
+        <tr><td>sube</td><td>negativa</td><td><span class="acel-pill p-des">DESACELERANDO</span></td><td>frena</td></tr>
+        <tr><td>baja</td><td>positiva</td><td><span class="acel-pill p-des">DESACELERANDO</span></td><td>frena</td></tr>
+        <tr><td colspan="2">|2a| &lt; umbral</td><td><span class="acel-pill p-est">ESTABLE</span></td><td>el cambio es despreciable</td></tr>
+      </table>
+      <p><b>Calibrar el umbral.</b> La segunda derivada amplifica el ruido: con el umbral
+         demasiado chico el estado salta entre ACELERANDO y DESACELERANDO sin que el proceso
+         haga nada. Con el motor corriendo, sube <code>umbral_estable</code> hasta que una
+         variable en regimen se quede quieta en ESTABLE. La <b>barra de margen</b> de cada
+         tarjeta es <code>|2a| / umbral</code>: llena justo cuando deja de ser ESTABLE.</p>
+      <p><b>El nombre queda congelado al crearla.</b> Cambiar la ventana despues NO lo
+         renombra, a proposito: si lo hiciera, las reglas que la nombran quedarian mudas en
+         silencio.</p>
+      <p><b>Negaciones.</b> <code>NO-ACELERANDO</code> y <code>NO-DESACELERANDO</code> existen
+         solas, sin declarar nada: las genera el nucleo para cada etiqueta.</p>
+    </div>
+  </details>
+
+  <div class="acel-barra">
+    <span id="acel-motor" class="acel-motor">&#9675; sin datos del motor</span>
+    <span style="flex:1"></span>
+    <label class="acel-auto"><input type="checkbox" id="acel-auto" onchange="_toggleAcelAuto()"> refrescar cada 2 s</label>
+    <button class="btn-sm" onclick="refrescarAcelVivo()">Refrescar</button>
+  </div>
+
+  <div id="acel-msg" style="margin-bottom:10px;font-size:.85rem;min-height:1.2em"></div>
+  <div id="acel-cards"></div>
+  <div id="acel-omitidas"></div>
+</section>
+
+</div>
+<script>
+function _escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function _escapeAttr(s){return _escapeHtml(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+const ActivitySummary={snap:function(){},getSnap:function(){}};
+const ActivityAlerts={markDirty:function(){},onSave:function(){}};
+async function refrescarMeta(){}
+// ============================================================
+// Aceleraciones (aceleraciones.json)
+// ============================================================
+// Hermana de las pendientes, con una diferencia de fondo: aca NO hay eje ni
+// filas que calibrar. Las tres etiquetas son fijas y lo unico configurable es
+// donde termina ESTABLE, asi que la pagina son tarjetas y no una matriz de
+// membresias. Ver "La aceleracion es un estado nitido, no un fuzzy" en
+// CLAUDE.md.
+//
+// La configuracion y el estado EN VIVO van en la MISMA tarjeta, no en dos
+// bloques separados. No es cosmetico: calibrar `umbral_estable` es mirar el
+// numero que produce el motor y subir el umbral hasta que se aquiete, y con
+// las dos cosas en tablas distintas hay que ir y volver comparando nombres.
+const _acelState = {actual: {}, fuentes: [], plantilla: null, porVariable: {},
+                    limites: {}, usoEnReglas: {}, vivo: {}, omitidas: [],
+                    running: false, hayTraza: false, timer: null};
+
+const ACEL_COLOR = {ACELERANDO: '#ef4444', DESACELERANDO: '#22c55e', ESTABLE: '#64748b'};
+const ACEL_PILL  = {ACELERANDO: 'p-ace', DESACELERANDO: 'p-des', ESTABLE: 'p-est'};
+
+// `toPrecision` arrastra ceros: 0.0009 sale "0.0009000" y el ojo lee mas
+// digitos significativos de los que hay. Y una aceleracion puede ser muy
+// chica de verdad (1e-5 es un valor legitimo), asi que por debajo de 1e-4 se
+// pasa a exponencial en vez de mostrar "0.0000".
+function _acelNum(v) {
+  const x = Number(v);
+  if (!isFinite(x)) return '\u2014';
+  if (x === 0) return '0';
+  const a = Math.abs(x);
+  if (a < 1e-4 || a >= 1e6) return x.toExponential(2);
+  return String(parseFloat(x.toPrecision(4)));
+}
+
+function _setAcelMsg(msg, color) {
+  const el = document.getElementById('acel-msg');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.color = color || '#94a3b8';
+}
+
+async function loadAceleraciones() {
+  const r = await fetch('/api/aceleraciones');
+  const d = await r.json();
+  _acelState.actual      = d.actual || {};
+  _acelState.fuentes     = d.fuentes || [];
+  _acelState.plantilla   = d.plantilla || null;
+  _acelState.porVariable = d.por_variable || {};
+  _acelState.limites     = d.limites || {};
+  _acelState.usoEnReglas = d.uso_en_reglas || {};
+  ActivitySummary.snap('aceleraciones', _acelState.actual || {});
+  _renderAceleraciones();
+  refrescarAcelVivo();
+}
+
+// Vuelca al estado lo tipeado en TODAS las tarjetas. Hay que llamarla antes
+// de cualquier re-render, o agregar una aceleracion borra lo que el operador
+// venia escribiendo en las otras. Misma leccion que `_sincronizarDefuzzy`.
+function _commitAcelFromInputs() {
+  document.querySelectorAll('#acel-cards [data-acel-n]').forEach(function(el) {
+    const n = el.dataset.acelN, campo = el.dataset.acelCampo;
+    const c = _acelState.actual[n];
+    if (!c) return;
+    if (campo === 'habilitado') { c.habilitado = el.checked; return; }
+    if (campo === 'variable' || campo === 'descripcion') { c[campo] = el.value; return; }
+    if (campo === 'umbral_rate') {
+      // Vacio = derivarlo de umbral_estable * ventana_s. Es lo que hace el
+      // nucleo, y forzar un numero aca obligaria a calibrar dos cosas.
+      c.umbral_rate = (String(el.value).trim() === '') ? null : parseFloat(el.value);
+      return;
+    }
+    const v = parseFloat(el.value);
+    if (!isNaN(v)) c[campo] = (campo === 'min_puntos') ? Math.round(v) : v;
+  });
+}
+
+function _acelUsada(n) {
+  const u = _acelState.usoEnReglas || {};
+  return Array.from(new Set(['ACELERANDO', 'DESACELERANDO', 'ESTABLE'].reduce(
+    function(acc, et) {
+      return acc.concat(u[n + '|' + et] || [], u[n + '|NO-' + et] || []);
+    }, [])));
+}
+
+// La barra se satura a 3x el umbral: mas alla el numero exacto no cambia
+// ninguna decision, y estirar la escala haria ilegible el rango util (0-1,
+// que es donde se decide si algo es ESTABLE).
+function _acelBarra(margen, color) {
+  const pct = (margen === null || !isFinite(margen)) ? 0 : Math.min(100, (margen / 3) * 100);
+  // La marca del 1x es la parte util del dibujo: es DONDE deja de ser
+  // ESTABLE. Sin ella la barra solo dice "hay mas o menos", que ya lo dice el
+  // numero de al lado.
+  return '<div class="acel-bar" title="margen '
+    + (margen === null ? '?' : margen.toFixed(2))
+    + '\u00d7 \u00b7 la marca es el umbral (1\u00d7); la barra se llena en 3\u00d7">'
+    + '<i style="width:' + pct.toFixed(1) + '%;background:' + color + '"></i>'
+    + '<u title="umbral (1\u00d7)"></u></div>';
+}
+
+// El estado en vivo se repinta cada 2 s. NO se puede hacer re-renderizando
+// la tarjeta: borraria lo que el operador esta tipeando y le robaria el
+// cursor. Por eso la pastilla y la franja viven en contenedores propios y
+// `_pintarVivo` les cambia solo el innerHTML.
+function _pintarVivo() {
+  Object.keys(_acelState.actual).forEach(function(n) {
+    const c = _acelState.actual[n] || {};
+    const off = c.habilitado === false;
+    const v = _acelState.vivo[n];
+    const estado = off ? null : (v ? v.estado : null);
+
+    const card = document.querySelector('[data-acel-card="' + CSS.escape(n) + '"]');
+    if (card) {
+      card.className = 'acel-card ' + (off ? 'st-off' : ('st-' + (estado || 'ESTABLE')));
+    }
+    const pill = document.querySelector('[data-acel-pill="' + CSS.escape(n) + '"]');
+    if (pill) pill.outerHTML = _acelPastilla(n, off, estado);
+    const live = document.querySelector('[data-acel-live="' + CSS.escape(n) + '"]');
+    if (live) live.innerHTML = _acelFranjaViva(n);
+  });
+}
+
+function _acelPastilla(n, off, estado) {
+  const cont = function(cls, txt) {
+    return '<span class="acel-pill ' + cls + '" data-acel-pill="' + _escapeAttr(n) + '">'
+      + txt + '</span>';
+  };
+  if (off) return cont('p-off', 'DESHABILITADA');
+  if (!estado) return cont('p-off', 'sin dato');
+  return cont(ACEL_PILL[estado] || 'p-est', _escapeHtml(estado));
+}
+
+function _acelFranjaViva(n) {
+  const c = _acelState.actual[n] || {};
+  if (c.habilitado === false) {
+    // El motor ni siquiera la arma: decir "ventana incompleta" aca mandaria a
+    // esperar algo que no va a pasar nunca.
+    return '<div class="acel-live-vacio">Deshabilitada: el motor no la calcula. '
+      + 'Las reglas que la nombren quedan no evaluables.</div>';
+  }
+  const v = _acelState.vivo[n];
+  if (!v) {
+    // Distinguir "el motor no corre" de "corre y esta juntando ventana" de
+    // "esta declarada pero el motor todavia no la conoce". Las tres se
+    // arreglan de forma distinta y un unico "sin datos" no ayuda a ninguna.
+    let motivo;
+    if (!_acelState.running) {
+      motivo = 'El motor no esta corriendo: arrancalo para ver el numero real y calibrar.';
+    } else {
+      const om = (_acelState.omitidas || []).find(m => String(m).indexOf(n) === 0);
+      motivo = om
+        ? _escapeHtml(om.slice(n.length).replace(/^\s*\(|\)\s*$/g, ''))
+          + '. Se resuelve solo cuando la ventana se cubra.'
+        : 'El motor corre pero no la conoce: las aceleraciones se aplican al '
+          + '<b>reiniciar</b> el motor.';
+    }
+    return '<div class="acel-live-vacio">' + motivo + '</div>';
+  }
+  const u = Number(v.umbral_estable) || 0;
+  const margen = u > 0 ? Math.abs(Number(v.aceleracion)) / u : null;
+  const col = ACEL_COLOR[v.estado] || '#94a3b8';
+  const cel = function(k, val) {
+    return '<div><div class="lk">' + k + '</div><div class="lv">' + val + '</div></div>';
+  };
+  return '<div class="acel-live">'
+    + cel('rate', _acelNum(v.rate) + ' <span style="font-size:.7rem;color:#64748b">u/s</span>')
+    + cel('aceleracion', _acelNum(v.aceleracion) + ' <span style="font-size:.7rem;color:#64748b">u/s²</span>')
+    + cel('margen', '<span style="color:' + col + '">'
+        + (margen === null ? '—' : margen.toFixed(2) + '×') + '</span>'
+        + _acelBarra(margen, col))
+    + cel('muestras', v.n_puntos)
+    + '</div>';
+}
+
+function _renderAceleraciones() {
+  const box = document.getElementById('acel-cards');
+  if (!box) return;
+  const nombres = Object.keys(_acelState.actual).sort();
+
+  if (!_acelState.fuentes.length) {
+    box.innerHTML = '<div style="color:#f59e0b;font-size:.85rem">No hay PV ni variables '
+      + 'calculadas todavia. Registra tags de categoria PV o define una variable calculada '
+      + 'para poder medirle la aceleracion.</div>';
+    return;
+  }
+  if (!nombres.length) {
+    box.innerHTML = '<div style="color:#64748b;font-size:.85rem">Sin aceleraciones. '
+      + 'Usa <b>+ Aceleracion</b>. Mientras no exista ninguna, una regla no puede preguntar '
+      + 'si una variable se esta escapando.</div>';
+    return;
+  }
+
+  const maxWin = _acelState.limites.ventana_max_s || 3600;
+  const minPts = _acelState.limites.min_puntos_min || 3;
+
+  box.innerHTML = nombres.map(function(n) {
+    const c = _acelState.actual[n] || {};
+    const off = c.habilitado === false;
+    const v = _acelState.vivo[n];
+    const estado = off ? null : (v ? v.estado : null);
+    const usada = _acelUsada(n);
+    const hermanas = (_acelState.porVariable[c.variable] || []).filter(x => x !== n);
+
+    const pill = _acelPastilla(n, off, estado);
+
+    const optsFuente = _acelState.fuentes.map(function(f) {
+      const sel = f.identificador === c.variable ? ' selected' : '';
+      const marca = f.origen === 'calculada' ? ' (calculada)' : '';
+      return '<option value="' + _escapeAttr(f.identificador) + '"' + sel + '>'
+        + _escapeHtml(f.pseudonimo || f.identificador) + marca + '</option>';
+    }).join('');
+
+    const campo = function(label, unidad, campoId, val, extra, ph) {
+      return '<div class="acel-f"><label>' + label + '</label>'
+        + '<input data-acel-n="' + _escapeAttr(n) + '" data-acel-campo="' + campoId + '"'
+        + ' type="number" step="any" ' + (extra || '')
+        + (ph ? ' placeholder="' + ph + '"' : '')
+        + ' value="' + (val === null || val === undefined ? '' : _escapeAttr(String(val))) + '">'
+        + '<div class="u">' + unidad + '</div></div>';
+    };
+    const derivado = (Number(c.umbral_estable) || 0) * (Number(c.ventana_s) || 0);
+
+    return '<div class="acel-card ' + (off ? 'st-off' : ('st-' + (estado || 'ESTABLE')))
+      + '" data-acel-card="' + _escapeAttr(n) + '">'
+      + '<div class="acel-head">'
+      + '<span class="acel-nombre">' + _escapeHtml(n) + '</span>'
+      + pill
+      + '<span class="acel-de">de</span>'
+      + '<select data-acel-n="' + _escapeAttr(n) + '" data-acel-campo="variable">'
+      + optsFuente + '</select>'
+      + '<label class="acel-auto"><input type="checkbox" data-acel-n="' + _escapeAttr(n)
+      + '" data-acel-campo="habilitado"' + (off ? '' : ' checked') + '> habilitada</label>'
+      + '<input data-acel-n="' + _escapeAttr(n) + '" data-acel-campo="descripcion" type="text"'
+      + ' placeholder="descripcion" value="' + _escapeAttr(String(c.descripcion || '')) + '"'
+      + ' style="flex:1;min-width:140px">'
+      + '<button class="btn-sm btn-danger" onclick="delAceleracion(\'' + _escapeAttr(n)
+      + '\')">Borrar</button>'
+      + '</div>'
+      + '<div class="acel-fields">'
+      + campo('Ventana', 'segundos &middot; max ' + maxWin, 'ventana_s', c.ventana_s,
+              'min="0.1" max="' + maxWin + '"')
+      + campo('Umbral ESTABLE', 'u/s&sup2; &middot; |2a| menor → ESTABLE',
+              'umbral_estable', c.umbral_estable, 'min="0"')
+      + campo('Umbral rate', 'u/s &middot; vacio = ' + _acelNum(derivado) + ' (auto)',
+              'umbral_rate', c.umbral_rate, 'min="0"', 'auto')
+      + campo('Min. muestras', 'la cuadratica necesita ' + minPts, 'min_puntos',
+              c.min_puntos, 'min="' + minPts + '" step="1"')
+      + '</div>'
+      + '<div data-acel-live="' + _escapeAttr(n) + '">' + _acelFranjaViva(n) + '</div>'
+      + (hermanas.length || usada.length
+          ? '<div class="acel-usos">'
+            + (hermanas.length
+                ? 'Otras ventanas sobre la misma variable: '
+                  + hermanas.map(x => '<code>' + _escapeHtml(x) + '</code>').join(', ')
+                : '')
+            + (hermanas.length && usada.length ? '<br>' : '')
+            + (usada.length
+                ? 'La usan las reglas: ' + _escapeHtml(usada.join(', '))
+                  + '. Borrarla o renombrarla se rechaza al guardar.'
+                : '')
+            + '</div>'
+          : '')
+      + '</div>';
+  }).join('');
+}
+
+async function addAceleracion() {
+  _commitAcelFromInputs();
+  if (!_acelState.fuentes.length) {
+    return _setAcelMsg('No hay PV ni variables calculadas para medirles la aceleracion.', '#f59e0b');
+  }
+  const p = _acelState.plantilla || {};
+  const fuente = _acelState.fuentes[0].identificador;
+  const win = p.ventana_s !== undefined ? p.ventana_s : 5;
+
+  // El nombre lo propone el servidor: es el del estandar
+  // (`<variable>_Acceleration_<n>s`) y ya viene libre de colisiones contra
+  // PV, setpoints, calculadas y pendientes.
+  let sugerido = fuente + '_Acceleration_' + win + 's';
+  try {
+    const rs = await fetch('/api/aceleraciones/sugerir-nombre?variable='
+      + encodeURIComponent(fuente) + '&ventana_s=' + encodeURIComponent(win));
+    if (rs.ok) sugerido = (await rs.json()).nombre || sugerido;
+  } catch (e) { /* la sugerencia es una comodidad, no un requisito */ }
+
+  const nombre = (prompt('Nombre de la aceleracion.\n\n'
+    + 'Es lo que las reglas van a escribir y NO se renombra despues: cambiar la '
+    + 'ventana no lo toca, justamente para no dejar reglas mudas.', sugerido) || '').trim();
+  if (!nombre) return;
+  if (_acelState.actual[nombre]) return _setAcelMsg('Ya existe "' + nombre + '".', '#ef4444');
+
+  _acelState.actual[nombre] = {
+    variable: fuente,
+    ventana_s: win,
+    umbral_estable: p.umbral_estable !== undefined ? p.umbral_estable : 0.01,
+    umbral_rate: null,
+    min_puntos: p.min_puntos !== undefined ? p.min_puntos : 3,
+    habilitado: true,
+    descripcion: '',
+  };
+  _renderAceleraciones();
+  _setAcelMsg('Creada con un umbral neutro. Calibralo mirando el margen y pulsa Guardar.', '#f59e0b');
+  ActivityAlerts.markDirty('aceleracion');
+}
+
+function delAceleracion(n) {
+  if (!confirm('Borrar la aceleracion "' + n + '"?\n\n'
+    + 'Si alguna regla la nombra, el guardado se va a rechazar.')) return;
+  _commitAcelFromInputs();
+  delete _acelState.actual[n];
+  _renderAceleraciones();
+  _setAcelMsg('Borrada localmente. Pulsa Guardar para aplicarlo.', '#f59e0b');
+  ActivityAlerts.markDirty('aceleracion');
+}
+
+async function saveAceleraciones() {
+  const before = ActivitySummary.getSnap('aceleraciones');
+  _commitAcelFromInputs();
+  let r = await fetch('/api/aceleraciones', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(_acelState.actual)});
+  let d = await r.json();
+  if (r.status === 409) {
+    if (!confirm(d.error + '\n\nGuardar igual? Esas reglas van a quedar no evaluables.')) {
+      return _setAcelMsg('No se guardo.', '#f59e0b');
+    }
+    r = await fetch('/api/aceleraciones', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign({__forzar__: true}, _acelState.actual))});
+    d = await r.json();
+  }
+  if (!r.ok) {
+    ActivityAlerts.onSave('aceleracion', false, d.error || 'Error al guardar aceleraciones');
+    return _setAcelMsg(d.error || 'Error al guardar.', '#ef4444');
+  }
+  const after = JSON.parse(JSON.stringify(_acelState.actual));
+  await loadAceleraciones();
+  await refrescarMeta();
+  ActivityAlerts.onSave('aceleracion', true, 'Aceleraciones guardadas',
+    ActivitySummary.aceleraciones(before, after));
+  _setAcelMsg('Guardadas. Se aplican al reiniciar el motor.', '#22c55e');
+  setTimeout(() => _setAcelMsg(''), 4000);
+}
+
+async function vaciarAceleraciones() {
+  const n = Object.keys(_acelState.actual || {}).length;
+  if (!n) return _setAcelMsg('Ya esta vacio.', '#94a3b8');
+  if (!confirm('Vaciar las ' + n + ' aceleraciones?\n\n'
+    + 'Las reglas que las nombren quedan no evaluables.')) return;
+  const r = await fetch('/api/aceleraciones/vaciar', {method: 'POST'});
+  if (!r.ok) return _setAcelMsg('Error al vaciar.', '#ef4444');
+  await loadAceleraciones();
+  await refrescarMeta();
+  _setAcelMsg('Vaciado.', '#22c55e');
+}
+
+// ------------------------------------------------------------
+// En vivo: sale de la TRAZA, no de una segunda cuenta en el navegador.
+// Recalcularlo aca habria sido mas simple y habria podido discrepar de lo
+// que deciden las reglas — misma decision que el Explorador de Series.
+// ------------------------------------------------------------
+async function refrescarAcelVivo() {
+  const est = document.getElementById('acel-motor');
+  let d;
+  try {
+    const r = await fetch('/api/se/trace?n=1');
+    d = await r.json();
+  } catch (e) {
+    if (est) { est.className = 'acel-motor off'; est.textContent = '○ no se pudo leer la traza'; }
+    return;
+  }
+  _acelState.running = !!d.running;
+  const tz = (d.trazas || [])[0] || {};
+  _acelState.hayTraza = !!(d.trazas || []).length;
+  _acelState.vivo = {};
+  (tz.aceleraciones || []).forEach(function(f) { _acelState.vivo[f.var] = f; });
+  _acelState.omitidas = tz.aceleraciones_omitidas || [];
+
+  if (est) {
+    const n = Object.keys(_acelState.vivo).length;
+    est.className = 'acel-motor ' + (_acelState.running ? 'on' : 'off');
+    est.innerHTML = _acelState.running
+      ? '● motor corriendo — ' + n + ' aceleracion' + (n === 1 ? '' : 'es')
+        + ' calculandose en el ultimo tick'
+      : '○ motor detenido — sin traza no hay numeros que calibrar';
+  }
+
+  // Las omitidas que NO corresponden a ninguna tarjeta (tipico: quedaron en
+  // el motor de una config anterior) no tienen donde mostrarse arriba.
+  const box = document.getElementById('acel-omitidas');
+  if (box) {
+    const sueltas = (_acelState.omitidas || []).filter(function(m) {
+      return !Object.keys(_acelState.actual).some(n => String(m).indexOf(n) === 0);
+    });
+    box.innerHTML = sueltas.length
+      ? '<div style="font-size:.76rem;color:#f59e0b;margin-top:4px">'
+        + '<b>El motor tiene aceleraciones que esta config ya no declara:</b><br>'
+        + sueltas.map(m => '&bull; ' + _escapeHtml(m)).join('<br>')
+        + '<div style="color:#64748b;margin-top:3px">Se van al reiniciar el motor.</div></div>'
+      : '';
+  }
+  // Solo repinta lo que cambia. Ver `_pintarVivo`.
+  _pintarVivo();
+}
+
+function _toggleAcelAuto() {
+  const chk = document.getElementById('acel-auto');
+  if (_acelState.timer) { clearInterval(_acelState.timer); _acelState.timer = null; }
+  if (chk && chk.checked) _acelState.timer = setInterval(refrescarAcelVivo, 2000);
+}
+
+// --- Datos de muestra, con los tres estados y los tres modos sin dato ---
+_acelState.fuentes=[{identificador:'hopper_nvl_pv_a',pseudonimo:'Hopper Nvl PV A'},
+                    {identificador:'corriente',pseudonimo:'Corriente PU-009'},
+                    {identificador:'velocidad_pv',pseudonimo:'Velocidad PV'}];
+_acelState.limites={ventana_max_s:3600,min_puntos_min:3};
+_acelState.actual={
+ hopper_nvl_pv_a_Acceleration_5s:{variable:'hopper_nvl_pv_a',ventana_s:5,umbral_estable:0.01,umbral_rate:null,min_puntos:3,habilitado:true,descripcion:'escape rapido del hopper'},
+ hopper_nvl_pv_a_Acceleration_60s:{variable:'hopper_nvl_pv_a',ventana_s:60,umbral_estable:0.004,umbral_rate:null,min_puntos:3,habilitado:true,descripcion:''},
+ corriente_Acceleration_10s:{variable:'corriente',ventana_s:10,umbral_estable:0.02,umbral_rate:null,min_puntos:3,habilitado:true,descripcion:''},
+ velocidad_pv_Acceleration_5s:{variable:'velocidad_pv',ventana_s:5,umbral_estable:0.01,umbral_rate:0.08,min_puntos:5,habilitado:false,descripcion:'apagada mientras se calibra'}};
+_acelState.porVariable={hopper_nvl_pv_a:['hopper_nvl_pv_a_Acceleration_5s','hopper_nvl_pv_a_Acceleration_60s']};
+_acelState.usoEnReglas={'hopper_nvl_pv_a_Acceleration_5s|ACELERANDO':['A1_Hopper_Escape']};
+_acelState.running=true;
+_acelState.vivo={
+ hopper_nvl_pv_a_Acceleration_5s:{var:'hopper_nvl_pv_a_Acceleration_5s',estado:'ACELERANDO',rate:-0.4213,aceleracion:-0.0271,umbral_estable:0.01,n_puntos:97,ventana_s:5},
+ hopper_nvl_pv_a_Acceleration_60s:{var:'hopper_nvl_pv_a_Acceleration_60s',estado:'ESTABLE',rate:-0.0041,aceleracion:0.0009,umbral_estable:0.004,n_puntos:240,ventana_s:60},
+ corriente_Acceleration_10s:{var:'corriente_Acceleration_10s',estado:'DESACELERANDO',rate:1.902,aceleracion:-0.0355,umbral_estable:0.02,n_puntos:184,ventana_s:10}};
+_acelState.omitidas=['velocidad_pv_Acceleration_5s (ventana incompleta: faltan 3 s)'];
+document.getElementById('acel-motor').className='acel-motor on';
+document.getElementById('acel-motor').innerHTML='\u25cf motor corriendo \u2014 3 aceleraciones calculandose en el ultimo tick';
+_renderAceleraciones();
+
+</script></body></html>

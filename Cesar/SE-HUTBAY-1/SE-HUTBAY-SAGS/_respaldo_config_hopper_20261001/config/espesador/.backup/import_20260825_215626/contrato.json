@@ -1,0 +1,24 @@
+{
+  "variables_proceso": [
+    "hopper_nvl_pv_a",
+    "hopper_nvl_pv_b",
+    "velocidad_pv",
+    "corriente"
+  ],
+  "setpoints": [
+    "velocidad_sp"
+  ],
+  "descripciones": {
+    "corriente": "Corriente",
+    "hopper_nvl_pv_a": "Hopper Nvl PV A",
+    "hopper_nvl_pv_b": "Hopper Nvl PV B",
+    "velocidad_pv": "Velocidad PV",
+    "velocidad_sp": "Velocidad SP"
+  },
+  "limites_sp": {
+    "velocidad_sp": [
+      50.0,
+      100.0
+    ]
+  }
+}

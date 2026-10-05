@@ -1,0 +1,20 @@
+{
+  "velocidad_salida_del_se": {
+    "pv_key": "",
+    "rango": 0.0,
+    "habilitado": false,
+    "arranque": {
+      "fuente": "ninguno",
+      "tag": ""
+    }
+  },
+  "velocidad_sp_del_dcs_referencia_de_arranque": {
+    "pv_key": "",
+    "rango": 0.0,
+    "habilitado": false,
+    "arranque": {
+      "fuente": "ninguno",
+      "tag": ""
+    }
+  }
+}

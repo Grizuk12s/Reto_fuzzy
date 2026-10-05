@@ -1,0 +1,9 @@
+{
+  "_comentario": [
+    "Catalogo de senales de planta del SAG para el seed inicial.",
+    "Vacio a proposito: el contenedor del SAG arranca con SEED_TAGS_PLANTA=0 y sus tags se cargan desde la pagina de Tags.",
+    "El catalogo del Hopper quedo en _respaldo_config_hopper_20261001/."
+  ],
+  "prefijo": "PCS7.OS01.",
+  "tags": []
+}

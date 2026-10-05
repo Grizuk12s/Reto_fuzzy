@@ -2,7 +2,7 @@
   "hopper_nvl_pv_a": {
     "type": "norm",
     "offset": [
-      10.0,
+      9.0,
       15.0,
       20.0,
       25.0,
